@@ -38,6 +38,36 @@ const RETRY_BASE_DELAY: Duration = Duration::from_millis(150);
 /// Ceiling on backoff growth between retries.
 const RETRY_MAX_DELAY: Duration = Duration::from_secs(2);
 
+/// Fee used for read-only `simulateTransaction` envelopes.
+///
+/// This envelope is never submitted to the network — it exists only for
+/// `simulateTransaction`. The RPC simulator historically accepts any
+/// positive fee and only inspects the host-function payload; still, we use
+/// the Stellar minimum base fee (100 stroops per operation) so that:
+///   * the envelope is well-formed even if a future RPC release starts
+///     statically validating fee preconditions, and
+///   * the simulated cost/footprint mirrors a real submission.
+///
+/// 100 is the network-defined minimum per operation, and we emit exactly one
+/// operation per envelope, so this is both the floor and the natural value.
+const SIM_FEE: u32 = 100;
+
+/// Source-account sequence number used in the simulated envelope.
+///
+/// The transaction is built with [`xdr::Preconditions::None`] and an empty
+/// signature set, and is never submitted. The simulator does not consult the
+/// network for the source account's real sequence number, so `0` is safe
+/// today. If a future RPC release begins to validate sequence-number
+/// preconditions via the configured `ReadSource` account, hit this constant
+/// to wire it up (e.g. call `getTransactionCount` on `ReadSource` per
+/// refresh, cache the result, and use it here).
+///
+/// Typed `i64` because `stellar_xdr::curr::SequenceNumber` wraps an `int64`
+/// per the XDR definition; using `u64` would fail to compile (the newtype
+/// has no `From<u64>` impl) and so wouldn't slip through as a runtime
+/// hazard if a future change accidentally rebinds to a `u64` const.
+const SIM_SEQ_NUM: i64 = 0;
+
 /// Static configuration for a network's contracts and RPC endpoint.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -401,8 +431,8 @@ fn build_invoke_envelope(
     };
     let tx = xdr::Transaction {
         source_account: account_muxed(source)?,
-        fee: 100,
-        seq_num: xdr::SequenceNumber(0),
+        fee: SIM_FEE,
+        seq_num: xdr::SequenceNumber(SIM_SEQ_NUM),
         cond: xdr::Preconditions::None,
         memo: xdr::Memo::None,
         operations: vec![op]
@@ -873,6 +903,46 @@ mod tests {
         assert!(!IndexError::Decode("bad json".into()).is_transient());
         assert!(!IndexError::Xdr("bad xdr".into()).is_transient());
         assert!(!IndexError::Strkey("bad key".into()).is_transient());
+    }
+
+    #[test]
+    fn build_envelope_uses_documented_sim_constants() {
+        // Round-trip the base64 envelope back through XDR and confirm
+        // fee/seq-num/preconditions/memo are exactly the simulation
+        // constants. This pins `SIM_FEE`/`SIM_SEQ_NUM` so a regression
+        // (e.g. someone re-introducing a magic number) is caught
+        // immediately — important because the RPC's behavior under stricter
+        // precondition validation is what we're defending against.
+        let src = "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA";
+        let contract = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3";
+        let b64 = build_invoke_envelope(src, contract, "noop", vec![]).unwrap();
+        let env: xdr::TransactionEnvelope =
+            xdr::TransactionEnvelope::from_xdr_base64(&b64, Limits::none()).unwrap();
+        let xdr::TransactionEnvelope::Tx(xdr::TransactionV1Envelope { tx, .. }) = env else {
+            panic!("expected Tx envelope");
+        };
+        assert_eq!(tx.fee, SIM_FEE, "fee must be SIM_FEE (= Stellar min, 100)");
+        assert_eq!(tx.seq_num.0, SIM_SEQ_NUM, "seq_num must be SIM_SEQ_NUM");
+        assert!(matches!(tx.memo, xdr::Memo::None));
+        assert!(matches!(tx.cond, xdr::Preconditions::None));
+        assert_eq!(
+            tx.operations.len(),
+            1,
+            "envelope must invoke exactly one host function"
+        );
+        // The host-function op should carry no auth: we never submit, so
+        // empty auth keeps the envelope forgeable for the simulator.
+        let op_body = tx
+            .operations
+            .first()
+            .expect("envelope must invoke exactly one host function (asserted above)");
+        let xdr::OperationBody::InvokeHostFunction(invoke_op) = &op_body.body else {
+            panic!("expected InvokeHostFunction op");
+        };
+        assert!(
+            invoke_op.auth.is_empty(),
+            "sim envelope must carry no auth entries"
+        );
     }
 
     #[test]
