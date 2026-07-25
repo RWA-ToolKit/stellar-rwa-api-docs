@@ -72,12 +72,34 @@ async fn main() {
     tracing::info!("shut down cleanly");
 }
 
-/// Resolve when the process receives Ctrl-C, for graceful shutdown.
+/// Resolve on Ctrl-C or SIGTERM (the signal container runtimes send on
+/// `docker stop`/pod termination), for graceful shutdown.
 async fn shutdown_signal() {
-    if let Err(e) = tokio::signal::ctrl_c().await {
-        tracing::error!(error = %e, "failed to install Ctrl-C handler");
+    let ctrl_c = async {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::error!(error = %e, "failed to install Ctrl-C handler");
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "failed to install SIGTERM handler");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("shutdown signal received (ctrl-c)"),
+        _ = terminate => tracing::info!("shutdown signal received (SIGTERM)"),
     }
-    tracing::info!("shutdown signal received");
 }
 
 fn init_tracing() {
