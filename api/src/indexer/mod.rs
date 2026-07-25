@@ -142,18 +142,48 @@ impl AppState {
     }
 }
 
+/// Everything that can go wrong while reading contract state.
+///
+/// Variants keep their underlying cause as a `#[source]` rather than
+/// flattening it into a string, so callers can both match on the kind of
+/// failure — see [`IndexError::is_transient`], which retries transport- and
+/// node-side problems only — and walk the chain for the typed detail. The
+/// `Display` text still embeds the cause so existing `error = %e` logs read
+/// the same as before.
 #[derive(Debug, thiserror::Error)]
 pub enum IndexError {
+    /// Transport-level failure: DNS, TLS, connect, timeout, or body read.
     #[error("rpc request failed: {0}")]
     Http(#[from] reqwest::Error),
-    #[error("rpc returned an error: {0}")]
-    Rpc(String),
+    /// The JSON-RPC envelope carried an `error` object.
+    #[error("rpc returned an error{}: {message}", .code.map(|c| format!(" (code {c})")).unwrap_or_default())]
+    Rpc { code: Option<i64>, message: String },
+    /// The node answered, but the simulation itself failed.
+    #[error("simulation failed: {0}")]
+    Simulation(String),
+    /// A well-formed response that didn't carry the field we need.
+    #[error("rpc response is missing {0}")]
+    MissingField(&'static str),
+    /// XDR encode/decode failure.
     #[error("xdr error: {0}")]
-    Xdr(String),
+    Xdr(#[from] xdr::Error),
+    /// A value we could not fit into the invocation envelope (an over-long
+    /// symbol, too many arguments); `context` names the part that failed.
+    #[error("cannot encode {context} into the invoke envelope: {source}")]
+    Envelope {
+        context: &'static str,
+        #[source]
+        source: xdr::Error,
+    },
+    /// A contract or account ID that isn't a valid strkey.
     #[error("strkey error: {0}")]
-    Strkey(String),
+    Strkey(#[from] stellar_strkey::DecodeError),
+    /// A response whose JSON shape doesn't match what we expect.
     #[error("decode error: {0}")]
-    Decode(String),
+    Decode(#[from] serde_json::Error),
+    /// An `ScAddress` variant these contracts aren't expected to return.
+    #[error("unsupported address: {0:?}")]
+    UnsupportedAddress(xdr::ScAddress),
     #[error("http status {status}: {body}")]
     HttpStatus { status: u16, body: String },
     #[error("rate limited or unavailable (status {status}); retry after {retry_after:?}")]
@@ -161,18 +191,28 @@ pub enum IndexError {
 }
 
 impl IndexError {
-    /// Whether this error is worth retrying: network/HTTP-level failures and
-    /// RPC-side errors (e.g. a node returning "busy" or a 502) are typically
-    /// transient. XDR, strkey and decode errors stem from our own request or
-    /// response handling and will fail identically on every attempt.
+    /// Whether this error is worth retrying in place. Matched exhaustively so
+    /// a new variant has to make the call explicitly.
     fn is_transient(&self) -> bool {
-        matches!(self, IndexError::Http(_) | IndexError::Rpc(_))
-    }
-}
-
-impl From<xdr::Error> for IndexError {
-    fn from(e: xdr::Error) -> Self {
-        IndexError::Xdr(e.to_string())
+        match self {
+            // Network- and node-side failures (e.g. a node returning "busy" or
+            // a simulation against a ledger it hasn't caught up to): another
+            // attempt may well succeed.
+            IndexError::Http(_)
+            | IndexError::Rpc { .. }
+            | IndexError::Simulation(_)
+            | IndexError::MissingField(_) => true,
+            // Our own encoding of the request or decoding of the response:
+            // these fail identically on every attempt.
+            IndexError::Xdr(_)
+            | IndexError::Envelope { .. }
+            | IndexError::Strkey(_)
+            | IndexError::Decode(_)
+            | IndexError::UnsupportedAddress(_) => false,
+            // Left to the polling loop, which honours `Retry-After` instead of
+            // hammering the node from inside a single read.
+            IndexError::HttpStatus { .. } | IndexError::RateLimited { .. } => false,
+        }
     }
 }
 
@@ -194,6 +234,8 @@ struct RpcEnvelope {
 
 #[derive(Deserialize)]
 struct RpcError {
+    /// JSON-RPC error code; absent from some nodes' error objects.
+    code: Option<i64>,
     message: String,
 }
 
@@ -311,18 +353,19 @@ impl Rpc {
         let resp: RpcEnvelope = resp.json().await?;
 
         if let Some(err) = resp.error {
-            return Err(IndexError::Rpc(err.message));
+            return Err(IndexError::Rpc {
+                code: err.code,
+                message: err.message,
+            });
         }
-        let result = resp
-            .result
-            .ok_or_else(|| IndexError::Rpc("empty rpc result".into()))?;
+        let result = resp.result.ok_or(IndexError::MissingField("result"))?;
         if let Some(sim_err) = result.error {
-            return Err(IndexError::Rpc(sim_err));
+            return Err(IndexError::Simulation(sim_err));
         }
         let entry = result
             .results
             .first()
-            .ok_or_else(|| IndexError::Rpc("no simulation result".into()))?;
+            .ok_or(IndexError::MissingField("a simulation result"))?;
         let scval = xdr::ScVal::from_xdr_base64(&entry.xdr, Limits::none())?;
         Ok(ReadOutcome {
             value: scval_to_json(&scval)?,
@@ -346,14 +389,12 @@ fn retry_delay(attempt: u32) -> Duration {
 // ---------------------------------------------------------------------------
 
 fn contract_id(strkey: &str) -> Result<xdr::ContractId, IndexError> {
-    let c = stellar_strkey::Contract::from_string(strkey)
-        .map_err(|e| IndexError::Strkey(e.to_string()))?;
+    let c = stellar_strkey::Contract::from_string(strkey)?;
     Ok(xdr::ContractId(xdr::Hash(c.0)))
 }
 
 fn account_muxed(strkey: &str) -> Result<xdr::MuxedAccount, IndexError> {
-    let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)
-        .map_err(|e| IndexError::Strkey(e.to_string()))?;
+    let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)?;
     Ok(xdr::MuxedAccount::Ed25519(xdr::Uint256(pk.0)))
 }
 
@@ -364,8 +405,7 @@ fn address_scval(strkey: &str) -> Result<xdr::ScVal, IndexError> {
             strkey,
         )?)))
     } else {
-        let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)
-            .map_err(|e| IndexError::Strkey(e.to_string()))?;
+        let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)?;
         Ok(xdr::ScVal::Address(xdr::ScAddress::Account(
             xdr::AccountId(xdr::PublicKey::PublicKeyTypeEd25519(xdr::Uint256(pk.0))),
         )))
@@ -380,17 +420,18 @@ fn build_invoke_envelope(
     method: &str,
     args: Vec<xdr::ScVal>,
 ) -> Result<String, IndexError> {
-    let function_name = xdr::ScSymbol(
-        method
-            .try_into()
-            .map_err(|_| IndexError::Xdr(format!("invalid symbol: {method}")))?,
-    );
+    let function_name =
+        xdr::ScSymbol(method.try_into().map_err(|source| IndexError::Envelope {
+            context: "the function name",
+            source,
+        })?);
     let invoke = xdr::InvokeContractArgs {
         contract_address: xdr::ScAddress::Contract(contract_id(contract)?),
         function_name,
-        args: args
-            .try_into()
-            .map_err(|_| IndexError::Xdr("too many args".into()))?,
+        args: args.try_into().map_err(|source| IndexError::Envelope {
+            context: "the call arguments",
+            source,
+        })?,
     };
     let op = xdr::Operation {
         source_account: None,
@@ -405,9 +446,10 @@ fn build_invoke_envelope(
         seq_num: xdr::SequenceNumber(0),
         cond: xdr::Preconditions::None,
         memo: xdr::Memo::None,
-        operations: vec![op]
-            .try_into()
-            .map_err(|_| IndexError::Xdr("operation build failed".into()))?,
+        operations: vec![op].try_into().map_err(|source| IndexError::Envelope {
+            context: "the operation list",
+            source,
+        })?,
         ext: xdr::TransactionExt::V0,
     };
     let envelope = xdr::TransactionEnvelope::Tx(xdr::TransactionV1Envelope {
@@ -484,9 +526,7 @@ fn address_to_string(a: &xdr::ScAddress) -> Result<String, IndexError> {
         xdr::ScAddress::Contract(xdr::ContractId(xdr::Hash(bytes))) => {
             Ok(stellar_strkey::Contract(*bytes).to_string())
         }
-        other => Err(IndexError::Decode(format!(
-            "unsupported address: {other:?}"
-        ))),
+        other => Err(IndexError::UnsupportedAddress(other.clone())),
     }
 }
 
@@ -614,8 +654,7 @@ impl Indexer {
             .read(&cfg.registry_id, "get_all_assets", vec![])
             .await?;
         let latest_ledger = entries_read.latest_ledger;
-        let raw_entries: Vec<RawAssetEntry> = serde_json::from_value(entries_read.value)
-            .map_err(|e| IndexError::Decode(e.to_string()))?;
+        let raw_entries: Vec<RawAssetEntry> = serde_json::from_value(entries_read.value)?;
 
         let mut assets = Vec::new();
         let mut holders_map: HashMap<u64, Vec<Holder>> = HashMap::new();
@@ -630,8 +669,7 @@ impl Indexer {
                 .read(&raw.token_contract, "get_metadata", vec![])
                 .await
                 .inspect_err(|_| record_asset_read_error(raw.id, "get_metadata"))?;
-            let meta: RawMetadata = serde_json::from_value(meta.value)
-                .map_err(|e| IndexError::Decode(e.to_string()))?;
+            let meta: RawMetadata = serde_json::from_value(meta.value)?;
 
             let total_supply = parse_i128(&meta.total_supply);
             let valuation = parse_i128(&raw.valuation);
@@ -728,8 +766,7 @@ impl Indexer {
             .rpc
             .read(compliance_contract, "get_allowlist", vec![])
             .await?;
-        let addresses: Vec<String> = serde_json::from_value(allowlist.value)
-            .map_err(|e| IndexError::Decode(e.to_string()))?;
+        let addresses: Vec<String> = serde_json::from_value(allowlist.value)?;
 
         let mut holders = Vec::new();
         let mut summary = ComplianceSummary::default();
@@ -810,8 +847,7 @@ impl Indexer {
                 vec![address_scval(token_contract)?],
             )
             .await?;
-        let raw: Vec<RawDistribution> =
-            serde_json::from_value(read.value).map_err(|e| IndexError::Decode(e.to_string()))?;
+        let raw: Vec<RawDistribution> = serde_json::from_value(read.value)?;
         Ok(raw
             .into_iter()
             .map(|d| {
@@ -867,12 +903,80 @@ mod tests {
         assert_eq!(cap(6), RETRY_MAX_DELAY);
     }
 
+    fn xdr_error() -> xdr::Error {
+        xdr::ScVal::from_xdr_base64("not-valid-xdr", Limits::none()).unwrap_err()
+    }
+
+    fn decode_error() -> serde_json::Error {
+        serde_json::from_str::<u32>("\"not a number\"").unwrap_err()
+    }
+
+    fn strkey_error() -> stellar_strkey::DecodeError {
+        stellar_strkey::Contract::from_string("not-a-contract").unwrap_err()
+    }
+
     #[test]
-    fn only_http_and_rpc_errors_are_transient() {
-        assert!(IndexError::Rpc("busy".into()).is_transient());
-        assert!(!IndexError::Decode("bad json".into()).is_transient());
-        assert!(!IndexError::Xdr("bad xdr".into()).is_transient());
-        assert!(!IndexError::Strkey("bad key".into()).is_transient());
+    fn only_transport_and_node_errors_are_transient() {
+        assert!(IndexError::Rpc {
+            code: Some(-32000),
+            message: "busy".into()
+        }
+        .is_transient());
+        assert!(IndexError::Simulation("contract trapped".into()).is_transient());
+        assert!(IndexError::MissingField("result").is_transient());
+
+        assert!(!IndexError::Decode(decode_error()).is_transient());
+        assert!(!IndexError::Xdr(xdr_error()).is_transient());
+        assert!(!IndexError::Strkey(strkey_error()).is_transient());
+        assert!(!IndexError::Envelope {
+            context: "the function name",
+            source: xdr_error(),
+        }
+        .is_transient());
+    }
+
+    #[test]
+    fn errors_keep_their_typed_source() {
+        use std::error::Error as _;
+
+        let decode = IndexError::from(decode_error());
+        assert!(decode
+            .source()
+            .and_then(|s| s.downcast_ref::<serde_json::Error>())
+            .is_some());
+
+        let strkey = contract_id("not-a-contract").unwrap_err();
+        assert!(matches!(strkey, IndexError::Strkey(_)));
+        assert!(strkey
+            .source()
+            .and_then(|s| s.downcast_ref::<stellar_strkey::DecodeError>())
+            .is_some());
+
+        let envelope = IndexError::Envelope {
+            context: "the function name",
+            source: xdr_error(),
+        };
+        assert!(envelope
+            .source()
+            .and_then(|s| s.downcast_ref::<xdr::Error>())
+            .is_some());
+    }
+
+    #[test]
+    fn rpc_error_display_includes_the_code_when_present() {
+        let with_code = IndexError::Rpc {
+            code: Some(-32602),
+            message: "invalid params".into(),
+        };
+        assert_eq!(
+            with_code.to_string(),
+            "rpc returned an error (code -32602): invalid params"
+        );
+        let without_code = IndexError::Rpc {
+            code: None,
+            message: "busy".into(),
+        };
+        assert_eq!(without_code.to_string(), "rpc returned an error: busy");
     }
 
     #[test]
