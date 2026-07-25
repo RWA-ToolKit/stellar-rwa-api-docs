@@ -138,6 +138,12 @@ impl AppState {
         (*guard).clone()
     }
 
+    /// The last successfully indexed ledger, without cloning the full
+    /// snapshot. Used to derive the cache-control ETag on every request.
+    pub fn last_indexed_ledger(&self) -> u32 {
+        self.inner.load().stats.last_indexed_ledger
+    }
+
     fn replace(&self, next: Snapshot) {
         self.inner.store(Arc::new(next));
     }
