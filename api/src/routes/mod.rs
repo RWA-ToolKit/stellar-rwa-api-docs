@@ -70,6 +70,9 @@ pub fn router(state: AppState) -> Router {
 
     // Snapshot-backed endpoints: cacheable and safe to answer with 304 when
     // the client's ETag still matches the last indexed ledger.
+    //
+    // All data routes are nested under `/v1` so future breaking changes can
+    // be introduced as `/v2` without disturbing existing clients.
     let data_routes = Router::new()
         .route("/stats", get(stats::get))
         .route("/assets", get(assets::list))
@@ -84,9 +87,10 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .route("/", get(index))
+        .route("/version", get(version))
         .route("/health", get(health))
         .route("/metrics", get(metrics))
-        .merge(data_routes)
+        .nest("/v1", data_routes)
         .with_state(state)
         .layer(cors)
 }
@@ -138,16 +142,28 @@ async fn index() -> Json<serde_json::Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "description": "Read-only index of tokenized real-world asset activity on Stellar.",
         "endpoints": [
-            "GET /stats",
-            "GET /assets",
-            "GET /assets/:id",
-            "GET /assets/:id/holders",
-            "GET /assets/:id/compliance",
-            "GET /assets/:id/dividends",
+            "GET /version",
+            "GET /v1/stats",
+            "GET /v1/assets",
+            "GET /v1/assets/:id",
+            "GET /v1/assets/:id/holders",
+            "GET /v1/assets/:id/compliance",
+            "GET /v1/assets/:id/dividends",
             "GET /health",
             "GET /metrics"
         ],
         "docs": "https://github.com/your-org/stellar-rwa-api-docs"
+    }))
+}
+
+/// Machine-readable version endpoint.
+///
+/// Returns the crate version from `Cargo.toml` and the API release label so
+/// clients can negotiate compatibility without parsing the root index body.
+async fn version() -> Json<serde_json::Value> {
+    Json(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "release": concat!("v", env!("CARGO_PKG_VERSION")),
     }))
 }
 

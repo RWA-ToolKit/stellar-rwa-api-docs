@@ -817,13 +817,24 @@ impl Indexer {
             .map(|d| {
                 let total = parse_i128(&d.total_amount);
                 let distributed = parse_i128(&d.distributed);
+                let overflow_detected = distributed > total;
+                // When distributed exceeds total the normal clamped
+                // ratio_percent would hide the anomaly by returning 100.
+                // Instead compute the raw percentage so callers can see
+                // the true magnitude of the overflow.
+                let claimed_percent = if overflow_detected && total > 0 {
+                    ((distributed as f64 / total as f64) * 100.0 * 100.0).round() / 100.0
+                } else {
+                    ratio_percent(distributed, total)
+                };
                 Distribution {
                     id: d.id,
                     asset_token: d.asset_token,
                     payment_token: d.payment_token,
                     total_amount: total.to_string(),
                     distributed: distributed.to_string(),
-                    claimed_percent: ratio_percent(distributed, total),
+                    claimed_percent,
+                    overflow_detected,
                     completed: d.completed,
                     snapshot_ledger: d.snapshot_ledger,
                     created_at_ledger: d.created_at,
@@ -885,6 +896,42 @@ mod tests {
         assert_eq!(ratio_percent(5, 0), 0.0);
         // clamps above 100
         assert_eq!(ratio_percent(150, 100), 100.0);
+    }
+
+    #[test]
+    fn overflow_detected_set_when_distributed_exceeds_total() {
+        // Normal case: no overflow.
+        let dist_normal = {
+            let total = 1_000i128;
+            let distributed = 750i128;
+            let overflow_detected = distributed > total;
+            let claimed_percent = if overflow_detected && total > 0 {
+                ((distributed as f64 / total as f64) * 100.0 * 100.0).round() / 100.0
+            } else {
+                ratio_percent(distributed, total)
+            };
+            (overflow_detected, claimed_percent)
+        };
+        assert!(!dist_normal.0, "overflow_detected should be false for 750/1000");
+        assert_eq!(dist_normal.1, 75.0);
+
+        // Overflow case: distributed > total (double-claim scenario).
+        let dist_overflow = {
+            let total = 1_000i128;
+            let distributed = 1_500i128;
+            let overflow_detected = distributed > total;
+            let claimed_percent = if overflow_detected && total > 0 {
+                ((distributed as f64 / total as f64) * 100.0 * 100.0).round() / 100.0
+            } else {
+                ratio_percent(distributed, total)
+            };
+            (overflow_detected, claimed_percent)
+        };
+        assert!(dist_overflow.0, "overflow_detected should be true for 1500/1000");
+        assert_eq!(
+            dist_overflow.1, 150.0,
+            "claimed_percent must be unclamped (150 %) when overflow is detected"
+        );
     }
 
     #[test]
