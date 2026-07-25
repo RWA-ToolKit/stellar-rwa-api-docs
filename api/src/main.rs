@@ -11,6 +11,8 @@ mod routes;
 
 use std::net::SocketAddr;
 
+use metrics_exporter_prometheus::PrometheusBuilder;
+
 use indexer::{AppState, Config, ConfigError, Indexer};
 
 #[tokio::main]
