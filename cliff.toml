@@ -62,9 +62,9 @@ sort_commits = "oldest"
 # `chore(release): ...` release commits are skipped (`skip = true`) so the
 # mechanical `git commit -am 'chore(release): vX.Y.Z'` step in RELEASING.md
 # doesn't pollute the next changelog run with a "Chores: release vX.Y.Z"
-# bullet that describes the bump itself rather than user-facing behavior.
+# bullet that describes the bump itself rather than user-visible behavior.
 [commit_parsers]
-{ message = "^chore\\(release\\)", skip = true }
+{ message = "^chore(release)", skip = true }
 { message = "^feat", group = "Features" }
 { message = "^fix",  group = "Bug Fixes" }
 { message = "^perf", group = "Performance" }
