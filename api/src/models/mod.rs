@@ -31,6 +31,12 @@ pub struct Asset {
     pub paused: bool,
     pub compliance_contract: String,
     pub created_at_ledger: u32,
+    /// True if any of this asset's raw numeric fields -- valuation, supply,
+    /// a holder balance, or a distribution amount -- failed to decode as an
+    /// integer and was defaulted to zero. When set, treat the numbers above
+    /// (and platform-wide TVL/holder counts they feed into) as a possible
+    /// understatement rather than exact.
+    pub decode_errors: bool,
 }
 
 /// A single holder of an asset token.

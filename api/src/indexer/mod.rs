@@ -549,8 +549,34 @@ struct RawDistribution {
     completed: bool,
 }
 
+/// Parse a decimal i128 string, defaulting to 0 on failure without logging.
+/// Only for re-parsing strings this process already produced and validated
+/// (e.g. sorting by a balance we just formatted), where failure isn't a real
+/// possibility.
 fn parse_i128(s: &str) -> i128 {
     s.parse::<i128>().unwrap_or(0)
+}
+
+/// Parse a decimal i128 string that came straight off a contract read. A
+/// failure here means real on-chain data (supply, valuation, a balance, a
+/// distribution amount) silently became zero, understating whatever it feeds
+/// into -- so it's logged loudly, and the second return value tells the
+/// caller to flag the containing asset as having a decode error rather than
+/// treating the 0 as trustworthy.
+fn parse_i128_flagged(s: &str, asset_id: u64, field: &str) -> (i128, bool) {
+    match s.parse::<i128>() {
+        Ok(v) => (v, false),
+        Err(e) => {
+            tracing::warn!(
+                asset_id,
+                field,
+                raw = s,
+                error = %e,
+                "failed to parse i128 from contract data; defaulting to 0"
+            );
+            (0, true)
+        }
+    }
 }
 
 fn cents_to_usd(cents: i128) -> f64 {
@@ -647,12 +673,15 @@ impl Indexer {
             let meta: RawMetadata = serde_json::from_value(meta.value)
                 .map_err(|e| IndexError::Decode(e.to_string()))?;
 
-            let total_supply = parse_i128(&meta.total_supply);
-            let valuation = parse_i128(&raw.valuation);
+            let (total_supply, total_supply_err) =
+                parse_i128_flagged(&meta.total_supply, raw.id, "total_supply");
+            let (valuation, valuation_err) =
+                parse_i128_flagged(&raw.valuation, raw.id, "valuation");
 
             // Holders: every allowlisted address with a positive balance.
-            let (holders, summary, _) = self
+            let (holders, summary, _, holders_decode_err) = self
                 .index_compliance_and_holders(
+                    raw.id,
                     &meta.compliance_contract,
                     &raw.token_contract,
                     total_supply,
@@ -661,14 +690,19 @@ impl Indexer {
 
             // Dividends for this asset token; treated as empty on failure so one
             // asset's dividend contract issue doesn't abort the whole refresh.
-            let dists = match self.index_dividends(&raw.token_contract).await {
-                Ok(dists) => dists,
-                Err(e) => {
-                    record_asset_read_error(raw.id, "dividends");
-                    tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; treating as empty");
-                    Vec::new()
-                }
-            };
+            let (dists, dividends_decode_err) =
+                match self.index_dividends(raw.id, &raw.token_contract).await {
+                    Ok(result) => result,
+                    Err(e) => {
+                        record_asset_read_error(raw.id, "dividends");
+                        tracing::warn!(
+                            asset_id = raw.id,
+                            error = %e,
+                            "dividends read failed; treating as empty"
+                        );
+                        (Vec::new(), false)
+                    }
+                };
             total_distributions += dists.len();
 
             if raw.active {
@@ -692,6 +726,10 @@ impl Indexer {
                 paused: meta.paused,
                 compliance_contract: meta.compliance_contract,
                 created_at_ledger: raw.created_at,
+                decode_errors: total_supply_err
+                    || valuation_err
+                    || holders_decode_err
+                    || dividends_decode_err,
             };
 
             holders_map.insert(raw.id, holders);
@@ -734,10 +772,11 @@ impl Indexer {
     /// list (allowlisted ∩ positive balance) and the non-PII summary.
     async fn index_compliance_and_holders(
         &self,
+        asset_id: u64,
         compliance_contract: &str,
         token_contract: &str,
         total_supply: i128,
-    ) -> Result<(Vec<Holder>, ComplianceSummary, Vec<String>), IndexError> {
+    ) -> Result<(Vec<Holder>, ComplianceSummary, Vec<String>, bool), IndexError> {
         let allowlist = self
             .rpc
             .read(compliance_contract, "get_allowlist", vec![])
@@ -749,6 +788,7 @@ impl Indexer {
         let mut summary = ComplianceSummary::default();
         let mut jurisdictions: BTreeMap<String, usize> = BTreeMap::new();
         let mut approved_addresses = Vec::new();
+        let mut decode_error = false;
 
         for address in &addresses {
             summary.total_records += 1;
@@ -789,7 +829,11 @@ impl Indexer {
                 .read(token_contract, "balance", vec![address_scval(address)?])
                 .await?;
             let balance = match bal.value {
-                serde_json::Value::String(s) => parse_i128(&s),
+                serde_json::Value::String(s) => {
+                    let (v, err) = parse_i128_flagged(&s, asset_id, "holder_balance");
+                    decode_error |= err;
+                    v
+                }
                 serde_json::Value::Number(n) => n.as_i64().unwrap_or(0) as i128,
                 _ => 0,
             };
@@ -811,11 +855,15 @@ impl Indexer {
             })
             .collect();
 
-        Ok((holders, summary, approved_addresses))
+        Ok((holders, summary, approved_addresses, decode_error))
     }
 
     /// Read all distributions for an asset token from the dividend contract.
-    async fn index_dividends(&self, token_contract: &str) -> Result<Vec<Distribution>, IndexError> {
+    async fn index_dividends(
+        &self,
+        asset_id: u64,
+        token_contract: &str,
+    ) -> Result<(Vec<Distribution>, bool), IndexError> {
         let read = self
             .rpc
             .read(
@@ -826,11 +874,15 @@ impl Indexer {
             .await?;
         let raw: Vec<RawDistribution> =
             serde_json::from_value(read.value).map_err(|e| IndexError::Decode(e.to_string()))?;
-        Ok(raw
+        let mut decode_error = false;
+        let dists = raw
             .into_iter()
             .map(|d| {
-                let total = parse_i128(&d.total_amount);
-                let distributed = parse_i128(&d.distributed);
+                let (total, total_err) =
+                    parse_i128_flagged(&d.total_amount, asset_id, "distribution_total_amount");
+                let (distributed, distributed_err) =
+                    parse_i128_flagged(&d.distributed, asset_id, "distribution_distributed");
+                decode_error |= total_err || distributed_err;
                 Distribution {
                     id: d.id,
                     asset_token: d.asset_token,
@@ -843,7 +895,8 @@ impl Indexer {
                     created_at_ledger: d.created_at,
                 }
             })
-            .collect())
+            .collect();
+        Ok((dists, decode_error))
     }
 }
 
@@ -899,6 +952,12 @@ mod tests {
         assert_eq!(ratio_percent(5, 0), 0.0);
         // clamps above 100
         assert_eq!(ratio_percent(150, 100), 100.0);
+    }
+
+    #[test]
+    fn parse_i128_flagged_reports_decode_failures() {
+        assert_eq!(parse_i128_flagged("500000000", 1, "total_supply"), (500_000_000, false));
+        assert_eq!(parse_i128_flagged("not-a-number", 1, "total_supply"), (0, true));
     }
 
     #[test]
