@@ -48,7 +48,14 @@ pub struct Holder {
 pub struct ComplianceSummary {
     /// Total addresses that have ever been added to the allowlist.
     pub total_records: usize,
-    /// Addresses currently passing the on-chain `is_allowed` gate.
+    /// Addresses whose stored KYC status is `Approved`.
+    ///
+    /// This reflects the stored status field only, not the on-chain
+    /// `is_allowed` gate — a record can count as `approved` here while
+    /// failing `is_allowed` (e.g. an expired record, or one in a
+    /// jurisdiction later blocked via `is_jurisdiction_blocked`). Treat
+    /// this as "ever approved by compliance", not "currently permitted
+    /// to transact".
     pub approved: usize,
     pub suspended: usize,
     pub rejected: usize,

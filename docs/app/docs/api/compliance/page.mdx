@@ -21,7 +21,7 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 | Field | Type | Notes |
 |-------|------|-------|
 | `total_records` | number | Addresses ever added to the allowlist |
-| `approved` | number | Currently passing `is_allowed` |
+| `approved` | number | Stored KYC status is `Approved` — **not** the same as currently passing `is_allowed` |
 | `suspended` | number | |
 | `rejected` | number | |
 | `pending` | number | |
@@ -57,6 +57,18 @@ An asset's holder set can itself be sensitive. This endpoint gives issuers and
 analysts the shape of an allowlist — how many are approved, where they're based,
 how many approvals carry expiries — without publishing who they are. The
 per-address KYC records live only on-chain and in the issuer's own tooling.
+</CalloutBox>
+
+<CalloutBox variant="warning" title="Stored status vs. the enforced gate">
+`approved` (and the other status counts) reflect each record's **stored**
+`status` field, not the on-chain `is_allowed` check the compliance contract
+actually enforces at transfer time. A record can be counted as `approved`
+here while `is_allowed` would reject it — for example an approval that has
+expired (`expires_at` in the past) or one whose `jurisdiction` has since been
+blocked via `is_jurisdiction_blocked`. Use `with_expiry` together with the
+current time, and cross-reference `jurisdictions` against the contract's
+blocked-jurisdiction list, if you need a true count of holders currently
+permitted to transact. Do not treat `approved` as that number on its own.
 </CalloutBox>
 
 The `jurisdictions` breakdown reflects the `jurisdiction` field of each KYC record.
