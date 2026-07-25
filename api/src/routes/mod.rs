@@ -7,19 +7,27 @@ pub mod holders;
 pub mod stats;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
     body::Body,
+    error_handling::HandleErrorLayer,
     extract::{Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
-    Json, Router,
+    BoxError, Json, Router,
 };
 use serde_json::json;
+use tower::{
+    limit::ConcurrencyLimitLayer, load_shed::LoadShedLayer, timeout::TimeoutLayer, ServiceBuilder,
+};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+};
 
 use crate::indexer::{AppState, Snapshot, POLL_INTERVAL};
 use crate::models::ApiErrorBody;
@@ -27,6 +35,16 @@ use crate::models::ApiErrorBody;
 /// Sustained requests-per-second allowed per client IP, with bursting.
 const RATE_LIMIT_PER_SECOND: u64 = 5;
 const RATE_LIMIT_BURST: u32 = 20;
+
+/// Hard ceiling on how long a single request may take before it's aborted.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// Max requests handled concurrently across the whole server. Once this many
+/// are in flight, `LoadShedLayer` rejects new requests with 503 immediately
+/// instead of queuing them, so a burst of slow or abusive clients can't pile
+/// up unbounded work.
+const MAX_CONCURRENT_REQUESTS: usize = 256;
+/// No route accepts a request body; cap it small rather than unbounded.
+const MAX_REQUEST_BODY_BYTES: usize = 16 * 1024;
 
 /// Errors surfaced to API clients as a JSON body with an appropriate status.
 #[derive(Debug)]
@@ -110,7 +128,28 @@ pub fn router(state: AppState) -> Router {
         .route("/metrics", get(metrics))
         .merge(data_routes)
         .with_state(state)
-        .layer(cors)
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(handle_middleware_error))
+                .layer(TimeoutLayer::new(REQUEST_TIMEOUT))
+                .layer(LoadShedLayer::new())
+                .layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_REQUESTS))
+                .layer(RequestBodyLimitLayer::new(MAX_REQUEST_BODY_BYTES))
+                .layer(cors),
+        )
+}
+
+/// Converts errors from the timeout/load-shed layers into the same
+/// structured JSON body the rest of the API uses, rather than letting tower
+/// terminate the connection or return a bare status code.
+async fn handle_middleware_error(err: BoxError) -> ApiError {
+    if err.is::<tower::timeout::error::Elapsed>() {
+        ApiError::ServiceUnavailable("request exceeded the timeout".into())
+    } else if err.is::<tower::load_shed::error::Overloaded>() {
+        ApiError::ServiceUnavailable("server is at capacity; try again shortly".into())
+    } else {
+        ApiError::Internal(format!("unhandled middleware error: {err}"))
+    }
 }
 
 /// Attach `Cache-Control` and `ETag` to snapshot-backed responses, and answer
