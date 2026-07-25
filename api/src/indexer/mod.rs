@@ -53,6 +53,7 @@ pub struct Config {
     pub registry_id: String,
     pub dividend_id: String,
     pub read_source: String,
+    pub docs_url: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -93,11 +94,17 @@ impl Config {
         stellar_strkey::ed25519::PublicKey::from_string(&read_source)
             .map_err(|e| ConfigError::ReadSource(e.to_string()))?;
 
+        let docs_url = env_or(
+            "RWA_DOCS_URL",
+            "https://github.com/RWA-ToolKit/stellar-rwa-api-docs",
+        );
+
         Ok(Config {
             rpc_url,
             registry_id,
             dividend_id,
             read_source,
+            docs_url,
         })
     }
 }

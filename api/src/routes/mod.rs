@@ -132,7 +132,7 @@ fn insert_cache_headers(headers: &mut HeaderMap, etag: &str) {
 }
 
 /// Root — a small self-describing index of the available endpoints.
-async fn index() -> Json<serde_json::Value> {
+async fn index(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "name": "Stellar RWA API",
         "version": env!("CARGO_PKG_VERSION"),
@@ -147,7 +147,7 @@ async fn index() -> Json<serde_json::Value> {
             "GET /health",
             "GET /metrics"
         ],
-        "docs": "https://github.com/your-org/stellar-rwa-api-docs"
+        "docs": state.config.docs_url
     }))
 }
 
