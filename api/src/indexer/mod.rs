@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use metrics_exporter_prometheus::PrometheusHandle;
 use reqwest::header::RETRY_AFTER;
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -137,8 +138,48 @@ impl AppState {
         (*guard).clone()
     }
 
+    /// The ledger number the indexer last successfully read from.
+    ///
+    /// Used by the cache-headers middleware to derive a stable ETag for a
+    /// snapshot: two requests against the same indexed ledger are guaranteed
+    /// to produce identical response bodies.
+    pub async fn last_indexed_ledger(&self) -> u32 {
+        self.snapshot().stats.last_indexed_ledger
+    }
+
     fn replace(&self, next: Snapshot) {
         self.inner.store(Arc::new(next));
+    }
+
+    /// Construct an `AppState` backed by an empty [`Snapshot`] for use in
+    /// unit tests. Avoids the need to supply a real config or Prometheus
+    /// handle; the empty snapshot contains no assets, so any asset look-up
+    /// will return `None`.
+    #[cfg(test)]
+    pub fn for_test() -> Self {
+        use metrics_exporter_prometheus::PrometheusBuilder;
+        let config = Config::from_env().expect("default config values are valid");
+        let metrics = PrometheusBuilder::new()
+            .build_recorder()
+            .handle();
+        AppState {
+            inner: ArcSwap::from_arc(Arc::new(Snapshot::default())),
+            config: Arc::new(config),
+            metrics,
+        }
+    }
+
+    /// Construct an `AppState` pre-seeded with the provided assets for use in
+    /// unit tests. All other snapshot collections (holders, compliance,
+    /// dividends) remain empty.
+    #[cfg(test)]
+    pub fn with_assets(assets: Vec<Asset>) -> Self {
+        let state = Self::for_test();
+        state.replace(Snapshot {
+            assets,
+            ..Snapshot::default()
+        });
+        state
     }
 }
 

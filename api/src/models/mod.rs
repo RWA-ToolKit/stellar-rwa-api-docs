@@ -9,7 +9,7 @@ use serde::Serialize;
 
 /// A tokenized real-world asset, joined from the registry entry and the token
 /// contract metadata.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct Asset {
     pub id: u64,
     pub token_contract: String,
@@ -100,7 +100,7 @@ pub struct Stats {
 }
 
 /// Standard error body returned by the API.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct ApiErrorBody {
     pub error: String,
     pub message: String,
