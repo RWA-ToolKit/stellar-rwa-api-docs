@@ -106,11 +106,31 @@ pub struct Snapshot {
     pub compliance: HashMap<u64, ComplianceSummary>,
     pub dividends: HashMap<u64, Vec<Distribution>>,
     pub stats: Stats,
+    asset_index: HashMap<u64, usize>,
 }
 
 impl Snapshot {
+    /// Builds a snapshot, indexing `assets` by id for O(1) [`Snapshot::asset`] lookups.
+    pub fn new(
+        assets: Vec<Asset>,
+        holders: HashMap<u64, Vec<Holder>>,
+        compliance: HashMap<u64, ComplianceSummary>,
+        dividends: HashMap<u64, Vec<Distribution>>,
+        stats: Stats,
+    ) -> Self {
+        let asset_index = assets.iter().enumerate().map(|(i, a)| (a.id, i)).collect();
+        Snapshot {
+            assets,
+            holders,
+            compliance,
+            dividends,
+            stats,
+            asset_index,
+        }
+    }
+
     pub fn asset(&self, id: u64) -> Option<&Asset> {
-        self.assets.iter().find(|a| a.id == id)
+        self.asset_index.get(&id).map(|&i| &self.assets[i])
     }
 }
 
@@ -705,14 +725,13 @@ impl Indexer {
         };
 
         let count = assets.len();
-        self.state
-            .replace(Snapshot {
-                assets,
-                holders: holders_map,
-                compliance: compliance_map,
-                dividends: dividends_map,
-                stats,
-            });
+        self.state.replace(Snapshot::new(
+            assets,
+            holders_map,
+            compliance_map,
+            dividends_map,
+            stats,
+        ));
         Ok(count)
     }
 
