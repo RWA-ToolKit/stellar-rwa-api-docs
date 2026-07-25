@@ -8,6 +8,7 @@ license = "Apache-2.0"
 [dependencies]
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 tower_governor = "0.5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -21,6 +22,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 url = "2"
+metrics = "0.23"
+metrics-exporter-prometheus = { version = "0.15", default-features = false }
 
 [[bin]]
 name = "stellar-rwa-api"
