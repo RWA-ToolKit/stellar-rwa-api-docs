@@ -112,6 +112,22 @@ impl Snapshot {
     pub fn asset(&self, id: u64) -> Option<&Asset> {
         self.assets.iter().find(|a| a.id == id)
     }
+
+    /// Remove derived entries whose asset IDs are no longer present.
+    ///
+    /// Full refreshes currently rebuild these maps from scratch. Enforcing the
+    /// invariant on every replacement also protects the API if refreshes become
+    /// incremental in the future.
+    fn prune_stale_asset_maps(&mut self) {
+        let current_asset_ids: HashSet<u64> = self.assets.iter().map(|asset| asset.id).collect();
+
+        self.holders
+            .retain(|asset_id, _| current_asset_ids.contains(asset_id));
+        self.compliance
+            .retain(|asset_id, _| current_asset_ids.contains(asset_id));
+        self.dividends
+            .retain(|asset_id, _| current_asset_ids.contains(asset_id));
+    }
 }
 
 /// Shared, hot-swappable state handed to the Axum routes.
@@ -137,7 +153,8 @@ impl AppState {
         (*guard).clone()
     }
 
-    fn replace(&self, next: Snapshot) {
+    fn replace(&self, mut next: Snapshot) {
+        next.prune_stale_asset_maps();
         self.inner.store(Arc::new(next));
     }
 }
@@ -157,7 +174,11 @@ pub enum IndexError {
     #[error("http status {status}: {body}")]
     HttpStatus { status: u16, body: String },
     #[error("rate limited or unavailable (status {status}); retry after {retry_after:?}")]
-    RateLimited { status: u16, retry_after: Option<Duration>, body: String },
+    RateLimited {
+        status: u16,
+        retry_after: Option<Duration>,
+        body: String,
+    },
 }
 
 impl IndexError {
@@ -277,12 +298,7 @@ impl Rpc {
             "params": { "transaction": envelope_b64 },
         });
 
-        let resp = self
-            .http
-            .post(&self.url)
-            .json(&body)
-            .send()
-            .await?;
+        let resp = self.http.post(&self.url).json(&body).send().await?;
 
         let status = resp.status();
         if status == StatusCode::TOO_MANY_REQUESTS || status == StatusCode::SERVICE_UNAVAILABLE {
@@ -705,14 +721,13 @@ impl Indexer {
         };
 
         let count = assets.len();
-        self.state
-            .replace(Snapshot {
-                assets,
-                holders: holders_map,
-                compliance: compliance_map,
-                dividends: dividends_map,
-                stats,
-            });
+        self.state.replace(Snapshot {
+            assets,
+            holders: holders_map,
+            compliance: compliance_map,
+            dividends: dividends_map,
+            stats,
+        });
         Ok(count)
     }
 
@@ -849,6 +864,74 @@ mod tests {
     use super::*;
     use serde_json::json;
     use stellar_xdr::curr as xdr;
+
+    fn test_asset(id: u64) -> Asset {
+        Asset {
+            id,
+            token_contract: format!("contract-{id}"),
+            issuer: format!("issuer-{id}"),
+            name: format!("Asset {id}"),
+            symbol: format!("A{id}"),
+            asset_type: "test".to_string(),
+            description: "Test asset".to_string(),
+            valuation_cents: "0".to_string(),
+            valuation_usd: 0.0,
+            decimals: 7,
+            total_supply: "0".to_string(),
+            holders: 0,
+            active: true,
+            paused: false,
+            compliance_contract: format!("compliance-{id}"),
+            created_at_ledger: 0,
+        }
+    }
+
+    #[test]
+    fn snapshot_prunes_entries_for_assets_that_disappear() {
+        let mut snapshot = Snapshot {
+            assets: vec![test_asset(1), test_asset(2)],
+            holders: HashMap::from([(1, Vec::new()), (2, Vec::new()), (99, Vec::new())]),
+            compliance: HashMap::from([
+                (1, ComplianceSummary::default()),
+                (2, ComplianceSummary::default()),
+                (99, ComplianceSummary::default()),
+            ]),
+            dividends: HashMap::from([(1, Vec::new()), (2, Vec::new()), (99, Vec::new())]),
+            stats: Stats::default(),
+        };
+
+        snapshot.prune_stale_asset_maps();
+
+        assert_eq!(
+            snapshot.holders.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([1, 2])
+        );
+        assert_eq!(
+            snapshot.compliance.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([1, 2])
+        );
+        assert_eq!(
+            snapshot.dividends.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([1, 2])
+        );
+    }
+
+    #[test]
+    fn snapshot_pruning_clears_maps_when_no_assets_remain() {
+        let mut snapshot = Snapshot {
+            assets: Vec::new(),
+            holders: HashMap::from([(7, Vec::new())]),
+            compliance: HashMap::from([(7, ComplianceSummary::default())]),
+            dividends: HashMap::from([(7, Vec::new())]),
+            stats: Stats::default(),
+        };
+
+        snapshot.prune_stale_asset_maps();
+
+        assert!(snapshot.holders.is_empty());
+        assert!(snapshot.compliance.is_empty());
+        assert!(snapshot.dividends.is_empty());
+    }
 
     #[test]
     fn retry_delay_is_bounded_and_grows() {
