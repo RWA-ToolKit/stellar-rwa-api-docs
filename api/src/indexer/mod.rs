@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use metrics_exporter_prometheus::PrometheusHandle;
 use reqwest::header::RETRY_AFTER;
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -135,6 +136,12 @@ impl AppState {
     pub fn snapshot(&self) -> Snapshot {
         let guard = self.inner.load();
         (*guard).clone()
+    }
+
+    /// The last ledger the indexer successfully read from, for the `ETag` on
+    /// snapshot-backed routes.
+    pub async fn last_indexed_ledger(&self) -> u32 {
+        self.inner.load().stats.last_indexed_ledger
     }
 
     fn replace(&self, next: Snapshot) {
@@ -888,11 +895,50 @@ mod tests {
     }
 
     #[test]
+    fn ratio_percent_zero_over_zero_part_over_whole_and_rounding() {
+        // 0/0: `whole <= 0` short-circuits before any division, so this is
+        // 0.0 rather than NaN.
+        assert_eq!(ratio_percent(0, 0), 0.0);
+        // part > whole clamps to 100 rather than reporting over 100%.
+        assert_eq!(ratio_percent(150, 100), 100.0);
+        // Rounds to 2 decimal places rather than truncating or reporting the
+        // full binary fraction (1/6 = 16.666...%).
+        assert_eq!(ratio_percent(1, 6), 16.67);
+    }
+
+    #[test]
+    fn cents_to_usd_large_values_precision() {
+        // Whole-dollar cent amounts convert exactly within f64's 2^53 exact
+        // integer range (~$1T here, well inside it).
+        assert_eq!(cents_to_usd(100_000_000_000_000i128), 1_000_000_000_000.0);
+
+        // Past that range, the `cents as f64` cast can only approximate the
+        // i128 value, so two cent amounts a unit apart collapse onto the
+        // same dollar figure. This is the documented tradeoff behind the
+        // `valuation_usd`/`tvl_usd` convenience fields (see models.rs): the
+        // raw `*_cents` string stays exact, the f64 is "friendly" only.
+        let huge: i128 = 1i128 << 62;
+        assert_eq!(cents_to_usd(huge), cents_to_usd(huge + 1));
+
+        // Never overflows to infinity/NaN even at the extreme end.
+        assert!(cents_to_usd(i128::MAX).is_finite());
+        assert!(cents_to_usd(i128::MIN).is_finite());
+    }
+
+    #[test]
     fn normalizes_unit_enum_status() {
         // Soroban encodes a unit-variant enum as a vec of one symbol.
         assert_eq!(normalize_status(&json!(["Approved"])), "Approved");
         assert_eq!(normalize_status(&json!("Suspended")), "Suspended");
         assert_eq!(normalize_status(&json!(42)), "Unknown");
+    }
+
+    #[test]
+    fn normalizes_all_kyc_statuses_plain_and_array_wrapped() {
+        for status in ["Approved", "Pending", "Rejected", "Suspended"] {
+            assert_eq!(normalize_status(&json!(status)), status);
+            assert_eq!(normalize_status(&json!([status])), status);
+        }
     }
 
     #[test]
@@ -933,6 +979,208 @@ mod tests {
         assert_eq!(
             scval_to_json(&map).unwrap(),
             json!({ "active": true, "id": 1 })
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // index_compliance_and_holders: exercised against a hand-rolled mock
+    // RPC server, since it drives real `Rpc::read` calls over HTTP.
+    // -----------------------------------------------------------------
+
+    fn fake_g_address(byte: u8) -> String {
+        stellar_strkey::ed25519::PublicKey([byte; 32]).to_string()
+    }
+
+    fn fake_address_scval(byte: u8) -> xdr::ScVal {
+        xdr::ScVal::Address(xdr::ScAddress::Account(xdr::AccountId(
+            xdr::PublicKey::PublicKeyTypeEd25519(xdr::Uint256([byte; 32])),
+        )))
+    }
+
+    fn allowlist_scval(bytes: &[u8]) -> xdr::ScVal {
+        let items: Vec<xdr::ScVal> = bytes.iter().map(|b| fake_address_scval(*b)).collect();
+        xdr::ScVal::Vec(Some(xdr::ScVec(items.try_into().unwrap())))
+    }
+
+    fn kyc_scval(status: &str, jurisdiction: &str, expires_at: u32) -> xdr::ScVal {
+        let entries = vec![
+            xdr::ScMapEntry {
+                key: xdr::ScVal::Symbol(xdr::ScSymbol("status".try_into().unwrap())),
+                val: xdr::ScVal::Vec(Some(xdr::ScVec(
+                    vec![xdr::ScVal::Symbol(xdr::ScSymbol(status.try_into().unwrap()))]
+                        .try_into()
+                        .unwrap(),
+                ))),
+            },
+            xdr::ScMapEntry {
+                key: xdr::ScVal::Symbol(xdr::ScSymbol("jurisdiction".try_into().unwrap())),
+                val: xdr::ScVal::String(xdr::ScString(jurisdiction.try_into().unwrap())),
+            },
+            xdr::ScMapEntry {
+                key: xdr::ScVal::Symbol(xdr::ScSymbol("expires_at".try_into().unwrap())),
+                val: xdr::ScVal::U32(expires_at),
+            },
+        ];
+        xdr::ScVal::Map(Some(xdr::ScMap(entries.try_into().unwrap())))
+    }
+
+    fn balance_scval(amount: i128) -> xdr::ScVal {
+        xdr::ScVal::I128(xdr::Int128Parts {
+            hi: 0,
+            lo: amount as u64,
+        })
+    }
+
+    /// A JSON-RPC `simulateTransaction` success envelope wrapping `scval`.
+    fn mock_envelope(scval: &xdr::ScVal) -> serde_json::Value {
+        let xdr_b64 = scval.to_xdr_base64(Limits::none()).unwrap();
+        json!({
+            "result": {
+                "results": [{ "xdr": xdr_b64 }],
+                "error": null,
+                "latestLedger": 100
+            },
+            "error": null
+        })
+    }
+
+    fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack.windows(needle.len()).position(|w| w == needle)
+    }
+
+    /// Read (and discard) a full HTTP request off `socket`, so the mock
+    /// server doesn't close the connection while bytes the client sent are
+    /// still unread (which would surface to the client as a reset instead
+    /// of the response we're about to write).
+    async fn drain_request(socket: &mut tokio::net::TcpStream) {
+        use tokio::io::AsyncReadExt;
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 1024];
+        let header_end = loop {
+            let n = socket.read(&mut chunk).await.expect("mock rpc: read request");
+            assert!(n > 0, "mock rpc: connection closed before full request");
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
+                break pos + 4;
+            }
+        };
+        let headers = String::from_utf8_lossy(&buf[..header_end]);
+        let content_length: usize = headers
+            .lines()
+            .find_map(|l| {
+                l.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(|v| v.trim().to_string())
+            })
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let mut have = buf.len() - header_end;
+        while have < content_length {
+            let n = socket.read(&mut chunk).await.expect("mock rpc: read body");
+            assert!(n > 0, "mock rpc: connection closed before full body");
+            have += n;
+        }
+    }
+
+    /// Serve `responses` in order, one per accepted connection. Returns the
+    /// base URL to point an [`Rpc`] at.
+    async fn spawn_mock_rpc(responses: Vec<serde_json::Value>) -> String {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock rpc: bind");
+        let addr = listener.local_addr().expect("mock rpc: local_addr");
+        tokio::spawn(async move {
+            for resp in responses {
+                let (mut socket, _) = listener.accept().await.expect("mock rpc: accept");
+                drain_request(&mut socket).await;
+                let body = serde_json::to_vec(&resp).expect("mock rpc: serialize response");
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket
+                    .write_all(header.as_bytes())
+                    .await
+                    .expect("mock rpc: write header");
+                socket.write_all(&body).await.expect("mock rpc: write body");
+                socket.shutdown().await.ok();
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    fn test_config() -> Config {
+        Config {
+            rpc_url: "http://127.0.0.1:0".to_string(),
+            registry_id: "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3".to_string(),
+            dividend_id: "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX".to_string(),
+            read_source: "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn index_compliance_and_holders_orders_holders_by_balance_descending() {
+        // The allowlist order (addresses 1, 2, 3) is deliberately NOT
+        // balance order (100, 300, 200), so a passing assertion proves the
+        // method sorts its output rather than preserving read order.
+        let responses = vec![
+            mock_envelope(&allowlist_scval(&[1, 2, 3])),
+            mock_envelope(&kyc_scval("Approved", "US", 0)),
+            mock_envelope(&balance_scval(100)),
+            mock_envelope(&kyc_scval("Approved", "DE", 0)),
+            mock_envelope(&balance_scval(300)),
+            mock_envelope(&kyc_scval("Pending", "US", 0)),
+            mock_envelope(&balance_scval(200)),
+        ];
+        let url = spawn_mock_rpc(responses).await;
+
+        let metrics = metrics_exporter_prometheus::PrometheusBuilder::new()
+            .install_recorder()
+            .expect("install test prometheus recorder");
+        let indexer = Indexer {
+            rpc: Rpc::new(url, fake_g_address(9)),
+            state: AppState::new(test_config(), metrics),
+        };
+
+        let compliance_contract = fake_g_address(50);
+        let token_contract = fake_g_address(51);
+        let (holders, summary, _approved) = indexer
+            .index_compliance_and_holders(&compliance_contract, &token_contract, 1_000)
+            .await
+            .expect("index_compliance_and_holders");
+
+        let addr_a = fake_g_address(1);
+        let addr_b = fake_g_address(2);
+        let addr_c = fake_g_address(3);
+
+        assert_eq!(
+            holders
+                .iter()
+                .map(|h| h.address.clone())
+                .collect::<Vec<_>>(),
+            vec![addr_b, addr_c, addr_a],
+            "holders must be ordered by balance, descending"
+        );
+        assert_eq!(
+            holders
+                .iter()
+                .map(|h| h.balance.clone())
+                .collect::<Vec<_>>(),
+            vec!["300".to_string(), "200".to_string(), "100".to_string()]
+        );
+        assert_eq!(summary.approved, 2);
+        assert_eq!(summary.pending, 1);
+
+        // Jurisdictions come out of a BTreeMap, so alphabetically ordered
+        // regardless of the order addresses were recorded in (US, DE, US).
+        assert_eq!(
+            summary
+                .jurisdictions
+                .iter()
+                .map(|j| j.jurisdiction.clone())
+                .collect::<Vec<_>>(),
+            vec!["DE".to_string(), "US".to_string()]
         );
     }
 }
