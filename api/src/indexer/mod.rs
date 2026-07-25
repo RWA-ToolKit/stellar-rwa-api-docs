@@ -54,6 +54,11 @@ pub struct Config {
     pub dividend_id: String,
     pub read_source: String,
     pub docs_url: String,
+    /// Origins allowed to call the API cross-origin. Empty means
+    /// unrestricted (`Access-Control-Allow-Origin: *`) — the default for
+    /// this read-only public API — set via `RWA_CORS_ALLOWED_ORIGINS` to
+    /// lock a deployment down to specific origins.
+    pub cors_allowed_origins: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -99,12 +104,25 @@ impl Config {
             "https://github.com/RWA-ToolKit/stellar-rwa-api-docs",
         );
 
+        let cors_allowed_origins = std::env::var("RWA_CORS_ALLOWED_ORIGINS")
+            .ok()
+            .map(|origins| {
+                origins
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|o| !o.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+
         Ok(Config {
             rpc_url,
             registry_id,
             dividend_id,
             read_source,
             docs_url,
+            cors_allowed_origins,
         })
     }
 }

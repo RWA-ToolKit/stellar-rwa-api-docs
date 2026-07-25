@@ -52,10 +52,7 @@ impl IntoResponse for ApiError {
 
 /// Build the application router with CORS enabled for the docs/web app.
 pub fn router(state: AppState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = build_cors(&state.config.cors_allowed_origins);
 
     // Each request clones the in-memory snapshot, so cap how fast a single
     // client can drive that cost. Checked before `cache_headers`, which
@@ -89,6 +86,29 @@ pub fn router(state: AppState) -> Router {
         .merge(data_routes)
         .with_state(state)
         .layer(cors)
+}
+
+/// Build the CORS layer from the configured allowed origins. An empty list
+/// (the default) stays wide open (`Any`), which is defensible for a
+/// read-only public API; a non-empty list locks requests down to exactly
+/// those origins, e.g. for deployments that want to restrict the docs/web
+/// app's access or that later add non-read-only endpoints.
+fn build_cors(allowed_origins: &[String]) -> CorsLayer {
+    let base = CorsLayer::new().allow_methods(Any).allow_headers(Any);
+    if allowed_origins.is_empty() {
+        return base.allow_origin(Any);
+    }
+    let origins: Vec<HeaderValue> = allowed_origins
+        .iter()
+        .filter_map(|o| match HeaderValue::from_str(o) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                tracing::warn!(origin = %o, error = %e, "invalid RWA_CORS_ALLOWED_ORIGINS entry; ignoring");
+                None
+            }
+        })
+        .collect();
+    base.allow_origin(origins)
 }
 
 /// Attach `Cache-Control` and `ETag` to snapshot-backed responses, and answer
