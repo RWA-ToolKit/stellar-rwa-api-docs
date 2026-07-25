@@ -563,12 +563,28 @@ fn cents_to_usd(cents: i128) -> f64 {
     cents as f64 / 100.0
 }
 
-fn ratio_percent(part: i128, whole: i128) -> f64 {
+/// `kind`/`id` identify what's being computed (e.g. `"holder_share"` /
+/// an address, or `"dividend_claimed"` / a distribution id) purely for the
+/// warning below — they don't affect the result.
+fn ratio_percent(part: i128, whole: i128, kind: &'static str, id: &str) -> f64 {
     if whole <= 0 {
         return 0.0;
     }
+    if part > whole {
+        // Legitimately shouldn't happen — e.g. a holder's balance exceeding
+        // total supply — so surface it instead of silently reporting 100%.
+        tracing::warn!(kind, id, part = %part, whole = %whole, "ratio part exceeds whole; clamping to 100%");
+        record_ratio_overflow(kind);
+    }
     let pct = (part as f64 / whole as f64) * 100.0;
     (pct.clamp(0.0, 100.0) * 100.0).round() / 100.0
+}
+
+/// Record a `part > whole` inconsistency for the
+/// `rwa_indexer_ratio_overflow_total` metric. `kind` only (not the specific
+/// address/distribution id) to keep label cardinality bounded.
+fn record_ratio_overflow(kind: &'static str) {
+    metrics::counter!("rwa_indexer_ratio_overflow_total", "kind" => kind).increment(1);
 }
 
 /// Normalise a compliance status that may decode as `"Approved"` or
@@ -814,9 +830,14 @@ impl Indexer {
             // Balance → holder list.
             if entry.balance > 0 {
                 holders.push(Holder {
-                    address: entry.address,
                     balance: entry.balance.to_string(),
-                    share_percent: ratio_percent(entry.balance, total_supply),
+                    share_percent: ratio_percent(
+                        entry.balance,
+                        total_supply,
+                        "holder_share",
+                        &entry.address,
+                    ),
+                    address: entry.address,
                 });
             }
         }
@@ -851,12 +872,17 @@ impl Indexer {
                 let total = parse_i128(&d.total_amount);
                 let distributed = parse_i128(&d.distributed);
                 Distribution {
+                    claimed_percent: ratio_percent(
+                        distributed,
+                        total,
+                        "dividend_claimed",
+                        &d.id.to_string(),
+                    ),
                     id: d.id,
                     asset_token: d.asset_token,
                     payment_token: d.payment_token,
                     total_amount: total.to_string(),
                     distributed: distributed.to_string(),
-                    claimed_percent: ratio_percent(distributed, total),
                     completed: d.completed,
                     snapshot_ledger: d.snapshot_ledger,
                     created_at_ledger: d.created_at,
@@ -968,11 +994,14 @@ mod tests {
         assert_eq!(parse_i128("500000000"), 500_000_000);
         assert_eq!(parse_i128("not-a-number"), 0);
         assert_eq!(cents_to_usd(500_000_000), 5_000_000.0);
-        assert_eq!(ratio_percent(25, 100), 25.0);
-        assert_eq!(ratio_percent(1, 3), 33.33);
-        assert_eq!(ratio_percent(5, 0), 0.0);
-        // clamps above 100
-        assert_eq!(ratio_percent(150, 100), 100.0);
+        assert_eq!(ratio_percent(25, 100, "test", "x"), 25.0);
+        assert_eq!(ratio_percent(1, 3, "test", "x"), 33.33);
+        assert_eq!(ratio_percent(5, 0, "test", "x"), 0.0);
+        // Still clamps to 100 for display (e.g. a balance exceeding total
+        // supply via the self-transfer inflation bug) but logs a warning and
+        // increments rwa_indexer_ratio_overflow_total instead of silently
+        // looking like a legitimate 100% holder.
+        assert_eq!(ratio_percent(150, 100, "test", "x"), 100.0);
     }
 
     #[test]
