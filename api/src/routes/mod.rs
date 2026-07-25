@@ -21,7 +21,7 @@ use serde_json::json;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::indexer::{AppState, POLL_INTERVAL};
+use crate::indexer::{AppState, Snapshot, POLL_INTERVAL};
 use crate::models::ApiErrorBody;
 
 /// Sustained requests-per-second allowed per client IP, with bursting.
@@ -32,12 +32,21 @@ const RATE_LIMIT_BURST: u32 = 20;
 #[derive(Debug)]
 pub enum ApiError {
     NotFound(String),
+    /// The indexer hasn't produced a usable snapshot (yet), or a downstream
+    /// dependency is temporarily unavailable. Clients should retry later.
+    ServiceUnavailable(String),
+    /// An unexpected, non-retryable server-side failure.
+    Internal(String),
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, error, message) = match self {
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg),
+            ApiError::ServiceUnavailable(msg) => {
+                (StatusCode::SERVICE_UNAVAILABLE, "service_unavailable", msg)
+            }
+            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "internal", msg),
         };
         (
             status,
@@ -47,6 +56,19 @@ impl IntoResponse for ApiError {
             }),
         )
             .into_response()
+    }
+}
+
+/// Fail fast with 503 if the indexer hasn't completed its first successful
+/// refresh yet, rather than letting routes serve an empty/zero-value
+/// snapshot as if it were real data.
+fn require_ready(snap: &Snapshot) -> Result<(), ApiError> {
+    if snap.is_ready() {
+        Ok(())
+    } else {
+        Err(ApiError::ServiceUnavailable(
+            "indexer has not completed an initial refresh yet".into(),
+        ))
     }
 }
 

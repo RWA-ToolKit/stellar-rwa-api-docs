@@ -25,8 +25,9 @@ pub struct AssetQuery {
 pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<AssetQuery>,
-) -> Json<Vec<Asset>> {
+) -> Result<Json<Vec<Asset>>, ApiError> {
     let snap = state.snapshot();
+    super::require_ready(&snap)?;
     let assets = snap
         .assets
         .into_iter()
@@ -38,7 +39,7 @@ pub async fn list(
         })
         .filter(|a| query.active.is_none_or(|active| a.active == active))
         .collect();
-    Json(assets)
+    Ok(Json(assets))
 }
 
 /// Full detail for a single asset by its registry id.
@@ -47,6 +48,7 @@ pub async fn detail(
     Path(id): Path<u64>,
 ) -> Result<Json<Asset>, ApiError> {
     let snap = state.snapshot();
+    super::require_ready(&snap)?;
     snap.asset(id)
         .cloned()
         .map(Json)

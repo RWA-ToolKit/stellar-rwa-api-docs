@@ -113,6 +113,13 @@ impl Snapshot {
     pub fn asset(&self, id: u64) -> Option<&Asset> {
         self.assets.iter().find(|a| a.id == id)
     }
+
+    /// Whether the indexer has completed at least one successful refresh.
+    /// Before that, every field is a zero-value default rather than real
+    /// data, so routes should surface this instead of serving it silently.
+    pub fn is_ready(&self) -> bool {
+        self.stats.last_updated.is_some()
+    }
 }
 
 /// Shared, hot-swappable state handed to the Axum routes.

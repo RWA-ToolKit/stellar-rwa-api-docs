@@ -15,6 +15,7 @@ pub async fn list(
     Path(id): Path<u64>,
 ) -> Result<Json<Vec<Distribution>>, ApiError> {
     let snap = state.snapshot();
+    super::require_ready(&snap)?;
     if snap.asset(id).is_none() {
         return Err(ApiError::NotFound(format!("no asset with id {id}")));
     }
