@@ -24,3 +24,11 @@ jobs:
           cache-dependency-path: docs/package-lock.json
       - run: npm ci
       - run: npm run build
+
+  check-status:
+    if: always()
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide status
+        run: exit ${{ job.status == 'success' && 0 || 1 }}
