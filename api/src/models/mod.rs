@@ -105,3 +105,23 @@ pub struct ApiErrorBody {
     pub error: String,
     pub message: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_body_serialization() {
+        let error = ApiErrorBody {
+            error: "invalid_request".to_string(),
+            message: "Asset not found".to_string(),
+        };
+
+        let json = serde_json::to_value(&error).expect("serialization should succeed");
+
+        assert_eq!(json["error"], "invalid_request");
+        assert_eq!(json["message"], "Asset not found");
+        assert!(json.is_object());
+        assert_eq!(json.as_object().unwrap().len(), 2);
+    }
+}
