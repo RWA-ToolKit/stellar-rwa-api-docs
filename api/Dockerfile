@@ -1,13 +1,20 @@
 # Multi-stage build for the Stellar RWA API.
 FROM rust:1.83-slim AS builder
+
+# Install cargo-chef for efficient dependency caching.
+RUN cargo install cargo-chef
 WORKDIR /app
 
-# Cache dependencies separately from source.
+# Prepare dependency recipe from manifests.
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release --locked && rm -rf src
+RUN cargo chef prepare --recipe-path recipe.json
 
+# Cache dependencies separately from source.
+RUN cargo chef cook --release --locked --recipe-path recipe.json
+
+# Build application with source code.
 COPY src ./src
-RUN touch src/main.rs && cargo build --release --locked
+RUN cargo build --release --locked
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
