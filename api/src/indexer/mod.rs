@@ -918,6 +918,39 @@ mod tests {
     }
 
     #[test]
+    fn address_scval_encodes_account_and_contract() {
+        let account = "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA";
+        let contract = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3";
+
+        let acc = address_scval(account).unwrap();
+        let acc_addr = match &acc {
+            xdr::ScVal::Address(a @ xdr::ScAddress::Account(_)) => a,
+            other => panic!("expected an account address, got {other:?}"),
+        };
+        assert_eq!(address_to_string(acc_addr).unwrap(), account);
+
+        let con = address_scval(contract).unwrap();
+        let con_addr = match &con {
+            xdr::ScVal::Address(a @ xdr::ScAddress::Contract(_)) => a,
+            other => panic!("expected a contract address, got {other:?}"),
+        };
+        assert_eq!(address_to_string(con_addr).unwrap(), contract);
+    }
+
+    #[test]
+    fn address_scval_rejects_invalid_strkey() {
+        // Doesn't start with 'C', so it's routed to the account branch,
+        // where it still isn't a valid ed25519 strkey.
+        let err = address_scval("not-a-valid-strkey").unwrap_err();
+        assert!(matches!(err, IndexError::Strkey(_)));
+
+        // Starts with 'C', routing to the contract branch, but isn't a
+        // valid contract strkey either.
+        let err = address_scval("CNOTAVALIDCONTRACTSTRKEY").unwrap_err();
+        assert!(matches!(err, IndexError::Strkey(_)));
+    }
+
+    #[test]
     fn scval_map_becomes_object() {
         let entries = vec![
             xdr::ScMapEntry {
