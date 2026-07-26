@@ -135,6 +135,15 @@ const op = compliance.call(
 | `("blockjur",)` | `jurisdiction` | `block_jurisdiction` |
 | `("unblkjur",)` | `jurisdiction` | `unblock_jurisdiction` |
 
+## Error codes
+
+| Code | Error Name | Description |
+|------|------------|-------------|
+| 1 | `AlreadyInitialized` | Contract already initialized. Callable only once. |
+| 3 | `RecordNotFound` | Address record does not exist on the allowlist. |
+| 4 | `InvalidExpiry` | Expiry ledger is in the past or invalid. |
+| 5 | `Unauthorized` | Caller is not the admin. |
+
 ## Security considerations
 
 - **Admin is the compliance authority.** Whoever holds the admin key decides who
