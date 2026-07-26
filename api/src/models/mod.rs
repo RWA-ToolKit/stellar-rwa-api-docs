@@ -105,3 +105,98 @@ pub struct ApiErrorBody {
     pub error: String,
     pub message: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compliance_summary_serializes_with_expected_fields() {
+        let compliance = ComplianceSummary {
+            total_records: 1,
+            approved: 1,
+            suspended: 0,
+            rejected: 0,
+            pending: 0,
+            with_expiry: 0,
+            jurisdictions: vec![JurisdictionCount {
+                jurisdiction: "US".to_string(),
+                count: 1,
+            }],
+        };
+
+        let json = serde_json::to_value(&compliance).expect("serialization failed");
+
+        assert_eq!(json["total_records"], 1);
+        assert_eq!(json["approved"], 1);
+        assert_eq!(json["suspended"], 0);
+        assert_eq!(json["rejected"], 0);
+        assert_eq!(json["pending"], 0);
+        assert_eq!(json["with_expiry"], 0);
+        assert_eq!(json["jurisdictions"][0]["jurisdiction"], "US");
+        assert_eq!(json["jurisdictions"][0]["count"], 1);
+    }
+
+    #[test]
+    fn distribution_serializes_with_expected_fields() {
+        let distribution = Distribution {
+            id: 1,
+            asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ".to_string(),
+            payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC".to_string(),
+            total_amount: "100000000000".to_string(),
+            distributed: "25000000000".to_string(),
+            claimed_percent: 25.0,
+            completed: false,
+            snapshot_ledger: 3510000,
+            created_at_ledger: 3510000,
+        };
+
+        let json = serde_json::to_value(&distribution).expect("serialization failed");
+
+        assert_eq!(json["id"], 1);
+        assert_eq!(json["asset_token"], "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ");
+        assert_eq!(json["payment_token"], "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC");
+        assert_eq!(json["total_amount"], "100000000000");
+        assert_eq!(json["distributed"], "25000000000");
+        assert_eq!(json["claimed_percent"], 25.0);
+        assert_eq!(json["completed"], false);
+        assert_eq!(json["snapshot_ledger"], 3510000);
+        assert_eq!(json["created_at_ledger"], 3510000);
+    }
+
+    #[test]
+    fn asset_serializes_with_expected_fields() {
+        let asset = Asset {
+            id: 1,
+            token_contract: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ".to_string(),
+            issuer: "GBUQWP3BOUZX34ULNQG23RQ6F4BFXETRA7LHYWQUXKXZAUASXMKCV75".to_string(),
+            name: "Moonlight Portfolio Real Estate Fund".to_string(),
+            symbol: "MLOFT".to_string(),
+            asset_type: "real_estate".to_string(),
+            description: "A diversified real estate fund".to_string(),
+            valuation_cents: "10000000000".to_string(),
+            valuation_usd: 100_000_000.0,
+            decimals: 7,
+            total_supply: "1000000000000".to_string(),
+            holders: 150,
+            active: true,
+            paused: false,
+            compliance_contract: "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU".to_string(),
+            created_at_ledger: 1000,
+        };
+
+        let json = serde_json::to_value(&asset).expect("serialization failed");
+
+        assert_eq!(json["id"], 1);
+        assert_eq!(json["name"], "Moonlight Portfolio Real Estate Fund");
+        assert_eq!(json["symbol"], "MLOFT");
+        assert_eq!(json["asset_type"], "real_estate");
+        assert_eq!(json["valuation_cents"], "10000000000");
+        assert_eq!(json["valuation_usd"], 100_000_000.0);
+        assert_eq!(json["total_supply"], "1000000000000");
+        assert_eq!(json["decimals"], 7);
+        assert_eq!(json["holders"], 150);
+        assert_eq!(json["active"], true);
+        assert_eq!(json["paused"], false);
+    }
+}
