@@ -9,6 +9,8 @@ use serde::Serialize;
 
 #[cfg(test)]
 mod distribution_tests;
+#[cfg(test)]
+mod asset_token_tests;
 
 /// A tokenized real-world asset, joined from the registry entry and the token
 /// contract metadata.
