@@ -910,6 +910,24 @@ mod tests {
     }
 
     #[test]
+    fn scval_u128_and_negative_i128_round_trip() {
+        // U128: hi occupies the upper 64 bits of an unsigned 128-bit value.
+        let u = xdr::ScVal::U128(xdr::UInt128Parts { hi: 1, lo: 0 });
+        assert_eq!(scval_to_json(&u).unwrap(), json!("18446744073709551616"));
+
+        // I128 edge case: hi is negative *and* lo's high bit is set. The
+        // halves must combine via two's complement (hi sign-extended, then
+        // shifted and OR'd with lo) rather than being treated as two
+        // independent unsigned pieces, which would silently reorder or
+        // mis-sign the reconstructed value.
+        let i = xdr::ScVal::I128(xdr::Int128Parts {
+            hi: -1,
+            lo: 0x8000_0000_0000_0000,
+        });
+        assert_eq!(scval_to_json(&i).unwrap(), json!("-9223372036854775808"));
+    }
+
+    #[test]
     fn scval_symbol_and_string() {
         let sym = xdr::ScVal::Symbol(xdr::ScSymbol("Approved".try_into().unwrap()));
         assert_eq!(scval_to_json(&sym).unwrap(), json!("Approved"));
