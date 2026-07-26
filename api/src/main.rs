@@ -11,7 +11,7 @@ mod routes;
 
 use std::net::SocketAddr;
 
-use indexer::{AppState, Config, ConfigError, Indexer};
+use indexer::{AppState, Config, ConfigError, Indexer, PrometheusBuilder};
 
 #[tokio::main]
 async fn main() {
