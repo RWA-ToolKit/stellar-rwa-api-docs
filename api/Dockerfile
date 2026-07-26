@@ -3,11 +3,11 @@ FROM rust:1.83-slim AS builder
 WORKDIR /app
 
 # Cache dependencies separately from source.
-COPY Cargo.toml ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release && rm -rf src
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release --locked && rm -rf src
 
 COPY src ./src
-RUN touch src/main.rs && cargo build --release
+RUN touch src/main.rs && cargo build --release --locked
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
