@@ -536,7 +536,13 @@ struct RawDistribution {
 }
 
 fn parse_i128(s: &str) -> i128 {
-    s.parse::<i128>().unwrap_or(0)
+    match s.parse::<i128>() {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(input = %s, error = %e, "failed to parse i128; using 0");
+            0
+        }
+    }
 }
 
 fn cents_to_usd(cents: i128) -> f64 {
@@ -885,6 +891,13 @@ mod tests {
         assert_eq!(ratio_percent(5, 0), 0.0);
         // clamps above 100
         assert_eq!(ratio_percent(150, 100), 100.0);
+    }
+
+    #[test]
+    fn parse_i128_logs_malformed_input() {
+        let invalid_input = "not-a-valid-number-12345";
+        let result = parse_i128(invalid_input);
+        assert_eq!(result, 0);
     }
 
     #[test]
