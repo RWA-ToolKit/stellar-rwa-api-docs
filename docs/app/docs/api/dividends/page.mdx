@@ -5,6 +5,10 @@ export const metadata = {
 
 # Dividends
 
+<CalloutBox variant="note">
+Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
+</CalloutBox>
+
 <ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history for an asset, newest ledger first." />
 
 Returns every dividend distribution created for the asset's token, ordered by
@@ -33,7 +37,7 @@ creation ledger (newest first).
 **Example**
 
 ```bash
-curl http://localhost:8080/assets/1/dividends
+curl $API_BASE_URL/assets/1/dividends
 ```
 
 ```json

@@ -16,14 +16,18 @@ Three ways to integrate with the platform, from easiest to most direct:
 The [REST API](/docs/api/overview) is the simplest integration surface. It is
 read-only and returns plain JSON.
 
+<CalloutBox variant="note">
+Replace <code>$API_BASE_URL</code> in the examples below with your configured base URL, or set the environment variable <code>NEXT_PUBLIC_API_BASE_URL</code>.
+</CalloutBox>
+
 ```bash
 # platform stats
-curl http://localhost:8080/stats
+curl $API_BASE_URL/stats
 
 # all assets, then one asset's holders and dividends
-curl http://localhost:8080/assets
-curl http://localhost:8080/assets/1/holders
-curl http://localhost:8080/assets/1/dividends
+curl $API_BASE_URL/assets
+curl $API_BASE_URL/assets/1/holders
+curl $API_BASE_URL/assets/1/dividends
 ```
 
 ### TypeScript client

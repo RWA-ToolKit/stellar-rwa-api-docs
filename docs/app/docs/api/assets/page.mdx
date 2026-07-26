@@ -5,6 +5,10 @@ export const metadata = {
 
 # Assets
 
+<CalloutBox variant="note">
+Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
+</CalloutBox>
+
 ## List assets
 
 <ApiEndpoint method="GET" path="/assets" description="All tokenized assets with valuation, supply and holder counts." />
@@ -19,7 +23,7 @@ Returns an array of asset objects.
 | `active` | boolean | Filter by active status |
 
 ```bash
-curl "http://localhost:8080/assets?asset_type=real_estate&active=true"
+curl "$API_BASE_URL/assets?asset_type=real_estate&active=true"
 ```
 
 **Response schema** (per asset):
@@ -46,7 +50,7 @@ curl "http://localhost:8080/assets?asset_type=real_estate&active=true"
 **Example**
 
 ```bash
-curl http://localhost:8080/assets
+curl $API_BASE_URL/assets
 ```
 
 ```json
@@ -85,7 +89,7 @@ curl http://localhost:8080/assets
 **Example**
 
 ```bash
-curl http://localhost:8080/assets/1
+curl $API_BASE_URL/assets/1
 ```
 
 Returns a single asset object with the schema above.

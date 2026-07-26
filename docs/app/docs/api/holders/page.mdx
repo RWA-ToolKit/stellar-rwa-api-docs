@@ -5,6 +5,10 @@ export const metadata = {
 
 # Holders
 
+<CalloutBox variant="note">
+Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
+</CalloutBox>
+
 <ApiEndpoint method="GET" path="/assets/:id/holders" description="Holder list with balances, sorted by balance descending." />
 
 Returns every address that is on the asset's compliance allowlist **and** holds a
@@ -28,7 +32,7 @@ the indexer derives this from the allowlist intersected with balances.
 **Example**
 
 ```bash
-curl http://localhost:8080/assets/1/holders
+curl $API_BASE_URL/assets/1/holders
 ```
 
 ```json
