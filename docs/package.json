@@ -13,6 +13,7 @@
     "@mdx-js/loader": "^3.1.0",
     "@mdx-js/react": "^3.1.0",
     "@next/mdx": "^14.2.5",
+    "flexsearch": "^0.7.43",
     "next": "^14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
