@@ -12,10 +12,14 @@ RUN touch src/main.rs && cargo build --release --locked
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u 1000 app
+
 WORKDIR /app
 COPY --from=builder /app/target/release/stellar-rwa-api /usr/local/bin/stellar-rwa-api
+RUN chown app:app /app
 
 ENV PORT=8080
 EXPOSE 8080
+USER app
 CMD ["stellar-rwa-api"]
