@@ -3,7 +3,7 @@ FROM rust:1.83-slim AS builder
 WORKDIR /app
 
 # Cache dependencies separately from source.
-COPY Cargo.toml ./
+COPY Cargo.toml Cargo.lock* ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release && rm -rf src
 
 COPY src ./src
