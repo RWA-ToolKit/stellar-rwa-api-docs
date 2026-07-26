@@ -12,7 +12,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 py-10">
+      <main id="main-content" className="min-w-0 flex-1 py-10">
         <div className="mx-auto w-full max-w-3xl">
           <VersionBanner />
         </div>
