@@ -973,4 +973,38 @@ mod tests {
         std::env::remove_var("RWA_DIVIDEND_ID");
         std::env::remove_var("RWA_READ_SOURCE");
     }
+
+    #[test]
+    fn compliance_summary_counts_by_status() {
+        let mut summary = ComplianceSummary::default();
+        summary.total_records = 100;
+        summary.approved = 60;
+        summary.suspended = 15;
+        summary.rejected = 10;
+        summary.pending = 15;
+        summary.with_expiry = 25;
+        summary.jurisdictions = vec![
+            JurisdictionCount { jurisdiction: "US".to_string(), count: 50 },
+            JurisdictionCount { jurisdiction: "SG".to_string(), count: 30 },
+            JurisdictionCount { jurisdiction: "UK".to_string(), count: 20 },
+        ];
+
+        assert_eq!(summary.total_records, 100);
+        assert_eq!(summary.approved, 60);
+        assert_eq!(summary.suspended, 15);
+        assert_eq!(summary.rejected, 10);
+        assert_eq!(summary.pending, 15);
+        assert_eq!(summary.with_expiry, 25);
+        assert_eq!(summary.jurisdictions.len(), 3);
+        assert_eq!(summary.jurisdictions[0].jurisdiction, "US");
+        assert_eq!(summary.jurisdictions[0].count, 50);
+        assert_eq!(summary.jurisdictions[1].jurisdiction, "SG");
+        assert_eq!(summary.jurisdictions[1].count, 30);
+        assert_eq!(summary.jurisdictions[2].jurisdiction, "UK");
+        assert_eq!(summary.jurisdictions[2].count, 20);
+        assert_eq!(
+            summary.approved + summary.suspended + summary.rejected + summary.pending,
+            summary.total_records
+        );
+    }
 }
