@@ -103,19 +103,52 @@ Set `NEXT_PUBLIC_API_BASE_URL` to your deployed API URL (defaults to
 
 ## Repository layout
 
+This repository hosts two independently deployable projects:
+
+### `api/` — Rust REST API (maintainer-only)
+
+Read-only indexer for RWA contracts on Stellar. Polls Soroban RPC, maintains an in-memory snapshot, and serves state as JSON.
+
+**Build & test:**
+```bash
+cd api
+cargo fmt --check    # Format check
+cargo clippy         # Linting
+cargo test           # Run tests
+cargo build --release
+docker build -t stellar-rwa-api:latest .  # Build Docker image
 ```
-api/           Rust REST API (maintainer-only)
-  src/
-    main.rs
-    routes/    assets, holders, compliance, dividends, stats
-    indexer/   Soroban RPC poller + XDR decoding + in-memory snapshot
-    models/    serializable domain models
-docs/          Next.js + MDX documentation site
-  app/         landing + docs/** MDX pages
-  components/  Sidebar, DocHeader, CodeBlock, CalloutBox, ApiEndpoint
-CONTRIBUTING.md
-README.md
+
+**Directory structure:**
 ```
+api/src/
+  main.rs            # Server bootstrap
+  routes/            # Request handlers (assets, holders, compliance, dividends, stats)
+  indexer/           # Soroban RPC poller + XDR decoding + in-memory snapshot
+  models/            # Serializable domain models
+api/Dockerfile       # Multi-stage build for production
+```
+
+### `docs/` — Next.js + MDX documentation site (open to contributions)
+
+Public documentation covering contracts, API references, and compliance guides. Deployed to Vercel.
+
+**Build & develop:**
+```bash
+cd docs
+npm install
+npm run dev          # http://localhost:3000
+npm run build        # Production build
+```
+
+**Directory structure:**
+```
+docs/app/            # Landing page + docs/** MDX pages (app router)
+docs/components/     # UI components (Sidebar, DocHeader, CodeBlock, etc.)
+docs/package.json    # Next.js + dependencies
+```
+
+---
 
 ## Contributing
 
