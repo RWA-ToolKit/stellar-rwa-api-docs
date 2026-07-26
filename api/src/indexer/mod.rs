@@ -935,4 +935,42 @@ mod tests {
             json!({ "active": true, "id": 1 })
         );
     }
+
+    #[test]
+    fn config_from_env_applies_defaults() {
+        std::env::remove_var("RWA_RPC_URL");
+        std::env::remove_var("RWA_REGISTRY_ID");
+        std::env::remove_var("RWA_DIVIDEND_ID");
+        std::env::remove_var("RWA_READ_SOURCE");
+
+        let cfg = Config::from_env().expect("config with defaults should succeed");
+        assert_eq!(cfg.rpc_url, "https://soroban-testnet.stellar.org");
+        assert_eq!(cfg.registry_id, "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3");
+        assert_eq!(cfg.dividend_id, "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX");
+        assert_eq!(cfg.read_source, "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA");
+    }
+
+    #[test]
+    fn config_from_env_overrides_with_env_vars() {
+        let custom_rpc = "https://custom-rpc.example.com";
+        let custom_registry = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPURZ"; // Valid contract ID
+        let custom_dividend = "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYZ"; // Valid contract ID
+        let custom_source = "GBTVJWASZ7ZZ3VJDLW36G6LG4P4GRJQSVXL7XVLX5DHVT4HWVWXJWXLT"; // Valid public key
+
+        std::env::set_var("RWA_RPC_URL", custom_rpc);
+        std::env::set_var("RWA_REGISTRY_ID", custom_registry);
+        std::env::set_var("RWA_DIVIDEND_ID", custom_dividend);
+        std::env::set_var("RWA_READ_SOURCE", custom_source);
+
+        let cfg = Config::from_env().expect("config with overrides should succeed");
+        assert_eq!(cfg.rpc_url, custom_rpc);
+        assert_eq!(cfg.registry_id, custom_registry);
+        assert_eq!(cfg.dividend_id, custom_dividend);
+        assert_eq!(cfg.read_source, custom_source);
+
+        std::env::remove_var("RWA_RPC_URL");
+        std::env::remove_var("RWA_REGISTRY_ID");
+        std::env::remove_var("RWA_DIVIDEND_ID");
+        std::env::remove_var("RWA_READ_SOURCE");
+    }
 }
