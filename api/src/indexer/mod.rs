@@ -146,6 +146,8 @@ impl AppState {
 pub enum IndexError {
     #[error("rpc request failed: {0}")]
     Http(#[from] reqwest::Error),
+    #[error("rpc request timed out")]
+    Timeout,
     #[error("rpc returned an error: {0}")]
     Rpc(String),
     #[error("xdr error: {0}")]
@@ -166,7 +168,7 @@ impl IndexError {
     /// transient. XDR, strkey and decode errors stem from our own request or
     /// response handling and will fail identically on every attempt.
     fn is_transient(&self) -> bool {
-        matches!(self, IndexError::Http(_) | IndexError::Rpc(_))
+        matches!(self, IndexError::Http(_) | IndexError::Rpc(_) | IndexError::Timeout)
     }
 }
 
@@ -277,12 +279,13 @@ impl Rpc {
             "params": { "transaction": envelope_b64 },
         });
 
-        let resp = self
-            .http
-            .post(&self.url)
-            .json(&body)
-            .send()
-            .await?;
+        let resp = tokio::time::timeout(
+            Duration::from_secs(30),
+            self.http.post(&self.url).json(&body).send(),
+        )
+        .await
+        .map_err(|_| IndexError::Timeout)?
+        .await?;
 
         let status = resp.status();
         if status == StatusCode::TOO_MANY_REQUESTS || status == StatusCode::SERVICE_UNAVAILABLE {
@@ -876,6 +879,7 @@ mod tests {
     #[test]
     fn only_http_and_rpc_errors_are_transient() {
         assert!(IndexError::Rpc("busy".into()).is_transient());
+        assert!(IndexError::Timeout.is_transient());
         assert!(!IndexError::Decode("bad json".into()).is_transient());
         assert!(!IndexError::Xdr("bad xdr".into()).is_transient());
         assert!(!IndexError::Strkey("bad key".into()).is_transient());
@@ -898,6 +902,13 @@ mod tests {
         let invalid_input = "not-a-valid-number-12345";
         let result = parse_i128(invalid_input);
         assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn timeout_is_transient_and_retryable() {
+        let timeout_err = IndexError::Timeout;
+        assert!(timeout_err.is_transient());
+        assert_eq!(timeout_err.to_string(), "rpc request timed out");
     }
 
     #[test]
