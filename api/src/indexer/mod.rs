@@ -1030,4 +1030,20 @@ mod tests {
             json!([{ "id": 1 }, { "id": 2 }])
         );
     }
+
+    #[test]
+    fn build_invoke_envelope_rejects_invalid_symbol_instead_of_panicking() {
+        let source = "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA";
+        let contract = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3";
+
+        // ScSymbol caps out at 32 chars; this is well past that.
+        let too_long = "a".repeat(40);
+        let err = build_invoke_envelope(source, contract, &too_long, vec![]).unwrap_err();
+        assert!(matches!(err, IndexError::Xdr(_)));
+
+        // Symbols are restricted to [A-Za-z0-9_]; this has neither valid
+        // length nor valid characters.
+        let err = build_invoke_envelope(source, contract, "not a symbol!", vec![]).unwrap_err();
+        assert!(matches!(err, IndexError::Xdr(_)));
+    }
 }
