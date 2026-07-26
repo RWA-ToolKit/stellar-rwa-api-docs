@@ -11,6 +11,10 @@ tokio) and holds no keys — it never signs or submits transactions.
 
 **Base URL:** Set via environment variable `NEXT_PUBLIC_API_BASE_URL` (defaults to `http://localhost:8080` for development). Readers should replace examples with their configured URL.
 
+<CalloutBox variant="tip">
+An OpenAPI 3.0 specification is available at <code>/openapi.json</code> — use it with Swagger UI, Postman, or to generate SDK clients. See <a href="/docs/integration">Integration Guide</a> for examples.
+</CalloutBox>
+
 ## How indexing works
 
 A background task polls **Soroban RPC** every 10 seconds. On each tick it reads the
