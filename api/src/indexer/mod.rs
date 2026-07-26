@@ -986,4 +986,48 @@ mod tests {
             json!({ "active": true, "id": 1 })
         );
     }
+
+    #[test]
+    fn scval_struct_of_vec_and_vec_of_struct() {
+        // struct-of-vec: an ScMap (struct) whose field is itself an ScVec.
+        let tags = xdr::ScVal::Vec(Some(xdr::ScVec(
+            vec![
+                xdr::ScVal::Symbol(xdr::ScSymbol("a".try_into().unwrap())),
+                xdr::ScVal::Symbol(xdr::ScSymbol("b".try_into().unwrap())),
+            ]
+            .try_into()
+            .unwrap(),
+        )));
+        let struct_of_vec = xdr::ScVal::Map(Some(xdr::ScMap(
+            vec![xdr::ScMapEntry {
+                key: xdr::ScVal::Symbol(xdr::ScSymbol("tags".try_into().unwrap())),
+                val: tags,
+            }]
+            .try_into()
+            .unwrap(),
+        )));
+        assert_eq!(
+            scval_to_json(&struct_of_vec).unwrap(),
+            json!({ "tags": ["a", "b"] })
+        );
+
+        // vec-of-struct: an ScVec whose entries are each an ScMap.
+        let make_struct = |id: u32| {
+            xdr::ScVal::Map(Some(xdr::ScMap(
+                vec![xdr::ScMapEntry {
+                    key: xdr::ScVal::Symbol(xdr::ScSymbol("id".try_into().unwrap())),
+                    val: xdr::ScVal::U32(id),
+                }]
+                .try_into()
+                .unwrap(),
+            )))
+        };
+        let vec_of_struct = xdr::ScVal::Vec(Some(xdr::ScVec(
+            vec![make_struct(1), make_struct(2)].try_into().unwrap(),
+        )));
+        assert_eq!(
+            scval_to_json(&vec_of_struct).unwrap(),
+            json!([{ "id": 1 }, { "id": 2 }])
+        );
+    }
 }
