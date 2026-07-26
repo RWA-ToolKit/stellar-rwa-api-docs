@@ -1,5 +1,6 @@
 import { Sidebar } from "@/components/Sidebar";
 import { PrevNext } from "@/components/PrevNext";
+import { VersionBanner } from "@/components/VersionBanner";
 
 /** Two-column documentation shell: sticky sidebar + prose article. */
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
@@ -12,6 +13,9 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
       </aside>
 
       <main className="min-w-0 flex-1 py-10">
+        <div className="mx-auto w-full max-w-3xl">
+          <VersionBanner />
+        </div>
         <article className="prose mx-auto w-full max-w-3xl">{children}</article>
         <div className="mx-auto w-full max-w-3xl">
           <PrevNext />
