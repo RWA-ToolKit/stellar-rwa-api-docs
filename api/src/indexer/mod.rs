@@ -959,4 +959,59 @@ mod tests {
             json!({ "active": true, "id": 1 })
         );
     }
+
+    #[test]
+    fn stats_i128_fields_serialize_as_strings() {
+        use crate::models::Stats;
+        let stats = Stats {
+            total_assets: 5,
+            active_assets: 4,
+            tvl_cents: "1234567890123456789".to_string(),
+            tvl_usd: 12345678901.23,
+            total_holders: 100,
+            total_distributions: 10,
+            last_indexed_ledger: 12345678,
+            last_updated: Some("2024-01-01T00:00:00Z".to_string()),
+        };
+
+        let json = serde_json::to_value(&stats).unwrap();
+        // tvl_cents must be a string to preserve precision
+        assert!(json["tvl_cents"].is_string());
+        assert_eq!(json["tvl_cents"], "1234567890123456789");
+        // Other fields should serialize as expected types
+        assert!(json["total_assets"].is_number());
+        assert!(json["tvl_usd"].is_number());
+    }
+
+    #[test]
+    fn asset_i128_fields_serialize_as_strings() {
+        use crate::models::Asset;
+        let asset = Asset {
+            id: 1,
+            token_contract: "CA123".to_string(),
+            issuer: "issuer@example.com".to_string(),
+            name: "Test Asset".to_string(),
+            symbol: "TST".to_string(),
+            asset_type: "RWA".to_string(),
+            description: "A test asset".to_string(),
+            valuation_cents: "999999999999999999".to_string(),
+            valuation_usd: 9999999999.99,
+            decimals: 7,
+            total_supply: "888888888888888888".to_string(),
+            holders: 50,
+            active: true,
+            paused: false,
+            compliance_contract: "CA456".to_string(),
+            created_at_ledger: 100,
+        };
+
+        let json = serde_json::to_value(&asset).unwrap();
+        // Large i128 fields must serialize as strings, not numbers
+        assert!(json["valuation_cents"].is_string());
+        assert_eq!(json["valuation_cents"], "999999999999999999");
+        assert!(json["total_supply"].is_string());
+        assert_eq!(json["total_supply"], "888888888888888888");
+        // The convenience f64 field can be a number
+        assert!(json["valuation_usd"].is_number());
+    }
 }
