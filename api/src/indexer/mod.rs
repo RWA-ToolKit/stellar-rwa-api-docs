@@ -591,6 +591,18 @@ impl Indexer {
         }
     }
 
+    /// Perform one read against the registry contract using the configured
+    /// `read_source`, to fail fast at startup with a clear error if the
+    /// account or network config is broken — rather than only discovering it
+    /// once the indexer starts polling, where every read would fail the same
+    /// way.
+    pub async fn validate_read_source(&self) -> Result<(), IndexError> {
+        self.rpc
+            .read(&self.state.config.registry_id, "get_all_assets", vec![])
+            .await?;
+        Ok(())
+    }
+
     /// Poll forever, refreshing the snapshot every [`POLL_INTERVAL`].
     pub async fn run(self) {
         let mut consecutive_failures: u64 = 0;

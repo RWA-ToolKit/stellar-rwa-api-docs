@@ -38,6 +38,22 @@ async fn main() {
 
     // Spawn the indexer; it owns its own clone of the shared state.
     let indexer = Indexer::new(state.clone());
+
+    // RWA_READ_SOURCE only needs to be a syntactically valid account for
+    // building the simulation envelope, but if it doesn't actually exist on
+    // this network, every read will fail identically once polling starts.
+    // Check it once now with a clear, fail-fast error instead.
+    if let Err(e) = indexer.validate_read_source().await {
+        tracing::error!(
+            error = %e,
+            read_source = %state.config.read_source,
+            rpc = %state.config.rpc_url,
+            "RWA_READ_SOURCE failed startup validation; the account must exist \
+             on the network at RWA_RPC_URL for simulated reads to succeed"
+        );
+        std::process::exit(1);
+    }
+
     tokio::spawn(async move { indexer.run().await });
 
     let app = routes::router(state).layer(tower_http::trace::TraceLayer::new_for_http());
