@@ -80,8 +80,8 @@ async fn shutdown_signal() {
 }
 
 fn init_tracing() {
-    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
     use tracing_subscriber::layer::Layer as _;
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("stellar_rwa_api=info,tower_http=warn"));
     // Log line format. Defaults to `pretty` for ergonomics in local dev; set
@@ -89,10 +89,10 @@ fn init_tracing() {
     // Logging, etc.) can parse the output. `RUST_LOG` still controls levels.
     let fmt_layer: Box<dyn tracing_subscriber::Layer<_> + Send + Sync> =
         match std::env::var("LOG_FORMAT").as_deref() {
-        Ok("json") => fmt::layer().json().boxed(),
-        Ok("compact") => fmt::layer().compact().boxed(),
-        _ => fmt::layer().boxed(),
-    };
+            Ok("json") => fmt::layer().json().boxed(),
+            Ok("compact") => fmt::layer().compact().boxed(),
+            _ => fmt::layer().boxed(),
+        };
     tracing_subscriber::registry()
         .with(filter)
         .with(fmt_layer)
