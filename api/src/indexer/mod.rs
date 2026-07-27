@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use metrics_exporter_prometheus::PrometheusHandle;
+use rand::Rng;
 use reqwest::header::RETRY_AFTER;
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -117,7 +119,7 @@ impl Snapshot {
 /// Shared, hot-swappable state handed to the Axum routes.
 #[derive(Clone)]
 pub struct AppState {
-    inner: ArcSwap<Snapshot>,
+    inner: Arc<ArcSwap<Snapshot>>,
     pub config: Arc<Config>,
     pub metrics: PrometheusHandle,
 }
@@ -125,7 +127,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: Config, metrics: PrometheusHandle) -> Self {
         AppState {
-            inner: ArcSwap::from_arc(Arc::new(Snapshot::default())),
+            inner: Arc::new(ArcSwap::new(Arc::new(Snapshot::default()))),
             config: Arc::new(config),
             metrics,
         }
@@ -165,7 +167,11 @@ pub enum IndexError {
     #[error("http status {status}: {body}")]
     HttpStatus { status: u16, body: String },
     #[error("rate limited or unavailable (status {status}); retry after {retry_after:?}")]
-    RateLimited { status: u16, retry_after: Option<Duration>, body: String },
+    RateLimited {
+        status: u16,
+        retry_after: Option<Duration>,
+        body: String,
+    },
 }
 
 impl IndexError {
@@ -285,12 +291,7 @@ impl Rpc {
             "params": { "transaction": envelope_b64 },
         });
 
-        let resp = self
-            .http
-            .post(&self.url)
-            .json(&body)
-            .send()
-            .await?;
+        let resp = self.http.post(&self.url).json(&body).send().await?;
 
         let status = resp.status();
         if status == StatusCode::TOO_MANY_REQUESTS || status == StatusCode::SERVICE_UNAVAILABLE {
@@ -616,7 +617,6 @@ impl Indexer {
 
     /// Poll forever, refreshing the snapshot every [`POLL_INTERVAL`].
     pub async fn run(self) {
-        let mut consecutive_failures: u64 = 0;
         loop {
             let backoff = match self.refresh().await {
                 Ok(count) => {
@@ -736,14 +736,13 @@ impl Indexer {
         };
 
         let count = assets.len();
-        self.state
-            .replace(Snapshot {
-                assets,
-                holders: holders_map,
-                compliance: compliance_map,
-                dividends: dividends_map,
-                stats,
-            });
+        self.state.replace(Snapshot {
+            assets,
+            holders: holders_map,
+            compliance: compliance_map,
+            dividends: dividends_map,
+            stats,
+        });
         Ok(count)
     }
 
@@ -932,6 +931,12 @@ mod tests {
         assert_eq!(scval_to_json(&xdr::ScVal::Void).unwrap(), json!(null));
         assert_eq!(scval_to_json(&xdr::ScVal::U32(7)).unwrap(), json!(7));
         assert_eq!(scval_to_json(&xdr::ScVal::U64(9)).unwrap(), json!(9));
+    }
+
+    #[test]
+    fn scval_unexpected_variant_errors_instead_of_null() {
+        let v = xdr::ScVal::Timepoint(xdr::TimePoint(1));
+        assert!(scval_to_json(&v).is_err());
     }
 
     #[test]
