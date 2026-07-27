@@ -153,6 +153,8 @@ pub enum IndexError {
     Http(#[from] reqwest::Error),
     #[error("rpc returned an error: {0}")]
     Rpc(String),
+    #[error("contract state archived; requires restore: {0}")]
+    Archived(String),
     #[error("xdr error: {0}")]
     Xdr(String),
     #[error("strkey error: {0}")]
@@ -166,12 +168,15 @@ pub enum IndexError {
 }
 
 impl IndexError {
-    /// Whether this error is worth retrying: network/HTTP-level failures and
-    /// RPC-side errors (e.g. a node returning "busy" or a 502) are typically
-    /// transient. XDR, strkey and decode errors stem from our own request or
-    /// response handling and will fail identically on every attempt.
+    /// Whether this error is worth retrying: network/HTTP-level failures,
+    /// RPC-side errors (e.g. a node returning "busy" or a 502), and archival
+    /// states are typically transient. XDR, strkey and decode errors stem from
+    /// our own request or response handling and will fail identically on every attempt.
     fn is_transient(&self) -> bool {
-        matches!(self, IndexError::Http(_) | IndexError::Rpc(_))
+        matches!(
+            self,
+            IndexError::Http(_) | IndexError::Rpc(_) | IndexError::Archived(_)
+        )
     }
 }
 
@@ -223,6 +228,14 @@ struct SimResultEntry {
 struct ReadOutcome {
     value: serde_json::Value,
     latest_ledger: u32,
+}
+
+fn is_archival_error(error: &str) -> bool {
+    let lower = error.to_lowercase();
+    lower.contains("archived")
+        || lower.contains("restore")
+        || lower.contains("restorereadonly")
+        || lower.contains("contract not found")
 }
 
 impl Rpc {
@@ -331,6 +344,9 @@ impl Rpc {
             .result
             .ok_or_else(|| IndexError::Rpc("empty rpc result".into()))?;
         if let Some(sim_err) = result.error {
+            if is_archival_error(&sim_err) {
+                return Err(IndexError::Archived(sim_err));
+            }
             return Err(IndexError::Rpc(sim_err));
         }
         let entry = result
@@ -882,8 +898,9 @@ mod tests {
     }
 
     #[test]
-    fn only_http_and_rpc_errors_are_transient() {
+    fn transient_errors_retry_while_others_dont() {
         assert!(IndexError::Rpc("busy".into()).is_transient());
+        assert!(IndexError::Archived("state archived".into()).is_transient());
         assert!(!IndexError::Decode("bad json".into()).is_transient());
         assert!(!IndexError::Xdr("bad xdr".into()).is_transient());
         assert!(!IndexError::Strkey("bad key".into()).is_transient());
