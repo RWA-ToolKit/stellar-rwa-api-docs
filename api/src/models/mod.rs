@@ -31,6 +31,12 @@ pub struct Asset {
     pub paused: bool,
     pub compliance_contract: String,
     pub created_at_ledger: u32,
+    /// Ledger number at which this asset was last successfully indexed.
+    pub indexed_at_ledger: u32,
+    /// Non-null when the most recent per-asset index attempt failed.  The
+    /// global fields on [`Stats`] still reflect the last successful full
+    /// refresh; this tells consumers which individual assets may be stale.
+    pub index_error: Option<String>,
 }
 
 /// A single holder of an asset token.
