@@ -1233,4 +1233,89 @@ mod tests {
         assert_eq!(snap.assets[0].id, 1);
         assert_eq!(snap.stats.last_indexed_ledger, 10, "ledger must not advance");
     }
+
+    // -----------------------------------------------------------------------
+    // Issue 4 — failing refresh leaves previous snapshot intact
+    // -----------------------------------------------------------------------
+
+    /// Assert that a failing `refresh` (network error on `get_all_assets`)
+    /// leaves the previous snapshot completely unchanged.
+    #[tokio::test]
+    async fn failing_refresh_preserves_previous_snapshot() {
+        let mock = MockServer::start().await;
+
+        let token      = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+        let compliance = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+
+        // --- Seed a good snapshot. ------------------------------------------
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![asset_scval(99, token, compliance)]), 55),
+            ))
+            .expect(1)
+            .named("get_all_assets good")
+            .mount(&mock)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&metadata_scval(compliance), 55),
+            ))
+            .expect(1)
+            .named("metadata good")
+            .mount(&mock)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![]), 55),
+            ))
+            .expect(1)
+            .named("allowlist good")
+            .mount(&mock)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![]), 55),
+            ))
+            .expect(1)
+            .named("dividends good")
+            .mount(&mock)
+            .await;
+
+        let state = make_state(&mock.uri());
+        let indexer = Indexer::new(state.clone());
+        indexer.refresh().await.expect("seed refresh must succeed");
+
+        let before = state.snapshot();
+        assert_eq!(before.assets.len(), 1);
+        assert_eq!(before.stats.last_indexed_ledger, 55);
+
+        // --- Failing refresh: RPC returns 500. ------------------------------
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("internal error"))
+            .named("rpc 500")
+            .mount(&mock)
+            .await;
+
+        let result = indexer.refresh().await;
+        assert!(result.is_err(), "refresh must fail on HTTP 500");
+
+        // Snapshot must be byte-for-byte identical to what it was before.
+        let after = state.snapshot();
+        assert_eq!(
+            after.assets.len(),
+            before.assets.len(),
+            "snapshot asset count must not change after failed refresh"
+        );
+        assert_eq!(
+            after.stats.last_indexed_ledger,
+            before.stats.last_indexed_ledger,
+            "last_indexed_ledger must not advance after failed refresh"
+        );
+        assert_eq!(after.assets[0].id, 99);
+    }
 }
