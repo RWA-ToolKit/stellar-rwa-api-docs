@@ -24,6 +24,28 @@ unreachable, the indexer logs the error, keeps serving the last good snapshot, a
 retries on the next tick. The API never panics on a transient failure.
 </CalloutBox>
 
+## Operational details
+
+### Authentication and rate limiting
+
+There is currently **no authentication** required to call the API, and **no rate limits**
+are enforced. All endpoints are open to the public. If you are building a production
+service, consider caching responses locally or rate-limiting your own requests to be
+a good neighbor.
+
+### Data freshness and caching
+
+The API refreshes its in-memory state approximately **every 10 seconds** by polling
+Soroban RPC. This means:
+
+- Data lags the ledger by ~10 seconds on average.
+- Two requests made within the same 10-second window will return identical data.
+- If Soroban RPC is temporarily unreachable, the API continues serving the last
+  successful snapshot (no error, just stale data).
+
+For integrations where you need real-time data, consider reading contracts directly
+via Soroban RPC.
+
 ## Conventions
 
 - **Large integers are strings.** Token amounts and valuations are `i128`
@@ -46,18 +68,29 @@ retries on the next tick. The API never panics on a transient failure.
 
 Plus `GET /` (self-describing index) and `GET /health` (liveness).
 
-## Errors
+## Error responses
 
-Errors return an appropriate HTTP status and a JSON body:
+All errors return an appropriate HTTP status code and a JSON body with a consistent
+format:
 
 ```json
-{ "error": "not_found", "message": "no asset with id 999" }
+{
+  "error": "not_found",
+  "message": "no asset with id 999"
+}
 ```
 
-| Status | `error` | When |
-|--------|---------|------|
-| `404` | `not_found` | Unknown asset id |
-| `400` | — | Non-numeric `:id` path (rejected by the router) |
+**Error body fields:**
+- `error` (string): A machine-readable error code (e.g., `not_found`, `bad_request`).
+- `message` (string): A human-readable description of what went wrong.
+
+**Common errors:**
+
+| HTTP Status | `error` | When |
+|-------------|---------|------|
+| `404` | `not_found` | Unknown asset id or endpoint does not exist |
+| `400` | `bad_request` | Non-numeric `:id` path parameter or malformed query |
+| `500` | `internal_server_error` | Unexpected server error (rare; please report if seen) |
 
 ## CORS
 
