@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Stellar RWA API — a read-only REST index of tokenized real-world asset
 //! activity on Stellar.
 //!

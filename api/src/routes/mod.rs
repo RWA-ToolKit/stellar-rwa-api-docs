@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! HTTP routing and the shared API error type.
 
 pub mod assets;

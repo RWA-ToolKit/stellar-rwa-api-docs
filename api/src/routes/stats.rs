@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! `GET /stats`.
 
 use axum::{extract::State, Json};

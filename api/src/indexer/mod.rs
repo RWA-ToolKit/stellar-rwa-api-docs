@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! In-memory indexer for tokenized RWA activity on Stellar.
 //!
 //! Every 10 seconds the indexer reads the current on-chain state of the four

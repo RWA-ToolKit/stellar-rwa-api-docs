@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Serializable domain models returned by the REST API.
 //!
 //! On-chain, monetary valuations are stored as USD cents (`i128`) and token

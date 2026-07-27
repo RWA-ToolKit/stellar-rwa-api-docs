@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! `GET /assets` and `GET /assets/:id`.
 
 use axum::{
