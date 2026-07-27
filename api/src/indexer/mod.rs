@@ -25,6 +25,8 @@ use stellar_xdr::curr::{Limits, ReadXdr, WriteXdr};
 
 use crate::models::{Asset, ComplianceSummary, Distribution, Holder, JurisdictionCount, Stats};
 
+pub use metrics_exporter_prometheus::PrometheusHandle;
+
 /// How often the indexer refreshes its snapshot.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -135,6 +137,11 @@ impl AppState {
     pub fn snapshot(&self) -> Snapshot {
         let guard = self.inner.load();
         (*guard).clone()
+    }
+
+    /// Return the ledger number from the most-recently installed snapshot.
+    pub async fn last_indexed_ledger(&self) -> u32 {
+        self.inner.load().stats.last_indexed_ledger
     }
 
     fn replace(&self, next: Snapshot) {
@@ -935,4 +942,155 @@ mod tests {
             json!({ "active": true, "id": 1 })
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Integration tests — mock HTTP server (wiremock)
+    // -----------------------------------------------------------------------
+
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Helpers ----------------------------------------------------------------
+
+    /// Encode an `ScVal` as an XDR base64 string (the format the RPC returns).
+    fn encode_scval(v: &xdr::ScVal) -> String {
+        use stellar_xdr::curr::{Limits, WriteXdr};
+        v.to_xdr_base64(Limits::none()).unwrap()
+    }
+
+    /// Build the JSON envelope that `simulateTransaction` returns for a single
+    /// successful result entry.
+    fn sim_ok(scval: &xdr::ScVal, ledger: u32) -> serde_json::Value {
+        json!({
+            "result": {
+                "results": [{ "xdr": encode_scval(scval) }],
+                "latestLedger": ledger
+            }
+        })
+    }
+
+    /// Build a minimal `AppState` pointed at the given mock server URL.
+    fn make_state(mock_url: &str) -> AppState {
+        use metrics_exporter_prometheus::PrometheusBuilder;
+        let metrics = PrometheusBuilder::new().build_recorder().handle();
+        let config = Config {
+            rpc_url: mock_url.to_string(),
+            registry_id: "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3".into(),
+            dividend_id: "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX".into(),
+            read_source: "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA".into(),
+        };
+        AppState::new(config, metrics)
+    }
+
+    /// Build a `ScVal` representing one `RawAssetEntry` as a Soroban map.
+    fn asset_scval(id: u64, token: &str, compliance: &str) -> xdr::ScVal {
+        let mk_sym = |s: &str| xdr::ScVal::Symbol(xdr::ScSymbol(s.try_into().unwrap()));
+        let mk_str = |s: &str| xdr::ScVal::String(xdr::ScString(s.try_into().unwrap()));
+        let entries = vec![
+            xdr::ScMapEntry { key: mk_sym("id"),             val: xdr::ScVal::U64(id) },
+            xdr::ScMapEntry { key: mk_sym("token_contract"), val: mk_str(token) },
+            xdr::ScMapEntry { key: mk_sym("issuer"),         val: mk_str("GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA") },
+            xdr::ScMapEntry { key: mk_sym("name"),           val: mk_str("Test Asset") },
+            xdr::ScMapEntry { key: mk_sym("asset_type"),     val: mk_str("RealEstate") },
+            xdr::ScMapEntry { key: mk_sym("valuation"),      val: mk_str("100000") },
+            xdr::ScMapEntry { key: mk_sym("created_at"),     val: xdr::ScVal::U32(1) },
+            xdr::ScMapEntry { key: mk_sym("active"),         val: xdr::ScVal::Bool(true) },
+        ];
+        let _ = compliance; // stored on metadata, not in asset entry
+        xdr::ScVal::Map(Some(xdr::ScMap(entries.try_into().unwrap())))
+    }
+
+    /// Build a `ScVal` for `RawMetadata`.
+    fn metadata_scval(compliance: &str) -> xdr::ScVal {
+        let mk_sym = |s: &str| xdr::ScVal::Symbol(xdr::ScSymbol(s.try_into().unwrap()));
+        let mk_str = |s: &str| xdr::ScVal::String(xdr::ScString(s.try_into().unwrap()));
+        let entries = vec![
+            xdr::ScMapEntry { key: mk_sym("symbol"),              val: mk_str("TST") },
+            xdr::ScMapEntry { key: mk_sym("total_supply"),        val: mk_str("1000000") },
+            xdr::ScMapEntry { key: mk_sym("decimals"),            val: xdr::ScVal::U32(7) },
+            xdr::ScMapEntry { key: mk_sym("compliance_contract"), val: mk_str(compliance) },
+            xdr::ScMapEntry { key: mk_sym("asset_description"),   val: mk_str("A test asset") },
+            xdr::ScMapEntry { key: mk_sym("paused"),              val: xdr::ScVal::Bool(false) },
+        ];
+        xdr::ScVal::Map(Some(xdr::ScMap(entries.try_into().unwrap())))
+    }
+
+    /// Encode a `Vec<ScVal>` (used for list responses like `get_all_assets`).
+    fn vec_scval(items: Vec<xdr::ScVal>) -> xdr::ScVal {
+        xdr::ScVal::Vec(Some(xdr::ScVec(items.try_into().unwrap())))
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue 2 — mock server + snapshot snapshot
+    // -----------------------------------------------------------------------
+
+    /// Stand up a mock HTTP server returning canned `simulateTransaction`
+    /// responses and assert that `refresh` builds the expected snapshot.
+    #[tokio::test]
+    async fn refresh_builds_expected_snapshot() {
+        let mock = MockServer::start().await;
+
+        // Contract IDs used throughout. The token and compliance contracts
+        // must be valid Stellar C… contract strkeys.
+        let token     = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+        let compliance = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+        let dividend  = "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX";
+
+        // get_all_assets → one asset
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![asset_scval(1, token, compliance)]), 42),
+            ))
+            .expect(1)
+            .named("get_all_assets")
+            .mount(&mock)
+            .await;
+
+        // get_metadata
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&metadata_scval(compliance), 42),
+            ))
+            .expect(1)
+            .named("get_metadata")
+            .mount(&mock)
+            .await;
+
+        // get_allowlist → empty list (no holders / compliance records)
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![]), 42),
+            ))
+            .expect(1)
+            .named("get_allowlist")
+            .mount(&mock)
+            .await;
+
+        // get_distributions_for_asset → empty list
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![]), 42),
+            ))
+            .expect(1)
+            .named("dividends")
+            .mount(&mock)
+            .await;
+
+        let state = make_state(&mock.uri());
+        let indexer = Indexer::new(state.clone());
+        let count = indexer.refresh().await.expect("refresh must succeed");
+
+        assert_eq!(count, 1, "expected one asset in snapshot");
+        let snap = state.snapshot();
+        assert_eq!(snap.assets.len(), 1);
+        assert_eq!(snap.assets[0].id, 1);
+        assert_eq!(snap.assets[0].symbol, "TST");
+        assert_eq!(snap.stats.last_indexed_ledger, 42);
+        assert_eq!(snap.stats.total_assets, 1);
+    }
+
 }
