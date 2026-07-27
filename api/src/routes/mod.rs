@@ -164,3 +164,80 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         state.metrics.render(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn cors_headers_present_on_responses() {
+        // Create minimal AppState for testing
+        let config = crate::indexer::Config {
+            rpc_url: "https://test.example.com".to_string(),
+            registry_id: "test_registry".to_string(),
+            dividend_id: "test_dividend".to_string(),
+            read_source: "test_source".to_string(),
+        };
+        let metrics = metrics::describe_counter!("test", "test counter");
+        let state = AppState::new(config, metrics);
+        let app = router(state);
+
+        // Make a request to the health endpoint
+        let request = Request::builder()
+            .method("GET")
+            .uri("/health")
+            .header("Origin", "http://example.com")
+            .body(Body::empty())
+            .expect("valid request");
+
+        let response = app.oneshot(request).await.expect("request succeeds");
+
+        // CORS header should be present
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            response.headers().contains_key("access-control-allow-origin"),
+            "CORS access-control-allow-origin header must be present"
+        );
+        // Verify the value is * (Any origin)
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|v| v.to_str().ok()),
+            Some("*")
+        );
+    }
+
+    #[tokio::test]
+    async fn cors_headers_on_error_responses() {
+        let config = crate::indexer::Config {
+            rpc_url: "https://test.example.com".to_string(),
+            registry_id: "test_registry".to_string(),
+            dividend_id: "test_dividend".to_string(),
+            read_source: "test_source".to_string(),
+        };
+        let metrics = metrics::describe_counter!("test", "test counter");
+        let state = AppState::new(config, metrics);
+        let app = router(state);
+
+        // Request a non-existent asset to trigger a 404
+        let request = Request::builder()
+            .method("GET")
+            .uri("/assets/99999")
+            .header("Origin", "http://example.com")
+            .body(Body::empty())
+            .expect("valid request");
+
+        let response = app.oneshot(request).await.expect("request succeeds");
+
+        // CORS header should still be present on error responses
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(
+            response.headers().contains_key("access-control-allow-origin"),
+            "CORS header must be present on error responses"
+        );
+    }
+}
