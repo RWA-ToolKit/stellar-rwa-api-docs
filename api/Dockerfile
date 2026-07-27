@@ -16,6 +16,10 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=builder /app/target/release/stellar-rwa-api /usr/local/bin/stellar-rwa-api
 
-ENV PORT=8080
+# Sensible production defaults: structured JSON logs and a level filter
+# suitable for production. Override at runtime with `docker run -e LOG_FORMAT=...`.
+ENV PORT=8080 \
+    LOG_FORMAT=json \
+    RUST_LOG=stellar_rwa_api=info,tower_http=warn
 EXPOSE 8080
 CMD ["stellar-rwa-api"]
