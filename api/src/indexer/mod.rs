@@ -311,26 +311,29 @@ impl Rpc {
         }
 
         let resp: RpcEnvelope = resp.json().await?;
-
-        if let Some(err) = resp.error {
-            return Err(IndexError::Rpc(err.message));
-        }
-        let result = resp
-            .result
-            .ok_or_else(|| IndexError::Rpc("empty rpc result".into()))?;
-        if let Some(sim_err) = result.error {
-            return Err(IndexError::Rpc(sim_err));
-        }
-        let entry = result
-            .results
-            .first()
-            .ok_or_else(|| IndexError::Rpc("no simulation result".into()))?;
-        let scval = xdr::ScVal::from_xdr_base64(&entry.xdr, Limits::none())?;
-        Ok(ReadOutcome {
-            value: scval_to_json(&scval)?,
-            latest_ledger: result.latest_ledger,
-        })
+        process_rpc_envelope(resp)
     }
+}
+
+fn process_rpc_envelope(resp: RpcEnvelope) -> Result<ReadOutcome, IndexError> {
+    if let Some(err) = resp.error {
+        return Err(IndexError::Rpc(err.message));
+    }
+    let result = resp
+        .result
+        .ok_or_else(|| IndexError::Rpc("empty rpc result".into()))?;
+    if let Some(sim_err) = result.error {
+        return Err(IndexError::Rpc(sim_err));
+    }
+    let entry = result
+        .results
+        .first()
+        .ok_or_else(|| IndexError::Rpc("no simulation result".into()))?;
+    let scval = xdr::ScVal::from_xdr_base64(&entry.xdr, Limits::none())?;
+    Ok(ReadOutcome {
+        value: scval_to_json(&scval)?,
+        latest_ledger: result.latest_ledger,
+    })
 }
 
 /// Jittered exponential backoff for the `attempt`-th failed read (1-indexed).
@@ -936,5 +939,35 @@ mod tests {
             scval_to_json(&map).unwrap(),
             json!({ "active": true, "id": 1 })
         );
+    }
+
+    #[test]
+    fn handles_envelope_level_error() {
+        let resp = RpcEnvelope {
+            error: Some(RpcError {
+                message: "node busy".into(),
+            }),
+            result: None,
+        };
+        match process_rpc_envelope(resp) {
+            Err(IndexError::Rpc(msg)) => assert_eq!(msg, "node busy"),
+            other => panic!("expected Rpc error, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn handles_simulation_level_error() {
+        let resp = RpcEnvelope {
+            error: None,
+            result: Some(SimulateResult {
+                results: vec![],
+                error: Some("contract failed".into()),
+                latest_ledger: 100,
+            }),
+        };
+        match process_rpc_envelope(resp) {
+            Err(IndexError::Rpc(msg)) => assert_eq!(msg, "contract failed"),
+            other => panic!("expected Rpc error, got: {other:?}"),
+        }
     }
 }
