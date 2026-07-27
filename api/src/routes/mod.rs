@@ -28,6 +28,11 @@ use crate::models::ApiErrorBody;
 const RATE_LIMIT_PER_SECOND: u64 = 5;
 const RATE_LIMIT_BURST: u32 = 20;
 
+/// How many missed poll intervals before the snapshot is considered stale
+/// for readiness purposes. A single slow/failed refresh shouldn't flip
+/// readiness — a run of them should.
+const STALE_AFTER_SECS: u64 = POLL_INTERVAL.as_secs() * 3;
+
 /// Errors surfaced to API clients as a JSON body with an appropriate status.
 #[derive(Debug)]
 pub enum ApiError {
@@ -85,6 +90,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/health", get(health))
+        .route("/ready", get(ready))
         .route("/metrics", get(metrics))
         .merge(data_routes)
         .with_state(state)
@@ -145,15 +151,53 @@ async fn index() -> Json<serde_json::Value> {
             "GET /assets/:id/compliance",
             "GET /assets/:id/dividends",
             "GET /health",
+            "GET /ready",
             "GET /metrics"
         ],
         "docs": "https://github.com/your-org/stellar-rwa-api-docs"
     }))
 }
 
-/// Liveness probe.
+/// Liveness probe: the process is up and serving HTTP. Always 200 — it does
+/// not reflect whether the served data is fresh or even present, see
+/// `/ready` for that.
 async fn health() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
+}
+
+/// Readiness probe: 200 once the indexer has produced a snapshot within the
+/// last [`STALE_AFTER_SECS`], 503 otherwise. On boot the snapshot is
+/// `Snapshot::default()` (`last_updated: None`), which is correctly
+/// unready rather than reported as healthy with empty data.
+async fn ready(State(state): State<AppState>) -> impl IntoResponse {
+    let stats = state.snapshot().stats;
+    let age_seconds = stats
+        .last_updated
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|last| {
+            chrono::Utc::now()
+                .signed_duration_since(last)
+                .num_seconds()
+                .max(0) as u64
+        });
+
+    let is_ready = age_seconds.is_some_and(|age| age <= STALE_AFTER_SECS);
+    let status = if is_ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (
+        status,
+        Json(json!({
+            "ready": is_ready,
+            "last_updated": stats.last_updated,
+            "age_seconds": age_seconds,
+            "stale_after_seconds": STALE_AFTER_SECS,
+        })),
+    )
 }
 
 /// Prometheus scrape endpoint: indexer refresh latency, failure counts, last
