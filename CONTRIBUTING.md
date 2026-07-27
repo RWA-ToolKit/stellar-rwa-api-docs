@@ -32,12 +32,34 @@ adding a new documentation page — is fair game in `docs/`.
 
 ## Local setup
 
+This monorepo contains two independent projects with separate toolchains:
+
+### Docs (Next.js + MDX) — Open to contributions
+
 ```bash
 cd docs
 npm install
 npm run dev      # http://localhost:3000
 npm run build    # must pass before you open a PR
+npm run lint     # Check for style issues
 ```
+
+### API (Rust) — Maintainer-only
+
+The API uses standard Rust tooling. While PRs modifying `api/` will not be accepted,
+you can set up the environment locally to understand the codebase or verify builds:
+
+```bash
+cd api
+cargo build           # Compile the API
+cargo test            # Run unit tests
+cargo fmt --check     # Check code formatting (Rust style)
+cargo clippy          # Lint for common mistakes and idioms
+cargo fmt             # Auto-format code (apply changes)
+```
+
+Our CI runs these checks on every push (see `.github/workflows/`), so understanding
+these commands helps you see what the automated checks look for.
 
 ## Submitting a PR
 
