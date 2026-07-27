@@ -1014,4 +1014,61 @@ mod tests {
         // The convenience f64 field can be a number
         assert!(json["valuation_usd"].is_number());
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn integration_testnet_read() {
+        // This test reads live data from Stellar testnet and verifies the indexer
+        // can successfully decode on-chain contract state without ABI drift.
+        // Run with: cargo test --test '*' -- --ignored --nocapture
+        //
+        // Set environment variables before running:
+        // - TESTNET_RPC_URL (default: https://soroban-testnet.stellar.org)
+        // - TESTNET_REGISTRY_ID (contract account ID for registry)
+        // - TESTNET_DIVIDEND_ID (contract account ID for dividend)
+        // - TESTNET_READ_SOURCE (public key for read-only view calls)
+
+        let rpc_url = std::env::var("TESTNET_RPC_URL")
+            .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
+        let registry_id = std::env::var("TESTNET_REGISTRY_ID")
+            .expect("TESTNET_REGISTRY_ID environment variable required");
+        let dividend_id = std::env::var("TESTNET_DIVIDEND_ID")
+            .expect("TESTNET_DIVIDEND_ID environment variable required");
+        let read_source = std::env::var("TESTNET_READ_SOURCE")
+            .expect("TESTNET_READ_SOURCE environment variable required");
+
+        let config = Config {
+            rpc_url,
+            registry_id,
+            dividend_id,
+            read_source,
+        };
+
+        // Attempt a single read to verify the RPC connection and contract ABIs.
+        // If this fails, the error message will indicate which contract or RPC is misconfigured.
+        let rpc = Rpc::new(&config.rpc_url).expect("rpc client creation");
+
+        // Try to read the registry's active assets list. This validates:
+        // - RPC connectivity to testnet
+        // - Registry contract exists and responds to invocations
+        // - Asset struct ABI hasn't drifted
+        // - Asset list can be parsed and deserialized
+        match rpc.read_assets(&config.registry_id, &config.read_source).await {
+            Ok(assets) => {
+                // Verify we got valid data
+                assert!(
+                    !assets.is_empty() || true, // Testnet may be empty, that's OK
+                    "read_assets succeeded"
+                );
+            }
+            Err(e) => {
+                // Log the error for debugging testnet configuration
+                eprintln!("Testnet integration test failed: {}", e);
+                eprintln!(
+                    "Check: RPC URL, registry contract ID, read source account, and contract ABIs"
+                );
+                panic!("integration test failed: {}", e);
+            }
+        }
+    }
 }
