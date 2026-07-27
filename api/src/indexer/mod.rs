@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use futures::stream::{self, StreamExt};
 use metrics_exporter_prometheus::PrometheusHandle;
 use rand::Rng;
 use reqwest::header::RETRY_AFTER;
@@ -39,6 +40,14 @@ const MAX_READ_ATTEMPTS: u32 = 4;
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(150);
 /// Ceiling on backoff growth between retries.
 const RETRY_MAX_DELAY: Duration = Duration::from_secs(2);
+
+/// Upper bound on assets indexed concurrently. Bounded so a platform with
+/// many assets doesn't open unbounded concurrent connections to the RPC node
+/// in one refresh cycle.
+const MAX_CONCURRENT_ASSETS: usize = 8;
+/// Upper bound on allowlisted addresses read concurrently per asset, for the
+/// same reason.
+const MAX_CONCURRENT_ADDRESS_READS: usize = 16;
 
 /// Static configuration for a network's contracts and RPC endpoint.
 #[derive(Debug, Clone)]
@@ -582,6 +591,20 @@ pub struct Indexer {
     state: AppState,
 }
 
+/// Everything derived from indexing a single asset's contracts.
+struct AssetIndexed {
+    asset: Asset,
+    holders: Vec<Holder>,
+    compliance: ComplianceSummary,
+    dividends: Vec<Distribution>,
+}
+
+/// The compliance record and token balance for a single allowlisted address.
+struct AddressRead {
+    record: Option<RawKyc>,
+    balance: i128,
+}
+
 impl Indexer {
     pub fn new(state: AppState) -> Self {
         let cfg = &state.config;
@@ -625,72 +648,42 @@ impl Indexer {
         let raw_entries: Vec<RawAssetEntry> = serde_json::from_value(entries_read.value)
             .map_err(|e| IndexError::Decode(e.to_string()))?;
 
-        let mut assets = Vec::new();
+        // Index every asset concurrently (bounded — see MAX_CONCURRENT_ASSETS)
+        // rather than one at a time; a platform with many assets would
+        // otherwise pay A*(1 + 2N) sequential RPC round trips per refresh.
+        // buffer_unordered doesn't preserve completion order, so each result
+        // is tagged with its position in raw_entries and re-sorted after.
+        let mut tagged: Vec<(usize, Result<AssetIndexed, IndexError>)> =
+            stream::iter(raw_entries.iter().enumerate())
+                .map(|(idx, raw)| async move { (idx, self.index_asset(raw).await) })
+                .buffer_unordered(MAX_CONCURRENT_ASSETS)
+                .collect()
+                .await;
+        tagged.sort_unstable_by_key(|(idx, _)| *idx);
+
+        let mut assets = Vec::with_capacity(tagged.len());
         let mut holders_map: HashMap<u64, Vec<Holder>> = HashMap::new();
         let mut compliance_map: HashMap<u64, ComplianceSummary> = HashMap::new();
         let mut dividends_map: HashMap<u64, Vec<Distribution>> = HashMap::new();
         let mut total_distributions = 0usize;
         let mut tvl: i128 = 0;
 
-        for raw in &raw_entries {
-            let meta = self
-                .rpc
-                .read(&raw.token_contract, "get_metadata", vec![])
-                .await
-                .inspect_err(|_| record_asset_read_error(raw.id, "get_metadata"))?;
-            let meta: RawMetadata = serde_json::from_value(meta.value)
-                .map_err(|e| IndexError::Decode(e.to_string()))?;
+        for (_, result) in tagged {
+            let AssetIndexed {
+                asset,
+                holders,
+                compliance,
+                dividends,
+            } = result?;
 
-            let total_supply = parse_i128(&meta.total_supply);
-            let valuation = parse_i128(&raw.valuation);
-
-            // Holders: every allowlisted address with a positive balance.
-            let (holders, summary, _) = self
-                .index_compliance_and_holders(
-                    &meta.compliance_contract,
-                    &raw.token_contract,
-                    total_supply,
-                )
-                .await?;
-
-            // Dividends for this asset token; treated as empty on failure so one
-            // asset's dividend contract issue doesn't abort the whole refresh.
-            let dists = match self.index_dividends(&raw.token_contract).await {
-                Ok(dists) => dists,
-                Err(e) => {
-                    record_asset_read_error(raw.id, "dividends");
-                    tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; treating as empty");
-                    Vec::new()
-                }
-            };
-            total_distributions += dists.len();
-
-            if raw.active {
-                tvl += valuation;
+            total_distributions += dividends.len();
+            if asset.active {
+                tvl += parse_i128(&asset.valuation_cents);
             }
 
-            let asset = Asset {
-                id: raw.id,
-                token_contract: raw.token_contract.clone(),
-                issuer: raw.issuer.clone(),
-                name: raw.name.clone(),
-                symbol: meta.symbol,
-                asset_type: raw.asset_type.clone(),
-                description: meta.asset_description,
-                valuation_cents: valuation.to_string(),
-                valuation_usd: cents_to_usd(valuation),
-                decimals: meta.decimals,
-                total_supply: total_supply.to_string(),
-                holders: holders.len(),
-                active: raw.active,
-                paused: meta.paused,
-                compliance_contract: meta.compliance_contract,
-                created_at_ledger: raw.created_at,
-            };
-
-            holders_map.insert(raw.id, holders);
-            compliance_map.insert(raw.id, summary);
-            dividends_map.insert(raw.id, dists);
+            holders_map.insert(asset.id, holders);
+            compliance_map.insert(asset.id, compliance);
+            dividends_map.insert(asset.id, dividends);
             assets.push(asset);
         }
 
@@ -724,6 +717,72 @@ impl Indexer {
         Ok(count)
     }
 
+    /// Read and derive everything for one asset: metadata, then its
+    /// compliance/holders and dividends concurrently (they hit independent
+    /// contracts, so there's no reason to wait on one before starting the
+    /// other).
+    async fn index_asset(&self, raw: &RawAssetEntry) -> Result<AssetIndexed, IndexError> {
+        let meta = self
+            .rpc
+            .read(&raw.token_contract, "get_metadata", vec![])
+            .await
+            .inspect_err(|_| record_asset_read_error(raw.id, "get_metadata"))?;
+        let meta: RawMetadata = serde_json::from_value(meta.value)
+            .map_err(|e| IndexError::Decode(e.to_string()))?;
+
+        let total_supply = parse_i128(&meta.total_supply);
+        let valuation = parse_i128(&raw.valuation);
+
+        let (holders_result, dists_result) = tokio::join!(
+            self.index_compliance_and_holders(
+                &meta.compliance_contract,
+                &raw.token_contract,
+                total_supply,
+            ),
+            self.index_dividends(&raw.token_contract),
+        );
+
+        // Holders: every allowlisted address with a positive balance.
+        let (holders, summary, _) = holders_result?;
+
+        // Dividends for this asset token; treated as empty on failure so one
+        // asset's dividend contract issue doesn't fail the whole asset.
+        let dividends = match dists_result {
+            Ok(dists) => dists,
+            Err(e) => {
+                record_asset_read_error(raw.id, "dividends");
+                tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; treating as empty");
+                Vec::new()
+            }
+        };
+
+        let asset = Asset {
+            id: raw.id,
+            token_contract: raw.token_contract.clone(),
+            issuer: raw.issuer.clone(),
+            name: raw.name.clone(),
+            symbol: meta.symbol,
+            asset_type: raw.asset_type.clone(),
+            description: meta.asset_description,
+            valuation_cents: valuation.to_string(),
+            valuation_usd: cents_to_usd(valuation),
+            decimals: meta.decimals,
+            total_supply: total_supply.to_string(),
+            holders: holders.len(),
+            active: raw.active,
+            paused: meta.paused,
+            compliance_contract: meta.compliance_contract,
+            created_at_ledger: raw.created_at,
+        };
+
+        Ok(AssetIndexed {
+            asset,
+            holders,
+            compliance: summary,
+            dividends,
+        })
+    }
+
     /// Read the compliance allowlist for an asset and derive both the holder
     /// list (allowlisted ∩ positive balance) and the non-PII summary.
     async fn index_compliance_and_holders(
@@ -739,54 +798,48 @@ impl Indexer {
         let addresses: Vec<String> = serde_json::from_value(allowlist.value)
             .map_err(|e| IndexError::Decode(e.to_string()))?;
 
+        // Read every address's record + balance concurrently (bounded — see
+        // MAX_CONCURRENT_ADDRESS_READS) instead of two sequential RPC calls
+        // per address, one address at a time.
+        let outcomes: Vec<(String, Result<AddressRead, IndexError>)> = stream::iter(addresses)
+            .map(|address| async move {
+                let result = self
+                    .read_address(compliance_contract, token_contract, &address)
+                    .await;
+                (address, result)
+            })
+            .buffer_unordered(MAX_CONCURRENT_ADDRESS_READS)
+            .collect()
+            .await;
+
         let mut holders = Vec::new();
         let mut summary = ComplianceSummary::default();
         let mut jurisdictions: BTreeMap<String, usize> = BTreeMap::new();
         let mut approved_addresses = Vec::new();
 
-        for address in &addresses {
+        for (address, outcome) in outcomes {
             summary.total_records += 1;
+            let AddressRead { record, balance } = outcome?;
 
             // Record status → summary counts.
-            if let Ok(rec) = self
-                .rpc
-                .read(
-                    compliance_contract,
-                    "get_record",
-                    vec![address_scval(address)?],
-                )
-                .await
-            {
-                if !rec.value.is_null() {
-                    if let Ok(kyc) = serde_json::from_value::<RawKyc>(rec.value) {
-                        match normalize_status(&kyc.status).as_str() {
-                            "Approved" => {
-                                summary.approved += 1;
-                                approved_addresses.push(address.clone());
-                            }
-                            "Suspended" => summary.suspended += 1,
-                            "Rejected" => summary.rejected += 1,
-                            "Pending" => summary.pending += 1,
-                            _ => {}
-                        }
-                        if kyc.expires_at != 0 {
-                            summary.with_expiry += 1;
-                        }
-                        *jurisdictions.entry(kyc.jurisdiction).or_insert(0) += 1;
+            if let Some(kyc) = record {
+                match normalize_status(&kyc.status).as_str() {
+                    "Approved" => {
+                        summary.approved += 1;
+                        approved_addresses.push(address.clone());
                     }
+                    "Suspended" => summary.suspended += 1,
+                    "Rejected" => summary.rejected += 1,
+                    "Pending" => summary.pending += 1,
+                    _ => {}
                 }
+                if kyc.expires_at != 0 {
+                    summary.with_expiry += 1;
+                }
+                *jurisdictions.entry(kyc.jurisdiction).or_insert(0) += 1;
             }
 
             // Balance → holder list.
-            let bal = self
-                .rpc
-                .read(token_contract, "balance", vec![address_scval(address)?])
-                .await?;
-            let balance = match bal.value {
-                serde_json::Value::String(s) => parse_i128(&s),
-                serde_json::Value::Number(n) => n.as_i64().unwrap_or(0) as i128,
-                _ => 0,
-            };
             if balance > 0 {
                 holders.push(Holder {
                     address: address.clone(),
@@ -806,6 +859,40 @@ impl Indexer {
             .collect();
 
         Ok((holders, summary, approved_addresses))
+    }
+
+    /// Read one allowlisted address's compliance record and token balance
+    /// concurrently. A `get_record` failure is treated as "no record" (as
+    /// before parallelization, an unreadable/absent record just excludes the
+    /// address from the compliance summary); a `balance` failure propagates,
+    /// since holder totals must not silently omit a holder.
+    async fn read_address(
+        &self,
+        compliance_contract: &str,
+        token_contract: &str,
+        address: &str,
+    ) -> Result<AddressRead, IndexError> {
+        let record_arg = address_scval(address)?;
+        let balance_arg = address_scval(address)?;
+
+        let (record_result, balance_result) = tokio::join!(
+            self.rpc.read(compliance_contract, "get_record", vec![record_arg]),
+            self.rpc.read(token_contract, "balance", vec![balance_arg]),
+        );
+
+        let record = match record_result {
+            Ok(rec) if !rec.value.is_null() => serde_json::from_value::<RawKyc>(rec.value).ok(),
+            _ => None,
+        };
+
+        let bal = balance_result?;
+        let balance = match bal.value {
+            serde_json::Value::String(s) => parse_i128(&s),
+            serde_json::Value::Number(n) => n.as_i64().unwrap_or(0) as i128,
+            _ => 0,
+        };
+
+        Ok(AddressRead { record, balance })
     }
 
     /// Read all distributions for an asset token from the dividend contract.
