@@ -46,7 +46,11 @@ async fn main() {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(8080);
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let addr: SocketAddr = format!("{}:{}", bind_addr, port)
+        .parse()
+        .expect("BIND_ADDR and PORT form a valid socket address");
+
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,
