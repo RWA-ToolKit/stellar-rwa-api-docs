@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use metrics_exporter_prometheus::PrometheusHandle;
+use rand::Rng;
 use reqwest::header::RETRY_AFTER;
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -135,6 +137,12 @@ impl AppState {
     pub fn snapshot(&self) -> Snapshot {
         let guard = self.inner.load();
         (*guard).clone()
+    }
+
+    /// The last ledger the indexer successfully read from, without cloning
+    /// the whole snapshot.
+    pub async fn last_indexed_ledger(&self) -> u32 {
+        self.inner.load().stats.last_indexed_ledger
     }
 
     fn replace(&self, next: Snapshot) {
