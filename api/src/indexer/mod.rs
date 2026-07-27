@@ -25,8 +25,13 @@ use stellar_xdr::curr::{Limits, ReadXdr, WriteXdr};
 
 use crate::models::{Asset, ComplianceSummary, Distribution, Holder, JurisdictionCount, Stats};
 
-/// How often the indexer refreshes its snapshot.
-pub const POLL_INTERVAL: Duration = Duration::from_secs(10);
+/// How often the indexer refreshes its snapshot. Read from env with 10s default.
+pub fn poll_interval() -> Duration {
+    let secs = env_or("RWA_POLL_INTERVAL", "10")
+        .parse::<u64>()
+        .unwrap_or(10);
+    Duration::from_secs(secs)
+}
 
 /// Attempts for a single simulated read (the initial try plus retries)
 /// before giving up and failing the read.
@@ -590,14 +595,14 @@ impl Indexer {
             let backoff = match self.refresh().await {
                 Ok(count) => {
                     tracing::info!(assets = count, "index refreshed");
-                    POLL_INTERVAL
+                    poll_interval()
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "index refresh failed; keeping last snapshot");
                     if let IndexError::RateLimited { retry_after, .. } = &e {
-                        retry_after.unwrap_or(POLL_INTERVAL)
+                        retry_after.unwrap_or_else(poll_interval)
                     } else {
-                        POLL_INTERVAL
+                        poll_interval()
                     }
                 }
             };
