@@ -12,6 +12,8 @@ mod routes;
 use std::net::SocketAddr;
 
 use indexer::{AppState, Config, ConfigError, Indexer};
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 #[tokio::main]
 async fn main() {
@@ -40,7 +42,11 @@ async fn main() {
     let indexer = Indexer::new(state.clone());
     tokio::spawn(async move { indexer.run().await });
 
-    let app = routes::router(state).layer(tower_http::trace::TraceLayer::new_for_http());
+    let app = routes::router(state).layer(
+        TraceLayer::new_for_http()
+            .make_span_with(DefaultMakeSpan::new().level(Level::DEBUG))
+            .on_response(DefaultOnResponse::new().level(Level::DEBUG)),
+    );
 
     let port: u16 = std::env::var("PORT")
         .ok()
