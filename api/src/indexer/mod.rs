@@ -193,6 +193,8 @@ struct Rpc {
 
 #[derive(Deserialize)]
 struct RpcEnvelope {
+    #[serde(default)]
+    id: u32,
     result: Option<SimulateResult>,
     error: Option<RpcError>,
 }
@@ -314,6 +316,13 @@ impl Rpc {
         }
 
         let resp: RpcEnvelope = resp.json().await?;
+
+        if resp.id != 1 {
+            return Err(IndexError::Rpc(format!(
+                "response id mismatch: expected 1, got {}",
+                resp.id
+            )));
+        }
 
         if let Some(err) = resp.error {
             return Err(IndexError::Rpc(err.message));
