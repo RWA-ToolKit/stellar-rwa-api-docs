@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use metrics_exporter_prometheus::PrometheusHandle;
+use rand::Rng;
 use reqwest::header::RETRY_AFTER;
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -115,9 +117,15 @@ impl Snapshot {
 }
 
 /// Shared, hot-swappable state handed to the Axum routes.
+///
+/// `inner` is wrapped in `Arc` so cloning `AppState` shares the same
+/// `ArcSwap` instance — `store()` from one clone (the indexer's) is
+/// visible to `load()` from another (the routes'), which is the actual
+/// data flow we need. Without `Arc`, each clone deep-clones the snapshot
+/// and updates from one are never observed by the others.
 #[derive(Clone)]
 pub struct AppState {
-    inner: ArcSwap<Snapshot>,
+    inner: Arc<ArcSwap<Snapshot>>,
     pub config: Arc<Config>,
     pub metrics: PrometheusHandle,
 }
@@ -125,7 +133,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: Config, metrics: PrometheusHandle) -> Self {
         AppState {
-            inner: ArcSwap::from_arc(Arc::new(Snapshot::default())),
+            inner: Arc::new(ArcSwap::from(Arc::new(Snapshot::default()))),
             config: Arc::new(config),
             metrics,
         }
@@ -134,7 +142,15 @@ impl AppState {
     /// Clone the current snapshot for read-only serving.
     pub fn snapshot(&self) -> Snapshot {
         let guard = self.inner.load();
-        (*guard).clone()
+        // `Guard` derefs to `&Arc<Snapshot>` under `arc-swap` 1.x, so the
+        // snapshot lives one more deref down: `**guard` is the `Snapshot`.
+        (**guard).clone()
+    }
+
+    /// Last ledger the indexer successfully read. Used as the ETag seed for
+    /// snapshot-backed routes (`Cache-Control` + `304 Not Modified`).
+    pub fn last_indexed_ledger(&self) -> u32 {
+        self.snapshot().stats.last_indexed_ledger
     }
 
     fn replace(&self, next: Snapshot) {
@@ -157,7 +173,11 @@ pub enum IndexError {
     #[error("http status {status}: {body}")]
     HttpStatus { status: u16, body: String },
     #[error("rate limited or unavailable (status {status}); retry after {retry_after:?}")]
-    RateLimited { status: u16, retry_after: Option<Duration>, body: String },
+    RateLimited {
+        status: u16,
+        retry_after: Option<Duration>,
+        body: String,
+    },
 }
 
 impl IndexError {
@@ -277,12 +297,7 @@ impl Rpc {
             "params": { "transaction": envelope_b64 },
         });
 
-        let resp = self
-            .http
-            .post(&self.url)
-            .json(&body)
-            .send()
-            .await?;
+        let resp = self.http.post(&self.url).json(&body).send().await?;
 
         let status = resp.status();
         if status == StatusCode::TOO_MANY_REQUESTS || status == StatusCode::SERVICE_UNAVAILABLE {
@@ -585,7 +600,6 @@ impl Indexer {
 
     /// Poll forever, refreshing the snapshot every [`POLL_INTERVAL`].
     pub async fn run(self) {
-        let mut consecutive_failures: u64 = 0;
         loop {
             let backoff = match self.refresh().await {
                 Ok(count) => {
@@ -705,14 +719,13 @@ impl Indexer {
         };
 
         let count = assets.len();
-        self.state
-            .replace(Snapshot {
-                assets,
-                holders: holders_map,
-                compliance: compliance_map,
-                dividends: dividends_map,
-                stats,
-            });
+        self.state.replace(Snapshot {
+            assets,
+            holders: holders_map,
+            compliance: compliance_map,
+            dividends: dividends_map,
+            stats,
+        });
         Ok(count)
     }
 
