@@ -49,6 +49,14 @@ const MAX_CONCURRENT_ASSETS: usize = 8;
 /// same reason.
 const MAX_CONCURRENT_ADDRESS_READS: usize = 16;
 
+/// Ceiling on a single RPC HTTP request (connecting, sending, and reading the
+/// full response). Without this, a stalled RPC node (no response, half-open
+/// connection) hangs the `await` forever, freezing the single-task refresh
+/// loop and leaving the API serving an increasingly stale snapshot.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
+/// Ceiling on establishing the TCP/TLS connection to the RPC endpoint.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Static configuration for a network's contracts and RPC endpoint.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -175,6 +183,8 @@ pub enum IndexError {
     HttpStatus { status: u16, body: String },
     #[error("rate limited or unavailable (status {status}); retry after {retry_after:?}")]
     RateLimited { status: u16, retry_after: Option<Duration>, body: String },
+    #[error("rpc read timed out after {0:?}")]
+    Timeout(Duration),
 }
 
 impl IndexError {
@@ -183,7 +193,10 @@ impl IndexError {
     /// transient. XDR, strkey and decode errors stem from our own request or
     /// response handling and will fail identically on every attempt.
     fn is_transient(&self) -> bool {
-        matches!(self, IndexError::Http(_) | IndexError::Rpc(_))
+        matches!(
+            self,
+            IndexError::Http(_) | IndexError::Rpc(_) | IndexError::Timeout(_)
+        )
     }
 }
 
@@ -237,11 +250,12 @@ struct ReadOutcome {
 
 impl Rpc {
     fn new(url: String, source: String) -> Self {
-        Rpc {
-            http: reqwest::Client::new(),
-            url,
-            source,
-        }
+        let http = reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()
+            .expect("rpc client config (timeouts only) is always valid");
+        Rpc { http, url, source }
     }
 
     /// Simulate `contract.method(args)` and decode the return value to JSON.
@@ -261,7 +275,20 @@ impl Rpc {
         let mut attempt = 0;
         loop {
             attempt += 1;
-            match self.read_once(contract, method, args.clone()).await {
+            // Belt-and-suspenders alongside the client's own request timeout:
+            // this also bounds time spent should read_once ever grow a step
+            // that isn't covered by the HTTP client (e.g. future retries or
+            // processing added around the request).
+            let outcome = match tokio::time::timeout(
+                REQUEST_TIMEOUT,
+                self.read_once(contract, method, args.clone()),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => Err(IndexError::Timeout(REQUEST_TIMEOUT)),
+            };
+            match outcome {
                 Ok(outcome) => return Ok(outcome),
                 Err(e) if attempt < MAX_READ_ATTEMPTS && e.is_transient() => {
                     let delay = retry_delay(attempt);
@@ -965,6 +992,7 @@ mod tests {
     #[test]
     fn only_http_and_rpc_errors_are_transient() {
         assert!(IndexError::Rpc("busy".into()).is_transient());
+        assert!(IndexError::Timeout(Duration::from_secs(1)).is_transient());
         assert!(!IndexError::Decode("bad json".into()).is_transient());
         assert!(!IndexError::Xdr("bad xdr".into()).is_transient());
         assert!(!IndexError::Strkey("bad key".into()).is_transient());
