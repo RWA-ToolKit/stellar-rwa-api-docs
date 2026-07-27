@@ -472,8 +472,19 @@ fn scval_to_json(v: &xdr::ScVal) -> Result<serde_json::Value, IndexError> {
             Value::Object(obj)
         }
         xdr::ScVal::Map(None) => Value::Object(serde_json::Map::new()),
-        // Remaining variants aren't produced by these contracts' return values.
-        _ => Value::Null,
+        // Remaining variants (Bytes, U256/I256, Timepoint, Duration, Error,
+        // ...) aren't produced by these contracts' return values today. If
+        // one shows up it means a contract's return type changed, so surface
+        // it loudly rather than silently decoding to null.
+        other => {
+            tracing::error!(
+                scval = ?other,
+                "unexpected scval variant while decoding a contract return value"
+            );
+            return Err(IndexError::Decode(format!(
+                "unexpected scval variant: {other:?}"
+            )));
+        }
     })
 }
 
