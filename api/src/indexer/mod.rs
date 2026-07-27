@@ -131,10 +131,18 @@ impl AppState {
         }
     }
 
-    /// Clone the current snapshot for read-only serving.
-    pub fn snapshot(&self) -> Snapshot {
-        let guard = self.inner.load();
-        (*guard).clone()
+    /// Hand out the current snapshot as a cheap `Arc` clone (a pointer bump
+    /// and an atomic increment) rather than deep-cloning every asset, holder,
+    /// compliance and dividend record on each request.
+    pub fn snapshot(&self) -> Arc<Snapshot> {
+        self.inner.load_full()
+    }
+
+    /// The last ledger the indexer successfully read from, for cache
+    /// validation — reads only the `stats` field rather than the whole
+    /// snapshot.
+    pub async fn last_indexed_ledger(&self) -> u32 {
+        self.inner.load().stats.last_indexed_ledger
     }
 
     fn replace(&self, next: Snapshot) {

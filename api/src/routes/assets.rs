@@ -29,7 +29,7 @@ pub async fn list(
     let snap = state.snapshot();
     let assets = snap
         .assets
-        .into_iter()
+        .iter()
         .filter(|a| {
             query
                 .asset_type
@@ -37,6 +37,7 @@ pub async fn list(
                 .is_none_or(|t| a.asset_type == t)
         })
         .filter(|a| query.active.is_none_or(|active| a.active == active))
+        .cloned()
         .collect();
     Json(assets)
 }
