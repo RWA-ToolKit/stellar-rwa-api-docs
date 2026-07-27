@@ -664,8 +664,16 @@ impl Indexer {
     }
 
     /// Read the full current state of all contracts and rebuild the snapshot.
+    ///
+    /// Per-asset indexing is best-effort: a failing asset (bad token
+    /// contract, an RPC error that exhausted retries, …) doesn't fail the
+    /// whole refresh. It falls back to that asset's data from the previous
+    /// snapshot if there is one — logged and counted via
+    /// `rwa_indexer_asset_read_errors_total{read="asset"}` as a last-good
+    /// marker — so every other asset still gets published with fresh data.
     async fn refresh(&self) -> Result<usize, IndexError> {
         let cfg = &self.state.config;
+        let previous = self.state.snapshot();
 
         let entries_read = self
             .rpc
@@ -694,14 +702,61 @@ impl Indexer {
         let mut dividends_map: HashMap<u64, Vec<Distribution>> = HashMap::new();
         let mut total_distributions = 0usize;
         let mut tvl: i128 = 0;
+        let mut failed_assets = 0usize;
 
-        for (_, result) in tagged {
-            let AssetIndexed {
+        for (idx, result) in tagged {
+            let asset_id = raw_entries[idx].id;
+            let indexed = match result {
+                Ok(indexed) => Some(indexed),
+                Err(e) => {
+                    failed_assets += 1;
+                    record_asset_read_error(asset_id, "asset");
+                    match previous.asset(asset_id) {
+                        Some(prev) => {
+                            tracing::warn!(
+                                asset_id,
+                                error = %e,
+                                "asset read failed; serving last-good snapshot for this asset"
+                            );
+                            Some(AssetIndexed {
+                                asset: prev.clone(),
+                                holders: previous
+                                    .holders
+                                    .get(&asset_id)
+                                    .cloned()
+                                    .unwrap_or_default(),
+                                compliance: previous
+                                    .compliance
+                                    .get(&asset_id)
+                                    .cloned()
+                                    .unwrap_or_default(),
+                                dividends: previous
+                                    .dividends
+                                    .get(&asset_id)
+                                    .cloned()
+                                    .unwrap_or_default(),
+                            })
+                        }
+                        None => {
+                            tracing::warn!(
+                                asset_id,
+                                error = %e,
+                                "asset read failed with no prior snapshot; omitting from this refresh"
+                            );
+                            None
+                        }
+                    }
+                }
+            };
+            let Some(AssetIndexed {
                 asset,
                 holders,
                 compliance,
                 dividends,
-            } = result?;
+            }) = indexed
+            else {
+                continue;
+            };
 
             total_distributions += dividends.len();
             if asset.active {
@@ -712,6 +767,14 @@ impl Indexer {
             compliance_map.insert(asset.id, compliance);
             dividends_map.insert(asset.id, dividends);
             assets.push(asset);
+        }
+
+        if failed_assets > 0 {
+            tracing::warn!(
+                failed_assets,
+                total_assets = raw_entries.len(),
+                "refresh completed with some assets failing; published with best-effort/last-good data"
+            );
         }
 
         let active_assets = assets.iter().filter(|a| a.active).count();
