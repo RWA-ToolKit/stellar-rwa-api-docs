@@ -122,6 +122,7 @@ pub struct AppState {
     inner: ArcSwap<Snapshot>,
     pub config: Arc<Config>,
     pub metrics: PrometheusHandle,
+    initialized: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AppState {
@@ -130,6 +131,7 @@ impl AppState {
             inner: ArcSwap::from_arc(Arc::new(Snapshot::default())),
             config: Arc::new(config),
             metrics,
+            initialized: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -141,6 +143,17 @@ impl AppState {
 
     fn replace(&self, next: Snapshot) {
         self.inner.store(Arc::new(next));
+        self.initialized.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Returns whether the first successful refresh has completed.
+    pub fn is_initialized(&self) -> bool {
+        self.initialized.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Returns the latest indexed ledger, or 0 if not yet initialized.
+    pub async fn last_indexed_ledger(&self) -> u32 {
+        self.snapshot().stats.last_indexed_ledger
     }
 }
 

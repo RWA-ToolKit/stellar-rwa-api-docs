@@ -100,6 +100,14 @@ pub fn router(state: AppState) -> Router {
 /// derived from `last_indexed_ledger`: two requests against the same indexed
 /// ledger are guaranteed to have identical bodies.
 async fn cache_headers(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
+    if !state.is_initialized() {
+        return Response::builder()
+            .status(StatusCode::SERVICE_UNAVAILABLE)
+            .header(header::RETRY_AFTER, POLL_INTERVAL.as_secs().to_string())
+            .body(Body::empty())
+            .expect("static 503 response is well-formed");
+    }
+
     let ledger = state.last_indexed_ledger().await;
     let etag = format!("\"ledger-{ledger}\"");
 
