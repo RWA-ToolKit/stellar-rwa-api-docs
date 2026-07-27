@@ -46,6 +46,25 @@ npm run build    # must pass before you open a PR
 3. Run `npm run build` in `docs/` and make sure it passes.
 4. Open a PR with a clear description and, for content changes, a screenshot.
 
+## Release checklist
+
+When releasing a new version of the API or contracts:
+
+1. **Update `api/Cargo.toml`** with the new version number (if applicable).
+2. **Update `CHANGELOG.md`** with all user-facing changes:
+   - API endpoint changes, new endpoints, breaking changes.
+   - Contract changes (new functions, parameter changes).
+   - Document the date and version.
+3. **Update `docs/`** to reflect the changes:
+   - Add or modify endpoint references in `docs/pages/api/`.
+   - Update contract guides in `docs/pages/contracts/` if applicable.
+   - Update examples and code snippets throughout.
+4. **Run `npm run build` in `docs/`** to ensure all links and references are valid.
+5. **Create a tagged release** on GitHub with a summary linking to the CHANGELOG entry.
+
+This ensures readers can map documentation versions to releases and find the
+exact API/contract behavior that was current when the docs were published.
+
 ## Reporting API issues
 
 Found a problem with the API? Open an issue with:
