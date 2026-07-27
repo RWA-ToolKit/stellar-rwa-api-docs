@@ -71,6 +71,32 @@ curl http://localhost:8080/stats
 curl http://localhost:8080/assets
 ```
 
+### Logging
+
+Two env vars control log output:
+
+- `RUST_LOG` — a [`tracing-subscriber` `EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html)
+  directive for per-target levels. Defaults to `stellar_rwa_api=info,tower_http=warn`.
+- `LOG_FORMAT` — line format: `pretty` (default; human-readable for local dev),
+  `compact` (single-line text), or `json` (structured output for production
+  log shippers like Loki, Datadog, and Cloud Logging).
+
+Examples:
+
+```bash
+RUST_LOG=debug cargo run                        # chatty dev
+RUST_LOG=info LOG_FORMAT=json cargo run         # prod-shaped
+RUST_LOG=stellar_rwa_api=debug LOG_FORMAT=compact cargo run
+```
+
+The container image already sets `LOG_FORMAT=json` so it's ready for structured
+log shippers out of the box. To debug a container with human-readable logs,
+override at runtime:
+
+```bash
+docker run --rm -p 8080:8080 -e LOG_FORMAT=pretty stellar-rwa-api
+```
+
 ### Tech stack
 
 Rust · Axum · tokio · reqwest · serde · stellar-xdr · stellar-strkey.
