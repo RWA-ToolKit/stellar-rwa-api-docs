@@ -484,9 +484,14 @@ fn address_to_string(a: &xdr::ScAddress) -> Result<String, IndexError> {
         xdr::ScAddress::Contract(xdr::ContractId(xdr::Hash(bytes))) => {
             Ok(stellar_strkey::Contract(*bytes).to_string())
         }
-        other => Err(IndexError::Decode(format!(
-            "unsupported address: {other:?}"
-        ))),
+        // Muxed accounts and any future address variants are not expected from
+        // these contracts, but returning an error here would abort the entire
+        // refresh cycle via `?`.  Emit a recognisable placeholder so callers
+        // can still process the rest of the response.
+        other => {
+            tracing::warn!("address_to_string: unsupported address variant, using placeholder: {other:?}");
+            Ok(format!("unknown:{other:?}"))
+        }
     }
 }
 
