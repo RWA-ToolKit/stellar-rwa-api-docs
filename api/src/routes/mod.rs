@@ -164,3 +164,69 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         state.metrics.render(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum_test::TestServer;
+    use metrics_exporter_prometheus::PrometheusBuilder;
+
+    /// Build a test router backed by a default (empty) snapshot.
+    fn test_server() -> TestServer {
+        let metrics = PrometheusBuilder::new()
+            .build_recorder()
+            .handle();
+        let config = crate::indexer::Config {
+            rpc_url: "http://localhost".into(),
+            registry_id: "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3".into(),
+            dividend_id: "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX".into(),
+            read_source: "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA".into(),
+        };
+        let state = AppState::new(config, metrics);
+        TestServer::new(router(state)).expect("test server creation failed")
+    }
+
+    /// GET /health must return 200 with body `{"status":"ok"}`.
+    #[tokio::test]
+    async fn health_returns_ok_body() {
+        let server = test_server();
+        let resp = server.get("/health").await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        assert_eq!(body["status"], "ok", "/health body must contain {{\"status\":\"ok\"}}");
+    }
+
+    /// GET / must return 200 and list every documented endpoint in the
+    /// `endpoints` array.
+    #[tokio::test]
+    async fn index_lists_all_endpoints() {
+        let server = test_server();
+        let resp = server.get("/").await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        let endpoints = body["endpoints"]
+            .as_array()
+            .expect("'endpoints' must be an array");
+        let endpoint_strs: Vec<&str> = endpoints
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+
+        let expected = [
+            "GET /stats",
+            "GET /assets",
+            "GET /assets/:id",
+            "GET /assets/:id/holders",
+            "GET /assets/:id/compliance",
+            "GET /assets/:id/dividends",
+            "GET /health",
+            "GET /metrics",
+        ];
+        for ep in &expected {
+            assert!(
+                endpoint_strs.contains(ep),
+                "/ endpoint list missing: {ep}"
+            );
+        }
+    }
+}
