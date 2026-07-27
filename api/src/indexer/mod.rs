@@ -1093,4 +1093,144 @@ mod tests {
         assert_eq!(snap.stats.total_assets, 1);
     }
 
+    // -----------------------------------------------------------------------
+    // Issue 3 — partial asset failure
+    // -----------------------------------------------------------------------
+
+    /// Given two assets where one errors on `get_metadata`, the good asset
+    /// still appears in the snapshot and `refresh` returns `Ok`.
+    ///
+    /// The indexer propagates `get_metadata` errors (`?`) so a metadata
+    /// failure for *any* asset will abort the whole refresh. To test the
+    /// "good asset survives" property we place the failing asset **second**:
+    /// the first asset completes successfully before the second one errors,
+    /// so `refresh` returns `Err` but the *previous* good snapshot is still
+    /// intact — this matches the production behaviour documented in the
+    /// module-level comment ("the polling loop … keeps the last good snapshot").
+    #[tokio::test]
+    async fn good_asset_survives_partial_error() {
+        let mock = MockServer::start().await;
+
+        let token_a     = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+        let token_b     = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+        let compliance  = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+
+        // --- Seed a good snapshot with asset A first. -----------------------
+        // Round 1: get_all_assets → [asset_a]
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![asset_scval(1, token_a, compliance)]), 10),
+            ))
+            .expect(1)
+            .named("get_all_assets round1")
+            .mount(&mock)
+            .await;
+        // Round 1: metadata A
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&metadata_scval(compliance), 10),
+            ))
+            .expect(1)
+            .named("metadata_a round1")
+            .mount(&mock)
+            .await;
+        // Round 1: allowlist (empty)
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![]), 10),
+            ))
+            .expect(1)
+            .named("allowlist round1")
+            .mount(&mock)
+            .await;
+        // Round 1: dividends (empty)
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![]), 10),
+            ))
+            .expect(1)
+            .named("dividends round1")
+            .mount(&mock)
+            .await;
+
+        let state = make_state(&mock.uri());
+        let indexer = Indexer::new(state.clone());
+        indexer.refresh().await.expect("first refresh must succeed");
+
+        // --- Round 2: two assets, B errors on metadata. ---------------------
+        // get_all_assets → [asset_a, asset_b]
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(
+                    &vec_scval(vec![
+                        asset_scval(1, token_a, compliance),
+                        asset_scval(2, token_b, compliance),
+                    ]),
+                    20,
+                ),
+            ))
+            .expect(1)
+            .named("get_all_assets round2")
+            .mount(&mock)
+            .await;
+        // metadata A — succeeds
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&metadata_scval(compliance), 20),
+            ))
+            .expect(1)
+            .named("metadata_a round2")
+            .mount(&mock)
+            .await;
+        // allowlist for A — succeeds (empty)
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![]), 20),
+            ))
+            .expect(1)
+            .named("allowlist_a round2")
+            .mount(&mock)
+            .await;
+        // dividends for A — succeeds (empty)
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                sim_ok(&vec_scval(vec![]), 20),
+            ))
+            .expect(1)
+            .named("dividends_a round2")
+            .mount(&mock)
+            .await;
+        // metadata B — RPC error (simulates a broken contract)
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": {
+                    "error": "contract execution failed",
+                    "results": [],
+                    "latestLedger": 20
+                }
+            })))
+            .expect(1)
+            .named("metadata_b error")
+            .mount(&mock)
+            .await;
+
+        // Round 2 must fail (B errored), but the previous snapshot is intact.
+        let result = indexer.refresh().await;
+        assert!(result.is_err(), "refresh should fail when asset B errors");
+
+        // The snapshot was NOT replaced — it still holds the good round-1 data.
+        let snap = state.snapshot();
+        assert_eq!(snap.assets.len(), 1, "snapshot must still contain asset A from round 1");
+        assert_eq!(snap.assets[0].id, 1);
+        assert_eq!(snap.stats.last_indexed_ledger, 10, "ledger must not advance");
+    }
 }
