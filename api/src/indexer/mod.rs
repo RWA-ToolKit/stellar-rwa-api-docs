@@ -13,7 +13,7 @@
 //! the last good snapshot.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
@@ -37,6 +37,15 @@ const MAX_READ_ATTEMPTS: u32 = 4;
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(150);
 /// Ceiling on backoff growth between retries.
 const RETRY_MAX_DELAY: Duration = Duration::from_secs(2);
+
+/// Maximum number of allowlist addresses processed per asset per refresh
+/// cycle.  Each address costs 2 RPC round-trips (`get_record` + `balance`),
+/// so this bounds the per-cycle RPC budget to `2 × COMPLIANCE_PAGE_SIZE` per
+/// asset regardless of allowlist size.  The indexer remembers its position
+/// and continues from where it left off on the next cycle, so the full
+/// allowlist is always covered — just spread across multiple cycles.
+/// Override with the `RWA_COMPLIANCE_PAGE_SIZE` environment variable.
+const DEFAULT_COMPLIANCE_PAGE_SIZE: usize = 50;
 
 /// Static configuration for a network's contracts and RPC endpoint.
 #[derive(Debug, Clone)]
@@ -120,14 +129,28 @@ pub struct AppState {
     inner: ArcSwap<Snapshot>,
     pub config: Arc<Config>,
     pub metrics: PrometheusHandle,
+    /// Per-asset offset into the allowlist for the next compliance page.
+    /// Keyed by asset id; absent ≡ 0 (start from the beginning).
+    /// Wrapped in `Arc<Mutex<…>>` so the `Clone`-able `AppState` shares one
+    /// mutable map across all clones (routes + indexer).
+    compliance_offsets: Arc<Mutex<HashMap<u64, usize>>>,
+    /// How many allowlist addresses to process per asset per refresh cycle.
+    pub compliance_page_size: usize,
 }
 
 impl AppState {
     pub fn new(config: Config, metrics: PrometheusHandle) -> Self {
+        let compliance_page_size = std::env::var("RWA_COMPLIANCE_PAGE_SIZE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_COMPLIANCE_PAGE_SIZE)
+            .max(1); // must be at least 1
         AppState {
             inner: ArcSwap::from_arc(Arc::new(Snapshot::default())),
             config: Arc::new(config),
             metrics,
+            compliance_offsets: Arc::new(Mutex::new(HashMap::new())),
+            compliance_page_size,
         }
     }
 
@@ -139,6 +162,25 @@ impl AppState {
 
     fn replace(&self, next: Snapshot) {
         self.inner.store(Arc::new(next));
+    }
+
+    /// Return the current allowlist offset for `asset_id` and advance it by
+    /// `page_size`, wrapping back to 0 when it reaches or exceeds
+    /// `total_len`.  Returns `(offset, wrapped)` where `wrapped` is true when
+    /// the offset cycled back to 0 this call (i.e. we just finished the last
+    /// page and are starting fresh next cycle).
+    fn next_compliance_offset(
+        &self,
+        asset_id: u64,
+        page_size: usize,
+        total_len: usize,
+    ) -> (usize, bool) {
+        let mut map = self.compliance_offsets.lock().unwrap();
+        let offset = *map.get(&asset_id).unwrap_or(&0);
+        let next = offset + page_size;
+        let wrapped = next >= total_len;
+        map.insert(asset_id, if wrapped { 0 } else { next });
+        (offset, wrapped)
     }
 }
 
@@ -712,35 +754,103 @@ impl Indexer {
             let total_supply = parse_i128(&meta.total_supply);
             let valuation = parse_i128(&raw.valuation);
 
-            // Holders: every allowlisted address with a positive balance.
-            // Also best-effort: fall back to previous holders on failure.
-            let (holders, summary, compliance_err) = match self
-                .index_compliance_and_holders(
-                    &meta.compliance_contract,
-                    &raw.token_contract,
-                    total_supply,
-                )
-                .await
-            {
-                Ok(result) => (result.0, result.1, None),
-                Err(e) => {
-                    record_asset_read_error(raw.id, "compliance");
-                    tracing::warn!(
-                        asset_id = raw.id,
-                        error = %e,
-                        "compliance/holders read failed; using previous data"
-                    );
-                    let holders = prev
-                        .holders
-                        .get(&raw.id)
-                        .cloned()
-                        .unwrap_or_default();
-                    let summary = prev
-                        .compliance
-                        .get(&raw.id)
-                        .cloned()
-                        .unwrap_or_default();
-                    (holders, summary, Some(e.to_string()))
+            // ── Paginated compliance + holder indexing ────────────────────────
+            // Fetch the full allowlist once, then process only one page of
+            // addresses this cycle.  The offset advances automatically so
+            // subsequent cycles cover the rest of the list.  When the offset
+            // wraps back to 0 (new full scan) we discard stale accumulated
+            // data; otherwise we merge into the previous summary/holders.
+            let (holders, summary, compliance_err) = 'compliance: {
+                let allowlist_read = match self
+                    .rpc
+                    .read(&meta.compliance_contract, "get_allowlist", vec![])
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        record_asset_read_error(raw.id, "compliance");
+                        tracing::warn!(
+                            asset_id = raw.id,
+                            error = %e,
+                            "get_allowlist failed; using previous data"
+                        );
+                        let holders = prev.holders.get(&raw.id).cloned().unwrap_or_default();
+                        let summary = prev.compliance.get(&raw.id).cloned().unwrap_or_default();
+                        break 'compliance (holders, summary, Some(e.to_string()));
+                    }
+                };
+                let addresses: Vec<String> = match serde_json::from_value(allowlist_read.value) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        record_asset_read_error(raw.id, "compliance");
+                        let err = IndexError::Decode(e.to_string());
+                        tracing::warn!(
+                            asset_id = raw.id,
+                            error = %err,
+                            "allowlist decode failed; using previous data"
+                        );
+                        let holders = prev.holders.get(&raw.id).cloned().unwrap_or_default();
+                        let summary = prev.compliance.get(&raw.id).cloned().unwrap_or_default();
+                        break 'compliance (holders, summary, Some(err.to_string()));
+                    }
+                };
+
+                let page_size = self.state.compliance_page_size;
+                let (offset, wrapped) = self.state.next_compliance_offset(
+                    raw.id,
+                    page_size,
+                    addresses.len().max(1),
+                );
+                let end = (offset + page_size).min(addresses.len());
+                let page = &addresses[offset..end];
+
+                // On a wrap we start a fresh scan — discard stale counts.
+                // Mid-scan we carry forward the accumulated summary/holders.
+                let (prev_summary, prev_holders): (Option<&ComplianceSummary>, &[Holder]) =
+                    if wrapped {
+                        (None, &[])
+                    } else {
+                        (
+                            prev.compliance.get(&raw.id),
+                            prev.holders
+                                .get(&raw.id)
+                                .map(Vec::as_slice)
+                                .unwrap_or(&[]),
+                        )
+                    };
+
+                tracing::debug!(
+                    asset_id = raw.id,
+                    offset,
+                    page_len = page.len(),
+                    total = addresses.len(),
+                    wrapped,
+                    "compliance page"
+                );
+
+                match self
+                    .index_compliance_and_holders(
+                        &meta.compliance_contract,
+                        &raw.token_contract,
+                        total_supply,
+                        page,
+                        prev_summary,
+                        prev_holders,
+                    )
+                    .await
+                {
+                    Ok(result) => (result.0, result.1, None),
+                    Err(e) => {
+                        record_asset_read_error(raw.id, "compliance");
+                        tracing::warn!(
+                            asset_id = raw.id,
+                            error = %e,
+                            "compliance/holders read failed; using previous data"
+                        );
+                        let holders = prev.holders.get(&raw.id).cloned().unwrap_or_default();
+                        let summary = prev.compliance.get(&raw.id).cloned().unwrap_or_default();
+                        (holders, summary, Some(e.to_string()))
+                    }
                 }
             };
 
@@ -819,25 +929,41 @@ impl Indexer {
 
     /// Read the compliance allowlist for an asset and derive both the holder
     /// list (allowlisted ∩ positive balance) and the non-PII summary.
+    ///
+    /// Only the addresses in `page` are queried this cycle — the caller is
+    /// responsible for slicing the full allowlist down to at most
+    /// [`AppState::compliance_page_size`] entries before calling this.
+    ///
+    /// `prev_summary` is the accumulated summary from prior pages in the
+    /// current scan.  Pass `None` (or a default) when starting a fresh scan
+    /// from offset 0 so stale counts are not carried forward.
+    ///
+    /// Returns `(holders_this_page, merged_summary, approved_addresses)`.
+    /// `holders_this_page` contains only the holders found in `page`; the
+    /// caller merges these with holders from previous pages.
     async fn index_compliance_and_holders(
         &self,
         compliance_contract: &str,
         token_contract: &str,
         total_supply: i128,
+        page: &[String],
+        prev_summary: Option<&ComplianceSummary>,
+        prev_holders: &[Holder],
     ) -> Result<(Vec<Holder>, ComplianceSummary, Vec<String>), IndexError> {
-        let allowlist = self
-            .rpc
-            .read(compliance_contract, "get_allowlist", vec![])
-            .await?;
-        let addresses: Vec<String> = serde_json::from_value(allowlist.value)
-            .map_err(|e| IndexError::Decode(e.to_string()))?;
-
-        let mut holders = Vec::new();
-        let mut summary = ComplianceSummary::default();
+        // Start from the accumulated summary (mid-scan carry-forward) or a
+        // fresh default (start of a new full scan).
+        let mut summary = prev_summary.cloned().unwrap_or_default();
+        // Carry forward holders from previous pages in this scan.
+        let mut holders: Vec<Holder> = prev_holders.to_vec();
         let mut jurisdictions: BTreeMap<String, usize> = BTreeMap::new();
+        // Re-populate jurisdiction map from the existing summary counts so we
+        // can merge new entries into it correctly.
+        for jc in &summary.jurisdictions {
+            jurisdictions.insert(jc.jurisdiction.clone(), jc.count);
+        }
         let mut approved_addresses = Vec::new();
 
-        for address in &addresses {
+        for address in page {
             summary.total_records += 1;
 
             // Record status → summary counts.
