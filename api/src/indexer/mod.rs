@@ -901,6 +901,20 @@ mod tests {
     }
 
     #[test]
+    fn env_or_returns_env_var_when_set() {
+        std::env::set_var("_TEST_RWA_VAR", "from_env");
+        assert_eq!(env_or("_TEST_RWA_VAR", "default"), "from_env");
+        std::env::remove_var("_TEST_RWA_VAR");
+    }
+
+    #[test]
+    fn env_or_returns_default_when_unset() {
+        // Make sure the var is unset before the test
+        std::env::remove_var("_TEST_RWA_VAR_UNSET");
+        assert_eq!(env_or("_TEST_RWA_VAR_UNSET", "default"), "default");
+    }
+
+    #[test]
     fn scval_scalars_to_json() {
         assert_eq!(scval_to_json(&xdr::ScVal::Bool(true)).unwrap(), json!(true));
         assert_eq!(scval_to_json(&xdr::ScVal::Void).unwrap(), json!(null));
