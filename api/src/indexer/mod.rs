@@ -319,10 +319,15 @@ impl Rpc {
         if let Some(sim_err) = result.error {
             return Err(IndexError::Rpc(sim_err));
         }
-        let entry = result
-            .results
-            .first()
-            .ok_or_else(|| IndexError::Rpc("no simulation result".into()))?;
+        let entry = match result.results.len() {
+            1 => &result.results[0],
+            n => {
+                return Err(IndexError::Rpc(format!(
+                    "expected exactly 1 simulation result, got {}",
+                    n
+                )))
+            }
+        };
         let scval = xdr::ScVal::from_xdr_base64(&entry.xdr, Limits::none())?;
         Ok(ReadOutcome {
             value: scval_to_json(&scval)?,
