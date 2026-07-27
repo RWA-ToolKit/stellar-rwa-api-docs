@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use super::ApiError;
+use super::{ApiError, Pagination};
 use crate::indexer::AppState;
 use crate::models::Asset;
 
@@ -21,10 +21,12 @@ pub struct AssetQuery {
 
 /// All tokenized assets with valuation, supply and holder counts.
 ///
-/// Supports optional `?asset_type=` and `?active=` query filters.
+/// Supports optional `?asset_type=` and `?active=` query filters, and
+/// `?limit=&offset=` pagination (see [`Pagination`]).
 pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<AssetQuery>,
+    Query(page): Query<Pagination>,
 ) -> Json<Vec<Asset>> {
     let snap = state.snapshot();
     let assets = snap
@@ -39,7 +41,7 @@ pub async fn list(
         .filter(|a| query.active.is_none_or(|active| a.active == active))
         .cloned()
         .collect();
-    Json(assets)
+    Json(page.apply(assets))
 }
 
 /// Full detail for a single asset by its registry id.

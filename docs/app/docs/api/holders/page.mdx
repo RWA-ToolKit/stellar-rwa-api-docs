@@ -17,6 +17,17 @@ the indexer derives this from the allowlist intersected with balances.
 |------|------|-------|
 | `id` | number | Registry id |
 
+**Query parameters** (all optional)
+
+| Name | Type | Notes |
+|------|------|-------|
+| `limit` | number | Max items to return. Default `100`, capped at `500` |
+| `offset` | number | Number of items to skip. Default `0` |
+
+```bash
+curl "http://localhost:8080/assets/1/holders?limit=50&offset=100"
+```
+
 **Response schema** (per holder):
 
 | Field | Type | Notes |

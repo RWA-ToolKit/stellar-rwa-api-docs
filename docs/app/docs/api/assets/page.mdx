@@ -17,9 +17,12 @@ Returns an array of asset objects.
 |------|------|-------|
 | `asset_type` | string | Filter by class: `real_estate`, `invoice`, `commodity` |
 | `active` | boolean | Filter by active status |
+| `limit` | number | Max items to return. Default `100`, capped at `500` |
+| `offset` | number | Number of items to skip. Default `0` |
 
 ```bash
 curl "http://localhost:8080/assets?asset_type=real_estate&active=true"
+curl "http://localhost:8080/assets?limit=50&offset=100"
 ```
 
 **Response schema** (per asset):

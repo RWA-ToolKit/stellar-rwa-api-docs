@@ -17,6 +17,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::json;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::{Any, CorsLayer};
@@ -27,6 +28,29 @@ use crate::models::ApiErrorBody;
 /// Sustained requests-per-second allowed per client IP, with bursting.
 const RATE_LIMIT_PER_SECOND: u64 = 5;
 const RATE_LIMIT_BURST: u32 = 20;
+
+/// Page size used when a list endpoint's `?limit=` is omitted.
+const DEFAULT_PAGE_SIZE: usize = 100;
+/// Hard ceiling on `?limit=`, so a single request can't force an unbounded
+/// response regardless of how large the underlying collection grows.
+const MAX_PAGE_SIZE: usize = 500;
+
+/// Shared `?limit=&offset=` pagination for list endpoints whose underlying
+/// collection has no inherent bound (assets, holders).
+#[derive(Debug, Deserialize)]
+pub struct Pagination {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+impl Pagination {
+    /// Slice `items` to this page, clamping `limit` to [`MAX_PAGE_SIZE`].
+    pub fn apply<T>(&self, items: Vec<T>) -> Vec<T> {
+        let offset = self.offset.unwrap_or(0);
+        let limit = self.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
+        items.into_iter().skip(offset).take(limit).collect()
+    }
+}
 
 /// Errors surfaced to API clients as a JSON body with an appropriate status.
 #[derive(Debug)]
