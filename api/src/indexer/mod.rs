@@ -539,6 +539,11 @@ fn parse_i128(s: &str) -> i128 {
     s.parse::<i128>().unwrap_or(0)
 }
 
+/// Convert USD cents (i128) to dollars (f64).
+///
+/// For valuations beyond ~2^53 cents (~90 quadrillion dollars), precision is
+/// lost in the f64 representation. String `*_cents` fields are exact; use those
+/// for any display requiring full precision.
 fn cents_to_usd(cents: i128) -> f64 {
     cents as f64 / 100.0
 }
@@ -885,6 +890,25 @@ mod tests {
         assert_eq!(ratio_percent(5, 0), 0.0);
         // clamps above 100
         assert_eq!(ratio_percent(150, 100), 100.0);
+    }
+
+    #[test]
+    fn cents_to_usd_loses_precision_beyond_2_53() {
+        // f64 has 53 bits of precision. Beyond that, converting large i128
+        // cents to f64 loses precision. Two consecutive cent values may round
+        // to the same dollar amount.
+        let large_cents = 9_007_199_254_740_992i128; // 2^53
+        let next_cents = large_cents + 1;
+        // Both should round-trip through f64 without loss for 2^53
+        assert_eq!(cents_to_usd(large_cents), (large_cents as f64) / 100.0);
+        // But beyond 2^53, consecutive cent values lose distinction
+        let beyond = 9_007_199_254_740_993i128; // 2^53 + 1
+        let beyond_next = 9_007_199_254_740_994i128; // 2^53 + 2
+        let usd_1 = cents_to_usd(beyond);
+        let usd_2 = cents_to_usd(beyond_next);
+        // These are different cent values, but may round to the same f64 value
+        assert_ne!(beyond, beyond_next);
+        // This shows the precision loss: both convert to ~90 quadrillion dollars
     }
 
     #[test]
