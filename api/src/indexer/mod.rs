@@ -204,12 +204,35 @@ impl AppState {
         self.inner.store(Arc::new(next));
     }
 
-    /// Test-only: build state pre-populated with `snapshot`, so route
-    /// handlers can be exercised directly without running the indexer.
+    /// Test-only: build state pre-populated with `snapshot`.
     #[cfg(test)]
     pub(crate) fn for_test(config: Config, metrics: PrometheusHandle, snapshot: Snapshot) -> Self {
         let state = AppState::new(config, metrics);
         state.replace(snapshot);
+        state
+    }
+
+    /// Test-only: build state backed by an empty snapshot, synthesizing config/metrics.
+    #[cfg(test)]
+    pub fn for_test_empty() -> Self {
+        use metrics_exporter_prometheus::PrometheusBuilder;
+        let config = Config::from_env().expect("default config values are valid");
+        let metrics = PrometheusBuilder::new().build_recorder().handle();
+        AppState {
+            inner: ArcSwap::from_arc(Arc::new(Snapshot::default())),
+            config: Arc::new(config),
+            metrics,
+        }
+    }
+
+    /// Test-only: build state pre-seeded with the provided assets.
+    #[cfg(test)]
+    pub fn with_assets(assets: Vec<Asset>) -> Self {
+        let state = Self::for_test_empty();
+        state.replace(Snapshot {
+            assets,
+            ..Snapshot::default()
+        });
         state
     }
 }

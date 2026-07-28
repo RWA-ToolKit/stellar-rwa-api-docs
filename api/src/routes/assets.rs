@@ -64,43 +64,105 @@ mod tests {
     use tower::ServiceExt as _;
 
     use crate::indexer::AppState;
-    use crate::models::ApiErrorBody;
+    use crate::models::{ApiErrorBody, Asset};
 
-    /// Build a minimal router containing only the `GET /assets/:id` route,
-    /// backed by an empty in-memory snapshot (no assets indexed).
     fn test_router() -> Router {
-        let state = AppState::for_test();
+        let state = AppState::for_test_empty();
         Router::new()
             .route("/assets/:id", get(super::detail))
             .with_state(state)
     }
 
+    fn stub_asset(id: u64, asset_type: &str, active: bool) -> Asset {
+        Asset {
+            id,
+            token_contract: format!("CONTRACT{id}"),
+            issuer: format!("ISSUER{id}"),
+            name: format!("Asset {id}"),
+            symbol: format!("TKN{id}"),
+            asset_type: asset_type.to_string(),
+            description: String::new(),
+            valuation_cents: "0".to_string(),
+            valuation_usd: 0.0,
+            decimals: 7,
+            total_supply: "0".to_string(),
+            holders: 0,
+            active,
+            paused: false,
+            compliance_contract: format!("COMPLIANCE{id}"),
+            created_at_ledger: 1,
+        }
+    }
+
+    fn list_router(assets: Vec<Asset>) -> Router {
+        let state = AppState::with_assets(assets);
+        Router::new()
+            .route("/assets", get(super::list))
+            .with_state(state)
+    }
+
+    async fn get_assets(app: Router, uri: &str) -> Vec<Asset> {
+        let resp = app
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "expected 200 from {uri}, got {}", resp.status());
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes)
+            .unwrap_or_else(|e| panic!("failed to parse asset list JSON from {uri}: {e}"))
+    }
+
     #[tokio::test]
     async fn get_asset_by_unknown_id_returns_404() {
         let app = test_router();
-
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/assets/99999")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/assets/99999").body(Body::empty()).unwrap())
             .await
             .unwrap();
-
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let error: ApiErrorBody = serde_json::from_slice(&body).unwrap();
-
         assert_eq!(error.error, "not_found");
-        assert!(
-            error.message.contains("99999"),
-            "expected the missing id in the error message, got: {:?}",
-            error.message,
-        );
+        assert!(error.message.contains("99999"));
+    }
+
+    #[tokio::test]
+    async fn filter_by_asset_type_returns_matching_assets() {
+        let assets = vec![
+            stub_asset(1, "real_estate", true),
+            stub_asset(2, "real_estate", false),
+            stub_asset(3, "bond", true),
+        ];
+        let result = get_assets(list_router(assets), "/assets?asset_type=real_estate").await;
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|a| a.asset_type == "real_estate"));
+    }
+
+    #[tokio::test]
+    async fn filter_by_active_returns_only_active_assets() {
+        let assets = vec![
+            stub_asset(1, "real_estate", true),
+            stub_asset(2, "bond", true),
+            stub_asset(3, "real_estate", false),
+        ];
+        let result = get_assets(list_router(assets), "/assets?active=true").await;
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|a| a.active));
+    }
+
+    #[tokio::test]
+    async fn filter_by_asset_type_and_active_combined() {
+        let assets = vec![
+            stub_asset(1, "real_estate", true),
+            stub_asset(2, "real_estate", false),
+            stub_asset(3, "bond", true),
+        ];
+        let result = get_assets(list_router(assets), "/assets?asset_type=real_estate&active=true").await;
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 1);
     }
 }
