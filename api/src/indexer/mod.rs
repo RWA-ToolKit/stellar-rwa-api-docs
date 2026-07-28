@@ -698,14 +698,28 @@ impl Indexer {
                 )
                 .await?;
 
-            // Dividends for this asset token; treated as empty on failure so one
-            // asset's dividend contract issue doesn't abort the whole refresh.
+            // Dividends for this asset token.  On failure we preserve the last
+            // known distributions from the previous snapshot rather than
+            // resetting to empty, so a transient RPC hiccup doesn't make the
+            // API silently report "no dividends" for an asset.
             let dists = match self.index_dividends(&raw.token_contract).await {
                 Ok(dists) => dists,
                 Err(e) => {
                     record_asset_read_error(raw.id, "dividends");
-                    tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; treating as empty");
-                    Vec::new()
+                    let prev = self
+                        .state
+                        .snapshot()
+                        .dividends
+                        .remove(&raw.id)
+                        .unwrap_or_default();
+                    tracing::warn!(
+                        asset_id = raw.id,
+                        error = %e,
+                        preserved = prev.len(),
+                        "dividends read failed; keeping previous {} distribution(s)",
+                        prev.len(),
+                    );
+                    prev
                 }
             };
             total_distributions += dists.len();
