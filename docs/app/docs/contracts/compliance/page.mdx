@@ -1,6 +1,7 @@
 export const metadata = {
   title: "Compliance Contract",
   description: "KYC allowlist and jurisdiction rules — the on-chain transfer gate.",
+  canonical: "/docs/contracts/compliance",
 };
 
 # Compliance Contract
@@ -134,6 +135,15 @@ const op = compliance.call(
 | `("removed", address)` | `()` | `remove` |
 | `("blockjur",)` | `jurisdiction` | `block_jurisdiction` |
 | `("unblkjur",)` | `jurisdiction` | `unblock_jurisdiction` |
+
+## Error codes
+
+| Code | Error Name | Description |
+|------|------------|-------------|
+| 1 | `AlreadyInitialized` | Contract already initialized. Callable only once. |
+| 3 | `RecordNotFound` | Address record does not exist on the allowlist. |
+| 4 | `InvalidExpiry` | Expiry ledger is in the past or invalid. |
+| 5 | `Unauthorized` | Caller is not the admin. |
 
 ## Security considerations
 

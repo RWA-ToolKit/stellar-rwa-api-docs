@@ -1,6 +1,7 @@
 export const metadata = {
   title: "Asset Token Contract",
   description: "Compliant RWA token — every transfer is gated by the compliance contract.",
+  canonical: "/docs/contracts/asset-token",
 };
 
 # Asset Token Contract
@@ -162,6 +163,19 @@ const op = token.call(
 | `("pause",)` / `("unpause",)` | `admin` | `pause` / `unpause` |
 | `("valuation",)` | `new_valuation` | `update_valuation` |
 | `("setcomp",)` | `compliance` | `set_compliance` |
+
+## Error codes
+
+| Code | Error Name | Description |
+|------|------------|-------------|
+| 1 | `AlreadyInitialized` | Contract already initialized. Callable only once. |
+| 3 | `Unauthorized` | Caller is not the admin. |
+| 4 | `InsufficientBalance` | Caller does not hold enough balance to transfer or burn. |
+| 5 | `InvalidAmount` | Amount is invalid (≤ 0, exceeds bounds, or negative valuation). |
+| 6 | `Paused` | Token transfers and mints are paused. |
+| 7 | `SenderNotCompliant` | Sender failed the compliance gate. |
+| 8 | `RecipientNotCompliant` | Recipient failed the compliance gate. |
+| 9 | `Overflow` | Minting would exceed maximum supply. |
 
 ## Security considerations
 

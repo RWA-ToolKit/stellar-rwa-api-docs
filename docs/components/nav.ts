@@ -38,6 +38,7 @@ export const NAV: NavSection[] = [
     title: "Guides",
     items: [
       { title: "Compliance Guide", href: "/docs/compliance-guide" },
+      { title: "Time & Ledgers", href: "/docs/time-and-ledgers" },
       { title: "Web App Guide", href: "/docs/web-app" },
       { title: "Integration", href: "/docs/integration" },
     ],

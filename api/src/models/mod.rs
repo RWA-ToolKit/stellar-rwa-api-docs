@@ -48,7 +48,14 @@ pub struct Holder {
 pub struct ComplianceSummary {
     /// Total addresses that have ever been added to the allowlist.
     pub total_records: usize,
-    /// Addresses currently passing the on-chain `is_allowed` gate.
+    /// Addresses whose stored KYC status is `Approved`.
+    ///
+    /// This reflects the stored status field only, not the on-chain
+    /// `is_allowed` gate — a record can count as `approved` here while
+    /// failing `is_allowed` (e.g. an expired record, or one in a
+    /// jurisdiction later blocked via `is_jurisdiction_blocked`). Treat
+    /// this as "ever approved by compliance", not "currently permitted
+    /// to transact".
     pub approved: usize,
     pub suspended: usize,
     pub rejected: usize,
@@ -75,8 +82,16 @@ pub struct Distribution {
     pub total_amount: String,
     /// Amount claimed so far (raw i128, as a string).
     pub distributed: String,
-    /// Percentage of the pool claimed, 0–100 with two decimals.
+    /// Percentage of the pool claimed, rounded to two decimals.
+    ///
+    /// Under normal conditions this is in the range 0–100. When
+    /// `overflow_detected` is `true` the value will exceed 100, exposing the
+    /// raw on-chain anomaly rather than silently clamping it.
     pub claimed_percent: f64,
+    /// `true` when `distributed` exceeds `total_amount`, which can happen if
+    /// the on-chain dividend contract allows double-claim vectors. Callers
+    /// should treat this as a data-integrity warning.
+    pub overflow_detected: bool,
     pub completed: bool,
     pub snapshot_ledger: u32,
     pub created_at_ledger: u32,
@@ -104,4 +119,24 @@ pub struct Stats {
 pub struct ApiErrorBody {
     pub error: String,
     pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_body_serialization() {
+        let error = ApiErrorBody {
+            error: "invalid_request".to_string(),
+            message: "Asset not found".to_string(),
+        };
+
+        let json = serde_json::to_value(&error).expect("serialization should succeed");
+
+        assert_eq!(json["error"], "invalid_request");
+        assert_eq!(json["message"], "Asset not found");
+        assert!(json.is_object());
+        assert_eq!(json.as_object().unwrap().len(), 2);
+    }
 }
