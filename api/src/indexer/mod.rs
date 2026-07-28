@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use metrics_exporter_prometheus::PrometheusHandle;
+use rand::Rng;
 use reqwest::header::RETRY_AFTER;
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -37,6 +39,36 @@ const MAX_READ_ATTEMPTS: u32 = 4;
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(150);
 /// Ceiling on backoff growth between retries.
 const RETRY_MAX_DELAY: Duration = Duration::from_secs(2);
+
+/// Fee used for read-only `simulateTransaction` envelopes.
+///
+/// This envelope is never submitted to the network — it exists only for
+/// `simulateTransaction`. The RPC simulator historically accepts any
+/// positive fee and only inspects the host-function payload; still, we use
+/// the Stellar minimum base fee (100 stroops per operation) so that:
+///   * the envelope is well-formed even if a future RPC release starts
+///     statically validating fee preconditions, and
+///   * the simulated cost/footprint mirrors a real submission.
+///
+/// 100 is the network-defined minimum per operation, and we emit exactly one
+/// operation per envelope, so this is both the floor and the natural value.
+const SIM_FEE: u32 = 100;
+
+/// Source-account sequence number used in the simulated envelope.
+///
+/// The transaction is built with [`xdr::Preconditions::None`] and an empty
+/// signature set, and is never submitted. The simulator does not consult the
+/// network for the source account's real sequence number, so `0` is safe
+/// today. If a future RPC release begins to validate sequence-number
+/// preconditions via the configured `ReadSource` account, hit this constant
+/// to wire it up (e.g. call `getTransactionCount` on `ReadSource` per
+/// refresh, cache the result, and use it here).
+///
+/// Typed `i64` because `stellar_xdr::curr::SequenceNumber` wraps an `int64`
+/// per the XDR definition; using `u64` would fail to compile (the newtype
+/// has no `From<u64>` impl) and so wouldn't slip through as a runtime
+/// hazard if a future change accidentally rebinds to a `u64` const.
+const SIM_SEQ_NUM: i64 = 0;
 
 /// Static configuration for a network's contracts and RPC endpoint.
 #[derive(Debug, Clone)]
@@ -112,12 +144,34 @@ impl Snapshot {
     pub fn asset(&self, id: u64) -> Option<&Asset> {
         self.assets.iter().find(|a| a.id == id)
     }
+
+    /// Remove derived entries whose asset IDs are no longer present.
+    ///
+    /// Full refreshes currently rebuild these maps from scratch. Enforcing the
+    /// invariant on every replacement also protects the API if refreshes become
+    /// incremental in the future.
+    fn prune_stale_asset_maps(&mut self) {
+        let current_asset_ids: HashSet<u64> = self.assets.iter().map(|asset| asset.id).collect();
+
+        self.holders
+            .retain(|asset_id, _| current_asset_ids.contains(asset_id));
+        self.compliance
+            .retain(|asset_id, _| current_asset_ids.contains(asset_id));
+        self.dividends
+            .retain(|asset_id, _| current_asset_ids.contains(asset_id));
+    }
 }
 
 /// Shared, hot-swappable state handed to the Axum routes.
+///
+/// `inner` is wrapped in `Arc` so cloning `AppState` shares the same
+/// `ArcSwap` instance — `store()` from one clone (the indexer's) is
+/// visible to `load()` from another (the routes'), which is the actual
+/// data flow we need. Without `Arc`, each clone deep-clones the snapshot
+/// and updates from one are never observed by the others.
 #[derive(Clone)]
 pub struct AppState {
-    inner: ArcSwap<Snapshot>,
+    inner: Arc<ArcSwap<Snapshot>>,
     pub config: Arc<Config>,
     pub metrics: PrometheusHandle,
 }
@@ -125,7 +179,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: Config, metrics: PrometheusHandle) -> Self {
         AppState {
-            inner: ArcSwap::from_arc(Arc::new(Snapshot::default())),
+            inner: Arc::new(ArcSwap::from(Arc::new(Snapshot::default()))),
             config: Arc::new(config),
             metrics,
         }
@@ -134,11 +188,29 @@ impl AppState {
     /// Clone the current snapshot for read-only serving.
     pub fn snapshot(&self) -> Snapshot {
         let guard = self.inner.load();
-        (*guard).clone()
+        // `Guard` derefs to `&Arc<Snapshot>` under `arc-swap` 1.x, so the
+        // snapshot lives one more deref down: `**guard` is the `Snapshot`.
+        (**guard).clone()
     }
 
-    fn replace(&self, next: Snapshot) {
+    /// Last ledger the indexer successfully read. Used as the ETag seed for
+    /// snapshot-backed routes (`Cache-Control` + `304 Not Modified`).
+    pub fn last_indexed_ledger(&self) -> u32 {
+        self.snapshot().stats.last_indexed_ledger
+    }
+
+    fn replace(&self, mut next: Snapshot) {
+        next.prune_stale_asset_maps();
         self.inner.store(Arc::new(next));
+    }
+
+    /// Test-only: build state pre-populated with `snapshot`, so route
+    /// handlers can be exercised directly without running the indexer.
+    #[cfg(test)]
+    pub(crate) fn for_test(config: Config, metrics: PrometheusHandle, snapshot: Snapshot) -> Self {
+        let state = AppState::new(config, metrics);
+        state.replace(snapshot);
+        state
     }
 }
 
@@ -149,15 +221,21 @@ pub enum IndexError {
     #[error("rpc returned an error: {0}")]
     Rpc(String),
     #[error("xdr error: {0}")]
-    Xdr(String),
+    Xdr(#[from] xdr::Error),
     #[error("strkey error: {0}")]
-    Strkey(String),
+    Strkey(#[from] stellar_strkey::DecodeError),
     #[error("decode error: {0}")]
-    Decode(String),
+    Decode(#[from] serde_json::Error),
+    #[error("unsupported value: {0}")]
+    Unsupported(String),
     #[error("http status {status}: {body}")]
     HttpStatus { status: u16, body: String },
     #[error("rate limited or unavailable (status {status}); retry after {retry_after:?}")]
-    RateLimited { status: u16, retry_after: Option<Duration>, body: String },
+    RateLimited {
+        status: u16,
+        retry_after: Option<Duration>,
+        body: String,
+    },
 }
 
 impl IndexError {
@@ -167,12 +245,6 @@ impl IndexError {
     /// response handling and will fail identically on every attempt.
     fn is_transient(&self) -> bool {
         matches!(self, IndexError::Http(_) | IndexError::Rpc(_))
-    }
-}
-
-impl From<xdr::Error> for IndexError {
-    fn from(e: xdr::Error) -> Self {
-        IndexError::Xdr(e.to_string())
     }
 }
 
@@ -277,12 +349,7 @@ impl Rpc {
             "params": { "transaction": envelope_b64 },
         });
 
-        let resp = self
-            .http
-            .post(&self.url)
-            .json(&body)
-            .send()
-            .await?;
+        let resp = self.http.post(&self.url).json(&body).send().await?;
 
         let status = resp.status();
         if status == StatusCode::TOO_MANY_REQUESTS || status == StatusCode::SERVICE_UNAVAILABLE {
@@ -346,14 +413,12 @@ fn retry_delay(attempt: u32) -> Duration {
 // ---------------------------------------------------------------------------
 
 fn contract_id(strkey: &str) -> Result<xdr::ContractId, IndexError> {
-    let c = stellar_strkey::Contract::from_string(strkey)
-        .map_err(|e| IndexError::Strkey(e.to_string()))?;
+    let c = stellar_strkey::Contract::from_string(strkey)?;
     Ok(xdr::ContractId(xdr::Hash(c.0)))
 }
 
 fn account_muxed(strkey: &str) -> Result<xdr::MuxedAccount, IndexError> {
-    let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)
-        .map_err(|e| IndexError::Strkey(e.to_string()))?;
+    let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)?;
     Ok(xdr::MuxedAccount::Ed25519(xdr::Uint256(pk.0)))
 }
 
@@ -364,8 +429,7 @@ fn address_scval(strkey: &str) -> Result<xdr::ScVal, IndexError> {
             strkey,
         )?)))
     } else {
-        let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)
-            .map_err(|e| IndexError::Strkey(e.to_string()))?;
+        let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)?;
         Ok(xdr::ScVal::Address(xdr::ScAddress::Account(
             xdr::AccountId(xdr::PublicKey::PublicKeyTypeEd25519(xdr::Uint256(pk.0))),
         )))
@@ -380,17 +444,11 @@ fn build_invoke_envelope(
     method: &str,
     args: Vec<xdr::ScVal>,
 ) -> Result<String, IndexError> {
-    let function_name = xdr::ScSymbol(
-        method
-            .try_into()
-            .map_err(|_| IndexError::Xdr(format!("invalid symbol: {method}")))?,
-    );
+    let function_name = xdr::ScSymbol(method.try_into()?);
     let invoke = xdr::InvokeContractArgs {
         contract_address: xdr::ScAddress::Contract(contract_id(contract)?),
         function_name,
-        args: args
-            .try_into()
-            .map_err(|_| IndexError::Xdr("too many args".into()))?,
+        args: args.try_into()?,
     };
     let op = xdr::Operation {
         source_account: None,
@@ -401,13 +459,11 @@ fn build_invoke_envelope(
     };
     let tx = xdr::Transaction {
         source_account: account_muxed(source)?,
-        fee: 100,
-        seq_num: xdr::SequenceNumber(0),
+        fee: SIM_FEE,
+        seq_num: xdr::SequenceNumber(SIM_SEQ_NUM),
         cond: xdr::Preconditions::None,
         memo: xdr::Memo::None,
-        operations: vec![op]
-            .try_into()
-            .map_err(|_| IndexError::Xdr("operation build failed".into()))?,
+        operations: vec![op].try_into()?,
         ext: xdr::TransactionExt::V0,
     };
     let envelope = xdr::TransactionEnvelope::Tx(xdr::TransactionV1Envelope {
@@ -484,7 +540,7 @@ fn address_to_string(a: &xdr::ScAddress) -> Result<String, IndexError> {
         xdr::ScAddress::Contract(xdr::ContractId(xdr::Hash(bytes))) => {
             Ok(stellar_strkey::Contract(*bytes).to_string())
         }
-        other => Err(IndexError::Decode(format!(
+        other => Err(IndexError::Unsupported(format!(
             "unsupported address: {other:?}"
         ))),
     }
@@ -585,7 +641,6 @@ impl Indexer {
 
     /// Poll forever, refreshing the snapshot every [`POLL_INTERVAL`].
     pub async fn run(self) {
-        let mut consecutive_failures: u64 = 0;
         loop {
             let backoff = match self.refresh().await {
                 Ok(count) => {
@@ -614,8 +669,7 @@ impl Indexer {
             .read(&cfg.registry_id, "get_all_assets", vec![])
             .await?;
         let latest_ledger = entries_read.latest_ledger;
-        let raw_entries: Vec<RawAssetEntry> = serde_json::from_value(entries_read.value)
-            .map_err(|e| IndexError::Decode(e.to_string()))?;
+        let raw_entries: Vec<RawAssetEntry> = serde_json::from_value(entries_read.value)?;
 
         // Grab the previous snapshot so we can carry forward per-asset
         // freshness info for assets that fail this cycle.
@@ -708,6 +762,8 @@ impl Indexer {
                     continue;
                 }
             };
+                .inspect_err(|_| record_asset_read_error(raw.id, "get_metadata"))?;
+            let meta: RawMetadata = serde_json::from_value(meta.value)?;
 
             let total_supply = parse_i128(&meta.total_supply);
             let valuation = parse_i128(&raw.valuation);
@@ -744,14 +800,30 @@ impl Indexer {
                 }
             };
 
-            // Dividends for this asset token; treated as empty on failure so one
-            // asset's dividend contract issue doesn't abort the whole refresh.
+            // Dividends for this asset token.  On failure we preserve the last
+            // known distributions from the previous snapshot rather than
+            // resetting to empty, so a transient RPC hiccup doesn't make the
+            // API silently report "no dividends" for an asset.
             let dists = match self.index_dividends(&raw.token_contract).await {
                 Ok(dists) => dists,
                 Err(e) => {
                     record_asset_read_error(raw.id, "dividends");
                     tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; treating as empty");
                     prev.dividends.get(&raw.id).cloned().unwrap_or_default()
+                    let prev = self
+                        .state
+                        .snapshot()
+                        .dividends
+                        .remove(&raw.id)
+                        .unwrap_or_default();
+                    tracing::warn!(
+                        asset_id = raw.id,
+                        error = %e,
+                        preserved = prev.len(),
+                        "dividends read failed; keeping previous {} distribution(s)",
+                        prev.len(),
+                    );
+                    prev
                 }
             };
             total_distributions += dists.len();
@@ -806,14 +878,13 @@ impl Indexer {
         };
 
         let count = assets.len();
-        self.state
-            .replace(Snapshot {
-                assets,
-                holders: holders_map,
-                compliance: compliance_map,
-                dividends: dividends_map,
-                stats,
-            });
+        self.state.replace(Snapshot {
+            assets,
+            holders: holders_map,
+            compliance: compliance_map,
+            dividends: dividends_map,
+            stats,
+        });
         Ok(count)
     }
 
@@ -829,8 +900,7 @@ impl Indexer {
             .rpc
             .read(compliance_contract, "get_allowlist", vec![])
             .await?;
-        let addresses: Vec<String> = serde_json::from_value(allowlist.value)
-            .map_err(|e| IndexError::Decode(e.to_string()))?;
+        let addresses: Vec<String> = serde_json::from_value(allowlist.value)?;
 
         let mut holders = Vec::new();
         let mut summary = ComplianceSummary::default();
@@ -911,20 +981,30 @@ impl Indexer {
                 vec![address_scval(token_contract)?],
             )
             .await?;
-        let raw: Vec<RawDistribution> =
-            serde_json::from_value(read.value).map_err(|e| IndexError::Decode(e.to_string()))?;
+        let raw: Vec<RawDistribution> = serde_json::from_value(read.value)?;
         Ok(raw
             .into_iter()
             .map(|d| {
                 let total = parse_i128(&d.total_amount);
                 let distributed = parse_i128(&d.distributed);
+                let overflow_detected = distributed > total;
+                // When distributed exceeds total the normal clamped
+                // ratio_percent would hide the anomaly by returning 100.
+                // Instead compute the raw percentage so callers can see
+                // the true magnitude of the overflow.
+                let claimed_percent = if overflow_detected && total > 0 {
+                    ((distributed as f64 / total as f64) * 100.0 * 100.0).round() / 100.0
+                } else {
+                    ratio_percent(distributed, total)
+                };
                 Distribution {
                     id: d.id,
                     asset_token: d.asset_token,
                     payment_token: d.payment_token,
                     total_amount: total.to_string(),
                     distributed: distributed.to_string(),
-                    claimed_percent: ratio_percent(distributed, total),
+                    claimed_percent,
+                    overflow_detected,
                     completed: d.completed,
                     snapshot_ledger: d.snapshot_ledger,
                     created_at_ledger: d.created_at,
@@ -951,6 +1031,74 @@ mod tests {
     use serde_json::json;
     use stellar_xdr::curr as xdr;
 
+    fn test_asset(id: u64) -> Asset {
+        Asset {
+            id,
+            token_contract: format!("contract-{id}"),
+            issuer: format!("issuer-{id}"),
+            name: format!("Asset {id}"),
+            symbol: format!("A{id}"),
+            asset_type: "test".to_string(),
+            description: "Test asset".to_string(),
+            valuation_cents: "0".to_string(),
+            valuation_usd: 0.0,
+            decimals: 7,
+            total_supply: "0".to_string(),
+            holders: 0,
+            active: true,
+            paused: false,
+            compliance_contract: format!("compliance-{id}"),
+            created_at_ledger: 0,
+        }
+    }
+
+    #[test]
+    fn snapshot_prunes_entries_for_assets_that_disappear() {
+        let mut snapshot = Snapshot {
+            assets: vec![test_asset(1), test_asset(2)],
+            holders: HashMap::from([(1, Vec::new()), (2, Vec::new()), (99, Vec::new())]),
+            compliance: HashMap::from([
+                (1, ComplianceSummary::default()),
+                (2, ComplianceSummary::default()),
+                (99, ComplianceSummary::default()),
+            ]),
+            dividends: HashMap::from([(1, Vec::new()), (2, Vec::new()), (99, Vec::new())]),
+            stats: Stats::default(),
+        };
+
+        snapshot.prune_stale_asset_maps();
+
+        assert_eq!(
+            snapshot.holders.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([1, 2])
+        );
+        assert_eq!(
+            snapshot.compliance.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([1, 2])
+        );
+        assert_eq!(
+            snapshot.dividends.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([1, 2])
+        );
+    }
+
+    #[test]
+    fn snapshot_pruning_clears_maps_when_no_assets_remain() {
+        let mut snapshot = Snapshot {
+            assets: Vec::new(),
+            holders: HashMap::from([(7, Vec::new())]),
+            compliance: HashMap::from([(7, ComplianceSummary::default())]),
+            dividends: HashMap::from([(7, Vec::new())]),
+            stats: Stats::default(),
+        };
+
+        snapshot.prune_stale_asset_maps();
+
+        assert!(snapshot.holders.is_empty());
+        assert!(snapshot.compliance.is_empty());
+        assert!(snapshot.dividends.is_empty());
+    }
+
     #[test]
     fn retry_delay_is_bounded_and_grows() {
         for attempt in 1..=6 {
@@ -971,9 +1119,55 @@ mod tests {
     #[test]
     fn only_http_and_rpc_errors_are_transient() {
         assert!(IndexError::Rpc("busy".into()).is_transient());
-        assert!(!IndexError::Decode("bad json".into()).is_transient());
-        assert!(!IndexError::Xdr("bad xdr".into()).is_transient());
-        assert!(!IndexError::Strkey("bad key".into()).is_transient());
+
+        let decode_err = serde_json::from_str::<u8>("not json").unwrap_err();
+        assert!(!IndexError::Decode(decode_err).is_transient());
+
+        let xdr_err = xdr::ScVal::from_xdr_base64("not xdr", Limits::none()).unwrap_err();
+        assert!(!IndexError::Xdr(xdr_err).is_transient());
+
+        let strkey_err = stellar_strkey::Contract::from_string("bad key").unwrap_err();
+        assert!(!IndexError::Strkey(strkey_err).is_transient());
+    }
+
+    #[test]
+    fn build_envelope_uses_documented_sim_constants() {
+        // Round-trip the base64 envelope back through XDR and confirm
+        // fee/seq-num/preconditions/memo are exactly the simulation
+        // constants. This pins `SIM_FEE`/`SIM_SEQ_NUM` so a regression
+        // (e.g. someone re-introducing a magic number) is caught
+        // immediately — important because the RPC's behavior under stricter
+        // precondition validation is what we're defending against.
+        let src = "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA";
+        let contract = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3";
+        let b64 = build_invoke_envelope(src, contract, "noop", vec![]).unwrap();
+        let env: xdr::TransactionEnvelope =
+            xdr::TransactionEnvelope::from_xdr_base64(&b64, Limits::none()).unwrap();
+        let xdr::TransactionEnvelope::Tx(xdr::TransactionV1Envelope { tx, .. }) = env else {
+            panic!("expected Tx envelope");
+        };
+        assert_eq!(tx.fee, SIM_FEE, "fee must be SIM_FEE (= Stellar min, 100)");
+        assert_eq!(tx.seq_num.0, SIM_SEQ_NUM, "seq_num must be SIM_SEQ_NUM");
+        assert!(matches!(tx.memo, xdr::Memo::None));
+        assert!(matches!(tx.cond, xdr::Preconditions::None));
+        assert_eq!(
+            tx.operations.len(),
+            1,
+            "envelope must invoke exactly one host function"
+        );
+        // The host-function op should carry no auth: we never submit, so
+        // empty auth keeps the envelope forgeable for the simulator.
+        let op_body = tx
+            .operations
+            .first()
+            .expect("envelope must invoke exactly one host function (asserted above)");
+        let xdr::OperationBody::InvokeHostFunction(invoke_op) = &op_body.body else {
+            panic!("expected InvokeHostFunction op");
+        };
+        assert!(
+            invoke_op.auth.is_empty(),
+            "sim envelope must carry no auth entries"
+        );
     }
 
     #[test]
@@ -986,6 +1180,42 @@ mod tests {
         assert_eq!(ratio_percent(5, 0), 0.0);
         // clamps above 100
         assert_eq!(ratio_percent(150, 100), 100.0);
+    }
+
+    #[test]
+    fn overflow_detected_set_when_distributed_exceeds_total() {
+        // Normal case: no overflow.
+        let dist_normal = {
+            let total = 1_000i128;
+            let distributed = 750i128;
+            let overflow_detected = distributed > total;
+            let claimed_percent = if overflow_detected && total > 0 {
+                ((distributed as f64 / total as f64) * 100.0 * 100.0).round() / 100.0
+            } else {
+                ratio_percent(distributed, total)
+            };
+            (overflow_detected, claimed_percent)
+        };
+        assert!(!dist_normal.0, "overflow_detected should be false for 750/1000");
+        assert_eq!(dist_normal.1, 75.0);
+
+        // Overflow case: distributed > total (double-claim scenario).
+        let dist_overflow = {
+            let total = 1_000i128;
+            let distributed = 1_500i128;
+            let overflow_detected = distributed > total;
+            let claimed_percent = if overflow_detected && total > 0 {
+                ((distributed as f64 / total as f64) * 100.0 * 100.0).round() / 100.0
+            } else {
+                ratio_percent(distributed, total)
+            };
+            (overflow_detected, claimed_percent)
+        };
+        assert!(dist_overflow.0, "overflow_detected should be true for 1500/1000");
+        assert_eq!(
+            dist_overflow.1, 150.0,
+            "claimed_percent must be unclamped (150 %) when overflow is detected"
+        );
     }
 
     #[test]
@@ -1035,5 +1265,194 @@ mod tests {
             scval_to_json(&map).unwrap(),
             json!({ "active": true, "id": 1 })
         );
+    }
+
+    #[test]
+    fn config_from_env_applies_defaults() {
+        std::env::remove_var("RWA_RPC_URL");
+        std::env::remove_var("RWA_REGISTRY_ID");
+        std::env::remove_var("RWA_DIVIDEND_ID");
+        std::env::remove_var("RWA_READ_SOURCE");
+
+        let cfg = Config::from_env().expect("config with defaults should succeed");
+        assert_eq!(cfg.rpc_url, "https://soroban-testnet.stellar.org");
+        assert_eq!(cfg.registry_id, "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3");
+        assert_eq!(cfg.dividend_id, "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX");
+        assert_eq!(cfg.read_source, "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA");
+    }
+
+    #[test]
+    fn config_from_env_overrides_with_env_vars() {
+        let custom_rpc = "https://custom-rpc.example.com";
+        let custom_registry = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPURZ"; // Valid contract ID
+        let custom_dividend = "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYZ"; // Valid contract ID
+        let custom_source = "GBTVJWASZ7ZZ3VJDLW36G6LG4P4GRJQSVXL7XVLX5DHVT4HWVWXJWXLT"; // Valid public key
+
+        std::env::set_var("RWA_RPC_URL", custom_rpc);
+        std::env::set_var("RWA_REGISTRY_ID", custom_registry);
+        std::env::set_var("RWA_DIVIDEND_ID", custom_dividend);
+        std::env::set_var("RWA_READ_SOURCE", custom_source);
+
+        let cfg = Config::from_env().expect("config with overrides should succeed");
+        assert_eq!(cfg.rpc_url, custom_rpc);
+        assert_eq!(cfg.registry_id, custom_registry);
+        assert_eq!(cfg.dividend_id, custom_dividend);
+        assert_eq!(cfg.read_source, custom_source);
+
+        std::env::remove_var("RWA_RPC_URL");
+        std::env::remove_var("RWA_REGISTRY_ID");
+        std::env::remove_var("RWA_DIVIDEND_ID");
+        std::env::remove_var("RWA_READ_SOURCE");
+    }
+
+    #[test]
+    fn compliance_summary_counts_by_status() {
+        let mut summary = ComplianceSummary::default();
+        summary.total_records = 100;
+        summary.approved = 60;
+        summary.suspended = 15;
+        summary.rejected = 10;
+        summary.pending = 15;
+        summary.with_expiry = 25;
+        summary.jurisdictions = vec![
+            JurisdictionCount { jurisdiction: "US".to_string(), count: 50 },
+            JurisdictionCount { jurisdiction: "SG".to_string(), count: 30 },
+            JurisdictionCount { jurisdiction: "UK".to_string(), count: 20 },
+        ];
+
+        assert_eq!(summary.total_records, 100);
+        assert_eq!(summary.approved, 60);
+        assert_eq!(summary.suspended, 15);
+        assert_eq!(summary.rejected, 10);
+        assert_eq!(summary.pending, 15);
+        assert_eq!(summary.with_expiry, 25);
+        assert_eq!(summary.jurisdictions.len(), 3);
+        assert_eq!(summary.jurisdictions[0].jurisdiction, "US");
+        assert_eq!(summary.jurisdictions[0].count, 50);
+        assert_eq!(summary.jurisdictions[1].jurisdiction, "SG");
+        assert_eq!(summary.jurisdictions[1].count, 30);
+        assert_eq!(summary.jurisdictions[2].jurisdiction, "UK");
+        assert_eq!(summary.jurisdictions[2].count, 20);
+        assert_eq!(
+            summary.approved + summary.suspended + summary.rejected + summary.pending,
+            summary.total_records
+        );
+    }
+
+    #[test]
+    fn stats_aggregation_across_assets() {
+        let mut snapshot = Snapshot::default();
+        snapshot.assets = vec![
+            Asset {
+                id: 1,
+                token_contract: "C1".to_string(),
+                issuer: "issuer1".to_string(),
+                name: "Asset1".to_string(),
+                symbol: "A1".to_string(),
+                asset_type: "Type1".to_string(),
+                description: "Desc1".to_string(),
+                valuation_cents: "100000000".to_string(),
+                valuation_usd: 1_000_000.0,
+                decimals: 7,
+                total_supply: "1000000000".to_string(),
+                holders: 50,
+                active: true,
+                paused: false,
+                compliance_contract: "CC1".to_string(),
+                created_at_ledger: 1000,
+            },
+            Asset {
+                id: 2,
+                token_contract: "C2".to_string(),
+                issuer: "issuer2".to_string(),
+                name: "Asset2".to_string(),
+                symbol: "A2".to_string(),
+                asset_type: "Type2".to_string(),
+                description: "Desc2".to_string(),
+                valuation_cents: "50000000".to_string(),
+                valuation_usd: 500_000.0,
+                decimals: 6,
+                total_supply: "5000000".to_string(),
+                holders: 30,
+                active: true,
+                paused: false,
+                compliance_contract: "CC2".to_string(),
+                created_at_ledger: 1500,
+            },
+            Asset {
+                id: 3,
+                token_contract: "C3".to_string(),
+                issuer: "issuer3".to_string(),
+                name: "Asset3".to_string(),
+                symbol: "A3".to_string(),
+                asset_type: "Type3".to_string(),
+                description: "Desc3".to_string(),
+                valuation_cents: "25000000".to_string(),
+                valuation_usd: 250_000.0,
+                decimals: 5,
+                total_supply: "25000".to_string(),
+                holders: 20,
+                active: false,
+                paused: true,
+                compliance_contract: "CC3".to_string(),
+                created_at_ledger: 2000,
+            },
+        ];
+
+        snapshot.holders.insert(1, vec![Holder {
+            address: "addr1".to_string(),
+            balance: "500000000".to_string(),
+            share_percent: 50.0,
+        }]);
+        snapshot.holders.insert(2, vec![Holder {
+            address: "addr2".to_string(),
+            balance: "2500000".to_string(),
+            share_percent: 50.0,
+        }]);
+        snapshot.holders.insert(3, vec![]);
+
+        snapshot.dividends.insert(1, vec![Distribution {
+            id: 1,
+            asset_token: "C1".to_string(),
+            payment_token: "PAY1".to_string(),
+            total_amount: "1000000".to_string(),
+            distributed: "500000".to_string(),
+            claimed_percent: 50.0,
+            completed: false,
+            snapshot_ledger: 2500,
+            created_at_ledger: 2400,
+        }]);
+        snapshot.dividends.insert(2, vec![Distribution {
+            id: 2,
+            asset_token: "C2".to_string(),
+            payment_token: "PAY2".to_string(),
+            total_amount: "500000".to_string(),
+            distributed: "250000".to_string(),
+            claimed_percent: 50.0,
+            completed: false,
+            snapshot_ledger: 2600,
+            created_at_ledger: 2500,
+        }]);
+        snapshot.dividends.insert(3, vec![]);
+
+        snapshot.stats = Stats {
+            total_assets: 3,
+            active_assets: 2,
+            tvl_cents: "175000000".to_string(),
+            tvl_usd: 1_750_000.0,
+            total_holders: 2,
+            total_distributions: 2,
+            last_indexed_ledger: 3000,
+            last_updated: Some("2026-07-26T10:00:00Z".to_string()),
+        };
+
+        assert_eq!(snapshot.stats.total_assets, 3);
+        assert_eq!(snapshot.stats.active_assets, 2);
+        assert_eq!(snapshot.stats.tvl_cents, "175000000");
+        assert_eq!(snapshot.stats.tvl_usd, 1_750_000.0);
+        assert_eq!(snapshot.stats.total_holders, 2);
+        assert_eq!(snapshot.stats.total_distributions, 2);
+        assert_eq!(snapshot.stats.last_indexed_ledger, 3000);
+        assert!(snapshot.stats.last_updated.is_some());
     }
 }

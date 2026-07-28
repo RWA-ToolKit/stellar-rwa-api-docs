@@ -1,0 +1,165 @@
+export const metadata = {
+  title: "Time & Ledgers",
+  description: "Understanding the ledger-sequence time model used across contracts and the API.",
+  canonical: "/docs/time-and-ledgers",
+};
+
+# Time & Ledgers
+
+Throughout the Stellar RWA contracts and API, time is never expressed as a wall-clock
+timestamp. Instead, all time values use **Stellar ledger sequence numbers** — a monotonically
+increasing counter that increments roughly every 5 seconds on the Stellar network.
+
+This design eliminates time-sync issues and makes on-chain logic deterministic.
+
+## Why ledger sequences?
+
+- **No clock skew.** A ledger number is determined by network consensus, not server clocks.
+- **Deterministic ordering.** You can always compare ledger numbers to know which event happened
+  first, without worrying about timestamp precision.
+- **Simpler contracts.** No need to worry about wall-clock adjustments or leap seconds.
+
+## Ledger sequences in contracts
+
+All on-chain time fields are `u32` ledger sequence numbers:
+
+- **Compliance contract:** `verified_at`, `expires_at` (approval expiry)
+- **Dividend contract:** `created_at` (when a distribution was announced)
+- **Registry contract:** `created_at` (when an asset was registered)
+- **Asset-token contract:** `clawback_at` (when a clawback was performed)
+
+### The special case: `expires_at = 0` means "never"
+
+When an expiry field (like `expires_at` in the compliance allowlist) is set to `0`, it means
+the permission **never expires**. This is a universal convention across all contracts:
+
+```ts
+// Add a user to the allowlist with no expiry
+const op = compliance.call(
+  "add_to_allowlist",
+  admin,
+  userAddress,
+  "US",
+  0  // expires_at = 0 means never expires
+);
+```
+
+To set an expiry, provide a **future** ledger number:
+
+```ts
+import { Horizon } from "@stellar/stellar-sdk";
+
+const server = new Horizon.Server("https://horizon.stellar.org");
+const ledgers = await server.ledgers().limit(1).order("desc").call();
+const now = ledgers.records[0].sequence;
+
+// Approve for 1 year (~6.3 million ledgers at ~5s per ledger)
+const expiresAt = now + 6_300_000;
+
+const op = compliance.call(
+  "add_to_allowlist",
+  admin,
+  userAddress,
+  "US",
+  expiresAt
+);
+```
+
+### Checking expiry at runtime
+
+The compliance contract's `is_allowed` gate checks expiry like this:
+
+```rust
+// User is approved if:
+// (expires_at == 0)     -- never expires, OR
+// (now < expires_at)    -- current ledger is before expiry ledger
+```
+
+Once `now >= expires_at`, the approval is considered expired and `is_allowed` returns `false`,
+blocking all transfers. No on-chain cron job is needed — expiry is enforced at read time.
+
+## Ledger sequences in the API
+
+The REST API mirrors this design. All time fields in responses are **ledger sequence numbers**,
+never wall-clock timestamps:
+
+### Assets endpoint
+
+```json
+{
+  "id": 1,
+  "name": "Manhattan Loft",
+  "created_at_ledger": 3502885,
+  "total_supply": "1000000"
+}
+```
+
+### Compliance endpoint
+
+```json
+{
+  "address": "GBUQWP...",
+  "status": "Approved",
+  "jurisdiction": "US",
+  "verified_at": 3500000,
+  "expires_at": 9800000,
+  "expired": false
+}
+```
+
+The `expired` field is a convenience boolean: `true` if `expires_at != 0 && expires_at <= last_indexed_ledger`.
+
+### Dividends endpoint
+
+```json
+{
+  "id": 1,
+  "asset_id": 1,
+  "per_share_cents": "100",
+  "created_at_ledger": 3510000,
+  "payable_at_ledger": 3520000,
+  "claimed": 500
+}
+```
+
+## Converting ledger numbers to wall-clock time
+
+To convert a ledger number to an approximate wall-clock time, use the Horizon API:
+
+```ts
+const server = new Horizon.Server("https://horizon.stellar.org");
+const ledger = await server.ledgers().ledger(3502885).call();
+
+console.log(ledger.closed_at);  // "2026-05-15T10:30:00Z"
+```
+
+Each ledger also records the wall-clock time it was closed, which you can use to estimate
+when a given ledger sequence number occurred.
+
+**Rule of thumb:** Stellar produces ~1 ledger per 5 seconds, so a ledger 1 million in the
+future is roughly 58 days away.
+
+## Handling expires_at in your integration
+
+When building an integration against the API:
+
+1. **Display the ledger number and the `expired` boolean.** Don't try to calculate expiry
+   yourself; trust the `expired` field from the API.
+2. **Refresh approval before expiry.** If you're tracking approval expiry, call
+   `add_to_allowlist` again before the `expires_at` ledger is reached.
+3. **Remember `expires_at = 0` means never.** Don't treat `0` as an epoch or default timestamp.
+4. **Use the API's `expired` field.** The API already handles the comparison against the
+   current indexed ledger for you.
+
+## Common mistakes
+
+- **Treating ledger numbers as timestamps:** They are not microseconds, milliseconds, or any
+  other time unit. They are ledger sequence numbers only.
+- **Forgetting that `0` means "never":** Setting `expires_at: 0` will create an approval that
+  never expires, which may not be what you intended.
+- **Assuming expiry is checked by a cron job:** Expiry is enforced at read time (`is_allowed`).
+  Once the current ledger passes `expires_at`, the approval is immediately and deterministically
+  considered expired.
+- **Comparing ledger numbers across different chains:** Each Stellar network (testnet, public,
+  futurenet) has its own ledger sequence counter. Do not assume a ledger sequence is portable
+  between networks.

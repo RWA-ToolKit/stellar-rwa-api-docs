@@ -86,4 +86,13 @@ body {
   .chip {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
   }
+  .sr-only {
+    @apply absolute -m-px h-px w-px overflow-hidden whitespace-nowrap border-0 p-0;
+    clip: rect(0, 0, 0, 0);
+  }
+  .sr-only:focus,
+  .focus\:not-sr-only:focus {
+    @apply static m-auto h-auto w-auto overflow-visible whitespace-normal;
+    clip: auto;
+  }
 }
