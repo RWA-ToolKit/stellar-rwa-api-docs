@@ -98,7 +98,7 @@ pub fn router(state: AppState) -> Router {
 /// derived from `last_indexed_ledger`: two requests against the same indexed
 /// ledger are guaranteed to have identical bodies.
 async fn cache_headers(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
-    let ledger = state.last_indexed_ledger().await;
+    let ledger = state.last_indexed_ledger();
     let etag = format!("\"ledger-{ledger}\"");
 
     let fresh = req
