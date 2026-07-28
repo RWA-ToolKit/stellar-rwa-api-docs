@@ -1,0 +1,610 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Stellar RWA Indexing API",
+    "description": "Read-only REST API for tokenized real-world asset activity on Stellar. Indexes all contract state and serves JSON responses.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Stellar RWA Toolkit"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development (default)"
+    },
+    {
+      "url": "https://api.example.com",
+      "description": "Production API (replace with your configured API_BASE_URL)"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "API index",
+        "description": "Self-describing API index with available endpoints",
+        "operationId": "getIndex",
+        "tags": ["Info"],
+        "responses": {
+          "200": {
+            "description": "API index",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "endpoints": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "description": "Liveness probe for the indexer",
+        "operationId": "getHealth",
+        "tags": ["Info"],
+        "responses": {
+          "200": {
+            "description": "API is healthy"
+          }
+        }
+      }
+    },
+    "/stats": {
+      "get": {
+        "summary": "Platform statistics",
+        "description": "Platform-wide statistics including TVL, asset count, and holder counts",
+        "operationId": "getStats",
+        "tags": ["Stats"],
+        "responses": {
+          "200": {
+            "description": "Platform statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets": {
+      "get": {
+        "summary": "List all assets",
+        "description": "Returns all tokenized assets with valuation, supply and holder counts",
+        "operationId": "getAssets",
+        "tags": ["Assets"],
+        "parameters": [
+          {
+            "name": "asset_type",
+            "in": "query",
+            "description": "Filter by asset type",
+            "schema": {
+              "type": "string",
+              "enum": ["real_estate", "invoice", "commodity"]
+            }
+          },
+          {
+            "name": "active",
+            "in": "query",
+            "description": "Filter by active status",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of asset objects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Asset"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}": {
+      "get": {
+        "summary": "Get asset by ID",
+        "description": "Full detail for a single asset by registry id",
+        "operationId": "getAssetById",
+        "tags": ["Assets"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Asset registry ID",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Asset object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Asset"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Asset not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}/holders": {
+      "get": {
+        "summary": "Get asset holders",
+        "description": "Holder list with balances for a tokenized asset, sorted by balance descending",
+        "operationId": "getAssetHolders",
+        "tags": ["Holders"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Asset registry ID",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of holder objects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Holder"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Asset not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}/compliance": {
+      "get": {
+        "summary": "Get asset compliance summary",
+        "description": "Aggregate compliance summary with counts only (no personally identifying information)",
+        "operationId": "getAssetCompliance",
+        "tags": ["Compliance"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Asset registry ID",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compliance summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Asset not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}/dividends": {
+      "get": {
+        "summary": "Get asset dividends",
+        "description": "Distribution history for an asset, ordered by creation ledger (newest first)",
+        "operationId": "getAssetDividends",
+        "tags": ["Dividends"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Asset registry ID",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of dividend/distribution objects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Distribution"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Asset not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Asset": {
+        "type": "object",
+        "required": [
+          "id",
+          "token_contract",
+          "issuer",
+          "name",
+          "symbol",
+          "asset_type",
+          "description",
+          "valuation_cents",
+          "valuation_usd",
+          "decimals",
+          "total_supply",
+          "holders",
+          "active",
+          "paused",
+          "compliance_contract",
+          "created_at_ledger"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Registry asset ID"
+          },
+          "token_contract": {
+            "type": "string",
+            "description": "Asset-token contract address"
+          },
+          "issuer": {
+            "type": "string",
+            "description": "Issuer account address"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable asset name"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Ticker symbol (e.g. MLOFT)"
+          },
+          "asset_type": {
+            "type": "string",
+            "enum": ["real_estate", "invoice", "commodity"],
+            "description": "Classification of the asset"
+          },
+          "description": {
+            "type": "string",
+            "description": "Asset description"
+          },
+          "valuation_cents": {
+            "type": "string",
+            "description": "USD cents valuation (i128 as string to preserve precision)"
+          },
+          "valuation_usd": {
+            "type": "number",
+            "format": "double",
+            "description": "USD dollars (convenience float, subject to rounding)"
+          },
+          "decimals": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of decimal places for display"
+          },
+          "total_supply": {
+            "type": "string",
+            "description": "Total token supply in base units (i128 as string)"
+          },
+          "holders": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of addresses with positive balance"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether the asset is active"
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Whether transfers and mints are paused"
+          },
+          "compliance_contract": {
+            "type": "string",
+            "description": "Compliance gate contract address"
+          },
+          "created_at_ledger": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Ledger at asset creation"
+          }
+        }
+      },
+      "Stats": {
+        "type": "object",
+        "required": [
+          "total_assets",
+          "active_assets",
+          "tvl_cents",
+          "tvl_usd",
+          "total_holders",
+          "total_distributions",
+          "last_indexed_ledger",
+          "last_updated"
+        ],
+        "properties": {
+          "total_assets": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total number of assets registered"
+          },
+          "active_assets": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of active (not paused) assets"
+          },
+          "tvl_cents": {
+            "type": "string",
+            "description": "Total value locked in USD cents (i128 as string)"
+          },
+          "tvl_usd": {
+            "type": "number",
+            "format": "double",
+            "description": "Total value locked in USD (convenience float)"
+          },
+          "total_holders": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of distinct approved addresses across all assets"
+          },
+          "total_distributions": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total number of dividend distributions created"
+          },
+          "last_indexed_ledger": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Most recent ledger that was successfully indexed"
+          },
+          "last_updated": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp of the most recent index refresh"
+          }
+        }
+      },
+      "Holder": {
+        "type": "object",
+        "required": ["address", "balance", "share_percent"],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Holder account address"
+          },
+          "balance": {
+            "type": "string",
+            "description": "Balance in base units (i128 as string)"
+          },
+          "share_percent": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Percentage of total supply (0–100 with 2 decimal places)"
+          }
+        }
+      },
+      "ComplianceSummary": {
+        "type": "object",
+        "required": [
+          "total_records",
+          "approved",
+          "suspended",
+          "rejected",
+          "pending",
+          "with_expiry",
+          "jurisdictions"
+        ],
+        "properties": {
+          "total_records": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total addresses ever added to the allowlist"
+          },
+          "approved": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Currently passing is_allowed check"
+          },
+          "suspended": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Currently suspended addresses"
+          },
+          "rejected": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rejected addresses"
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Pending review addresses"
+          },
+          "with_expiry": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Records with a non-zero expires_at timestamp"
+          },
+          "jurisdictions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JurisdictionCount"
+            },
+            "description": "Breakdown by jurisdiction"
+          }
+        }
+      },
+      "JurisdictionCount": {
+        "type": "object",
+        "required": ["jurisdiction", "count"],
+        "properties": {
+          "jurisdiction": {
+            "type": "string",
+            "description": "Jurisdiction code (e.g. US, UK)"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of records for this jurisdiction"
+          }
+        }
+      },
+      "Distribution": {
+        "type": "object",
+        "required": [
+          "id",
+          "asset_token",
+          "payment_token",
+          "total_amount",
+          "distributed",
+          "claimed_percent",
+          "completed",
+          "snapshot_ledger",
+          "created_at_ledger"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Distribution ID"
+          },
+          "asset_token": {
+            "type": "string",
+            "description": "Asset token contract address"
+          },
+          "payment_token": {
+            "type": "string",
+            "description": "Token used for payment"
+          },
+          "total_amount": {
+            "type": "string",
+            "description": "Distribution pool size in payment token's base units (i128 as string)"
+          },
+          "distributed": {
+            "type": "string",
+            "description": "Amount claimed so far in base units (i128 as string)"
+          },
+          "claimed_percent": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Percentage claimed (0–100 with 2 decimal places)"
+          },
+          "completed": {
+            "type": "boolean",
+            "description": "Whether the distribution is fully claimed"
+          },
+          "snapshot_ledger": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Ledger at distribution creation (snapshot point)"
+          },
+          "created_at_ledger": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Ledger where distribution was created"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error", "message"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error code (e.g. not_found)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message"
+          }
+        }
+      }
+    }
+  }
+}

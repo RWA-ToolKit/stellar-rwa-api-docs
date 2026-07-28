@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV } from "./nav";
+import { Search } from "./Search";
 
 /** Left-hand documentation navigation with active-page highlighting. */
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
@@ -10,6 +11,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <nav className="space-y-7 text-sm" aria-label="Documentation">
+      <Search />
       {NAV.map((section) => (
         <div key={section.title}>
           <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wide text-base-300/70">

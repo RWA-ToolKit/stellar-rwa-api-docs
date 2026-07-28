@@ -10,7 +10,11 @@ The Stellar RWA API is a **read-only** REST service that indexes all tokenized
 asset activity on Stellar and serves it as JSON. It is written in Rust (Axum +
 tokio) and holds no keys — it never signs or submits transactions.
 
-Base URL (local): `http://localhost:8080`
+**Base URL:** Set via environment variable `NEXT_PUBLIC_API_BASE_URL` (defaults to `http://localhost:8080` for development). Readers should replace examples with their configured URL.
+
+<CalloutBox variant="tip">
+An OpenAPI 3.0 specification is available at <code>/openapi.json</code> — use it with Swagger UI, Postman, or to generate SDK clients. See <a href="/docs/integration">Integration Guide</a> for examples.
+</CalloutBox>
 
 ## How indexing works
 

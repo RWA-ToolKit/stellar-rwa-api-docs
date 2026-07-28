@@ -6,6 +6,10 @@ export const metadata = {
 
 # Asset Token Contract
 
+<CalloutBox variant="note">
+This documentation is validated against the contract specification in <code>docs/lib/contracts.ts</code>. Method signatures must match the spec — if the contract changes, update both the docs and the spec.
+</CalloutBox>
+
 A compliant token representing a tokenized real-world asset. Every transfer is
 gated by an external compliance contract: **both** the sender and the recipient
 must pass `is_allowed` before any balance moves. Minting is gated on the
