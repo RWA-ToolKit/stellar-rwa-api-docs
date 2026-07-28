@@ -115,7 +115,7 @@ pub struct Stats {
 }
 
 /// Standard error body returned by the API.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct ApiErrorBody {
     pub error: String,
     pub message: String,
