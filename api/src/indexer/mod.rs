@@ -579,6 +579,14 @@ fn address_to_string(a: &xdr::ScAddress) -> Result<String, IndexError> {
         xdr::ScAddress::Contract(xdr::ContractId(xdr::Hash(bytes))) => {
             Ok(stellar_strkey::Contract(*bytes).to_string())
         }
+        // Muxed accounts and any future address variants are not expected from
+        // these contracts, but returning an error here would abort the entire
+        // refresh cycle via `?`.  Emit a recognisable placeholder so callers
+        // can still process the rest of the response.
+        other => {
+            tracing::warn!("address_to_string: unsupported address variant, using placeholder: {other:?}");
+            Ok(format!("unknown:{other:?}"))
+        }
         other => Err(IndexError::Unsupported(format!(
             "unsupported address: {other:?}"
         ))),
@@ -904,6 +912,35 @@ impl Indexer {
                         let summary = prev.compliance.get(&raw.id).cloned().unwrap_or_default();
                         (holders, summary, Some(e.to_string()))
                     }
+            // Holders: every allowlisted address with a positive balance.
+            // Also best-effort: fall back to previous holders on failure.
+            let (holders, summary, compliance_err) = match self
+                .index_compliance_and_holders(
+                    &meta.compliance_contract,
+                    &raw.token_contract,
+                    total_supply,
+                )
+                .await
+            {
+                Ok(result) => (result.0, result.1, None),
+                Err(e) => {
+                    record_asset_read_error(raw.id, "compliance");
+                    tracing::warn!(
+                        asset_id = raw.id,
+                        error = %e,
+                        "compliance/holders read failed; using previous data"
+                    );
+                    let holders = prev
+                        .holders
+                        .get(&raw.id)
+                        .cloned()
+                        .unwrap_or_default();
+                    let summary = prev
+                        .compliance
+                        .get(&raw.id)
+                        .cloned()
+                        .unwrap_or_default();
+                    (holders, summary, Some(e.to_string()))
                 }
             };
 
