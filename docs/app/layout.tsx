@@ -14,12 +14,22 @@ export const metadata: Metadata = {
   },
   description,
   openGraph: {
-    title: "Stellar RWA Docs",
+    title: {
+      default: "Stellar RWA Docs",
+      template: "%s · Stellar RWA Docs",
+    },
     description,
     type: "website",
     url: SITE_URL,
   },
-  twitter: { card: "summary", title: "Stellar RWA Docs", description },
+  twitter: {
+    card: "summary_large_image",
+    title: {
+      default: "Stellar RWA Docs",
+      template: "%s · Stellar RWA Docs",
+    },
+    description,
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
