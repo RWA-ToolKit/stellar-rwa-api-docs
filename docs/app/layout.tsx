@@ -26,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className="min-h-screen">
+        <a href="#main-content" className="sr-only focus:not-sr-only">Skip to main content</a>
         <DocHeader />
         {children}
       </body>
