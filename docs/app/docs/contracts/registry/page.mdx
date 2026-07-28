@@ -1,6 +1,7 @@
 export const metadata = {
   title: "Registry Contract",
   description: "Canonical on-chain index of every tokenized asset, plus total value locked.",
+  canonical: "/docs/contracts/registry",
 };
 
 # Registry Contract
@@ -110,6 +111,16 @@ const op = registry.call(
 |-------|------|------------|
 | `("register", issuer)` | `id` | `register_asset` |
 | `("deactvate",)` | `asset_id` | `deactivate_asset` |
+
+## Error codes
+
+| Code | Error Name | Description |
+|------|------------|-------------|
+| 1 | `AlreadyInitialized` | Contract already initialized. Callable only once. |
+| 2 | `NotInitialized` | Contract has not been initialized. |
+| 3 | `Unauthorized` | Caller is not the admin. |
+| 4 | `AssetNotFound` | Asset does not exist in the registry. |
+| 5 | `InvalidValuation` | Valuation is negative or invalid. |
 
 ## Security considerations
 

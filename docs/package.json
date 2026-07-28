@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint && eslint . --ext .tsx,.ts --plugin jsx-a11y",
+    "lint:a11y": "eslint . --ext .tsx,.ts --plugin jsx-a11y"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.0",
@@ -23,6 +24,8 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.19",
+    "eslint": "^8.57.0",
+    "eslint-plugin-jsx-a11y": "^6.8.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.6",
     "typescript": "^5.5.3"
