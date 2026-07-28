@@ -165,11 +165,13 @@ pub enum IndexError {
     #[error("rpc returned an error: {0}")]
     Rpc(String),
     #[error("xdr error: {0}")]
-    Xdr(String),
+    Xdr(#[from] xdr::Error),
     #[error("strkey error: {0}")]
-    Strkey(String),
+    Strkey(#[from] stellar_strkey::DecodeError),
     #[error("decode error: {0}")]
-    Decode(String),
+    Decode(#[from] serde_json::Error),
+    #[error("unsupported value: {0}")]
+    Unsupported(String),
     #[error("http status {status}: {body}")]
     HttpStatus { status: u16, body: String },
     #[error("rate limited or unavailable (status {status}); retry after {retry_after:?}")]
@@ -187,12 +189,6 @@ impl IndexError {
     /// response handling and will fail identically on every attempt.
     fn is_transient(&self) -> bool {
         matches!(self, IndexError::Http(_) | IndexError::Rpc(_))
-    }
-}
-
-impl From<xdr::Error> for IndexError {
-    fn from(e: xdr::Error) -> Self {
-        IndexError::Xdr(e.to_string())
     }
 }
 
@@ -361,14 +357,12 @@ fn retry_delay(attempt: u32) -> Duration {
 // ---------------------------------------------------------------------------
 
 fn contract_id(strkey: &str) -> Result<xdr::ContractId, IndexError> {
-    let c = stellar_strkey::Contract::from_string(strkey)
-        .map_err(|e| IndexError::Strkey(e.to_string()))?;
+    let c = stellar_strkey::Contract::from_string(strkey)?;
     Ok(xdr::ContractId(xdr::Hash(c.0)))
 }
 
 fn account_muxed(strkey: &str) -> Result<xdr::MuxedAccount, IndexError> {
-    let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)
-        .map_err(|e| IndexError::Strkey(e.to_string()))?;
+    let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)?;
     Ok(xdr::MuxedAccount::Ed25519(xdr::Uint256(pk.0)))
 }
 
@@ -379,8 +373,7 @@ fn address_scval(strkey: &str) -> Result<xdr::ScVal, IndexError> {
             strkey,
         )?)))
     } else {
-        let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)
-            .map_err(|e| IndexError::Strkey(e.to_string()))?;
+        let pk = stellar_strkey::ed25519::PublicKey::from_string(strkey)?;
         Ok(xdr::ScVal::Address(xdr::ScAddress::Account(
             xdr::AccountId(xdr::PublicKey::PublicKeyTypeEd25519(xdr::Uint256(pk.0))),
         )))
@@ -395,17 +388,11 @@ fn build_invoke_envelope(
     method: &str,
     args: Vec<xdr::ScVal>,
 ) -> Result<String, IndexError> {
-    let function_name = xdr::ScSymbol(
-        method
-            .try_into()
-            .map_err(|_| IndexError::Xdr(format!("invalid symbol: {method}")))?,
-    );
+    let function_name = xdr::ScSymbol(method.try_into()?);
     let invoke = xdr::InvokeContractArgs {
         contract_address: xdr::ScAddress::Contract(contract_id(contract)?),
         function_name,
-        args: args
-            .try_into()
-            .map_err(|_| IndexError::Xdr("too many args".into()))?,
+        args: args.try_into()?,
     };
     let op = xdr::Operation {
         source_account: None,
@@ -420,9 +407,7 @@ fn build_invoke_envelope(
         seq_num: xdr::SequenceNumber(0),
         cond: xdr::Preconditions::None,
         memo: xdr::Memo::None,
-        operations: vec![op]
-            .try_into()
-            .map_err(|_| IndexError::Xdr("operation build failed".into()))?,
+        operations: vec![op].try_into()?,
         ext: xdr::TransactionExt::V0,
     };
     let envelope = xdr::TransactionEnvelope::Tx(xdr::TransactionV1Envelope {
@@ -499,7 +484,7 @@ fn address_to_string(a: &xdr::ScAddress) -> Result<String, IndexError> {
         xdr::ScAddress::Contract(xdr::ContractId(xdr::Hash(bytes))) => {
             Ok(stellar_strkey::Contract(*bytes).to_string())
         }
-        other => Err(IndexError::Decode(format!(
+        other => Err(IndexError::Unsupported(format!(
             "unsupported address: {other:?}"
         ))),
     }
@@ -628,8 +613,7 @@ impl Indexer {
             .read(&cfg.registry_id, "get_all_assets", vec![])
             .await?;
         let latest_ledger = entries_read.latest_ledger;
-        let raw_entries: Vec<RawAssetEntry> = serde_json::from_value(entries_read.value)
-            .map_err(|e| IndexError::Decode(e.to_string()))?;
+        let raw_entries: Vec<RawAssetEntry> = serde_json::from_value(entries_read.value)?;
 
         let mut assets = Vec::new();
         let mut holders_map: HashMap<u64, Vec<Holder>> = HashMap::new();
@@ -644,8 +628,7 @@ impl Indexer {
                 .read(&raw.token_contract, "get_metadata", vec![])
                 .await
                 .inspect_err(|_| record_asset_read_error(raw.id, "get_metadata"))?;
-            let meta: RawMetadata = serde_json::from_value(meta.value)
-                .map_err(|e| IndexError::Decode(e.to_string()))?;
+            let meta: RawMetadata = serde_json::from_value(meta.value)?;
 
             let total_supply = parse_i128(&meta.total_supply);
             let valuation = parse_i128(&raw.valuation);
@@ -741,8 +724,7 @@ impl Indexer {
             .rpc
             .read(compliance_contract, "get_allowlist", vec![])
             .await?;
-        let addresses: Vec<String> = serde_json::from_value(allowlist.value)
-            .map_err(|e| IndexError::Decode(e.to_string()))?;
+        let addresses: Vec<String> = serde_json::from_value(allowlist.value)?;
 
         let mut holders = Vec::new();
         let mut summary = ComplianceSummary::default();
@@ -823,8 +805,7 @@ impl Indexer {
                 vec![address_scval(token_contract)?],
             )
             .await?;
-        let raw: Vec<RawDistribution> =
-            serde_json::from_value(read.value).map_err(|e| IndexError::Decode(e.to_string()))?;
+        let raw: Vec<RawDistribution> = serde_json::from_value(read.value)?;
         Ok(raw
             .into_iter()
             .map(|d| {
@@ -894,9 +875,15 @@ mod tests {
     #[test]
     fn only_http_and_rpc_errors_are_transient() {
         assert!(IndexError::Rpc("busy".into()).is_transient());
-        assert!(!IndexError::Decode("bad json".into()).is_transient());
-        assert!(!IndexError::Xdr("bad xdr".into()).is_transient());
-        assert!(!IndexError::Strkey("bad key".into()).is_transient());
+
+        let decode_err = serde_json::from_str::<u8>("not json").unwrap_err();
+        assert!(!IndexError::Decode(decode_err).is_transient());
+
+        let xdr_err = xdr::ScVal::from_xdr_base64("not xdr", Limits::none()).unwrap_err();
+        assert!(!IndexError::Xdr(xdr_err).is_transient());
+
+        let strkey_err = stellar_strkey::Contract::from_string("bad key").unwrap_err();
+        assert!(!IndexError::Strkey(strkey_err).is_transient());
     }
 
     #[test]
