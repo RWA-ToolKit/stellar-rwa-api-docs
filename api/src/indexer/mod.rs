@@ -186,6 +186,15 @@ impl AppState {
     fn replace(&self, next: Snapshot) {
         self.inner.store(Arc::new(next));
     }
+
+    /// Test-only: build state pre-populated with `snapshot`, so route
+    /// handlers can be exercised directly without running the indexer.
+    #[cfg(test)]
+    pub(crate) fn for_test(config: Config, metrics: PrometheusHandle, snapshot: Snapshot) -> Self {
+        let state = AppState::new(config, metrics);
+        state.replace(snapshot);
+        state
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

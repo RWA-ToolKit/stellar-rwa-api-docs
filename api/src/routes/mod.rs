@@ -6,6 +6,9 @@ pub mod dividends;
 pub mod holders;
 pub mod stats;
 
+#[cfg(test)]
+mod test_support;
+
 use std::sync::Arc;
 
 use axum::{

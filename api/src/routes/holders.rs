@@ -20,3 +20,33 @@ pub async fn list(
     }
     Ok(Json(snap.holders.get(&id).cloned().unwrap_or_default()))
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::extract::{Path, State};
+
+    use super::list;
+    use crate::indexer::Snapshot;
+    use crate::routes::test_support::{asset, state_with};
+    use crate::routes::ApiError;
+
+    #[tokio::test]
+    async fn missing_asset_is_404() {
+        let state = state_with(Snapshot::default());
+
+        let err = list(State(state), Path(42)).await.unwrap_err();
+
+        assert!(matches!(err, ApiError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn present_asset_with_no_holders_is_empty_array() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        let state = state_with(snap);
+
+        let holders = list(State(state), Path(1)).await.expect("asset exists").0;
+
+        assert!(holders.is_empty());
+    }
+}
