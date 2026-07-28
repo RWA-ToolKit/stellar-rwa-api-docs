@@ -679,6 +679,10 @@ impl Indexer {
         let latest_ledger = entries_read.latest_ledger;
         let raw_entries: Vec<RawAssetEntry> = serde_json::from_value(entries_read.value)?;
 
+        // Grab the previous snapshot so we can carry forward per-asset
+        // freshness info for assets that fail this cycle.
+        let prev = self.state.snapshot();
+
         let mut assets = Vec::new();
         let mut holders_map: HashMap<u64, Vec<Holder>> = HashMap::new();
         let mut compliance_map: HashMap<u64, ComplianceSummary> = HashMap::new();
@@ -687,10 +691,85 @@ impl Indexer {
         let mut tvl: i128 = 0;
 
         for raw in &raw_entries {
-            let meta = self
+            // ── per-asset metadata + compliance reads (best-effort) ───────────
+            // A failure here is recorded and the asset is emitted with its
+            // previous data (if any) plus an `index_error`.  This mirrors the
+            // dividend handling below and means one broken asset contract can
+            // never abort the whole refresh cycle.
+            let meta_read = self
                 .rpc
                 .read(&raw.token_contract, "get_metadata", vec![])
                 .await
+                .inspect_err(|_| record_asset_read_error(raw.id, "get_metadata"));
+
+            let meta_read = match meta_read {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(
+                        asset_id = raw.id,
+                        error = %e,
+                        "get_metadata failed; keeping previous asset data"
+                    );
+                    // Re-emit the previous Asset (if we have one) with the
+                    // updated error, so consumers can detect staleness.
+                    if let Some(prev_asset) = prev.asset(raw.id) {
+                        let mut stale = prev_asset.clone();
+                        stale.index_error = Some(e.to_string());
+                        if let Some(prev_holders) = prev.holders.get(&raw.id) {
+                            holders_map.insert(raw.id, prev_holders.clone());
+                            total_distributions += prev
+                                .dividends
+                                .get(&raw.id)
+                                .map(|d| d.len())
+                                .unwrap_or(0);
+                            if stale.active {
+                                tvl += parse_i128(&stale.valuation_cents);
+                            }
+                        }
+                        if let Some(prev_comp) = prev.compliance.get(&raw.id) {
+                            compliance_map.insert(raw.id, prev_comp.clone());
+                        }
+                        if let Some(prev_dists) = prev.dividends.get(&raw.id) {
+                            dividends_map.insert(raw.id, prev_dists.clone());
+                        }
+                        assets.push(stale);
+                    }
+                    continue;
+                }
+            };
+
+            let asset_ledger = meta_read.latest_ledger;
+            let meta: RawMetadata = match serde_json::from_value(meta_read.value) {
+                Ok(m) => m,
+                Err(e) => {
+                    let err = IndexError::Decode(e.to_string());
+                    record_asset_read_error(raw.id, "get_metadata");
+                    tracing::warn!(
+                        asset_id = raw.id,
+                        error = %err,
+                        "metadata decode failed; keeping previous asset data"
+                    );
+                    if let Some(prev_asset) = prev.asset(raw.id) {
+                        let mut stale = prev_asset.clone();
+                        stale.index_error = Some(err.to_string());
+                        if stale.active {
+                            tvl += parse_i128(&stale.valuation_cents);
+                        }
+                        if let Some(prev_holders) = prev.holders.get(&raw.id) {
+                            holders_map.insert(raw.id, prev_holders.clone());
+                        }
+                        if let Some(prev_comp) = prev.compliance.get(&raw.id) {
+                            compliance_map.insert(raw.id, prev_comp.clone());
+                        }
+                        if let Some(prev_dists) = prev.dividends.get(&raw.id) {
+                            total_distributions += prev_dists.len();
+                            dividends_map.insert(raw.id, prev_dists.clone());
+                        }
+                        assets.push(stale);
+                    }
+                    continue;
+                }
+            };
                 .inspect_err(|_| record_asset_read_error(raw.id, "get_metadata"))?;
             let meta: RawMetadata = serde_json::from_value(meta.value)?;
 
@@ -698,13 +777,36 @@ impl Indexer {
             let valuation = parse_i128(&raw.valuation);
 
             // Holders: every allowlisted address with a positive balance.
-            let (holders, summary, _) = self
+            // Also best-effort: fall back to previous holders on failure.
+            let (holders, summary, compliance_err) = match self
                 .index_compliance_and_holders(
                     &meta.compliance_contract,
                     &raw.token_contract,
                     total_supply,
                 )
-                .await?;
+                .await
+            {
+                Ok(result) => (result.0, result.1, None),
+                Err(e) => {
+                    record_asset_read_error(raw.id, "compliance");
+                    tracing::warn!(
+                        asset_id = raw.id,
+                        error = %e,
+                        "compliance/holders read failed; using previous data"
+                    );
+                    let holders = prev
+                        .holders
+                        .get(&raw.id)
+                        .cloned()
+                        .unwrap_or_default();
+                    let summary = prev
+                        .compliance
+                        .get(&raw.id)
+                        .cloned()
+                        .unwrap_or_default();
+                    (holders, summary, Some(e.to_string()))
+                }
+            };
 
             // Dividends for this asset token.  On failure we preserve the last
             // known distributions from the previous snapshot rather than
@@ -714,6 +816,8 @@ impl Indexer {
                 Ok(dists) => dists,
                 Err(e) => {
                     record_asset_read_error(raw.id, "dividends");
+                    tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; treating as empty");
+                    prev.dividends.get(&raw.id).cloned().unwrap_or_default()
                     let prev = self
                         .state
                         .snapshot()
@@ -753,6 +857,8 @@ impl Indexer {
                 paused: meta.paused,
                 compliance_contract: meta.compliance_contract,
                 created_at_ledger: raw.created_at,
+                indexed_at_ledger: asset_ledger,
+                index_error: compliance_err,
             };
 
             holders_map.insert(raw.id, holders);
