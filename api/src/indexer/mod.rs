@@ -1146,4 +1146,193 @@ mod tests {
             json!({ "active": true, "id": 1 })
         );
     }
+
+    #[test]
+    fn config_from_env_applies_defaults() {
+        std::env::remove_var("RWA_RPC_URL");
+        std::env::remove_var("RWA_REGISTRY_ID");
+        std::env::remove_var("RWA_DIVIDEND_ID");
+        std::env::remove_var("RWA_READ_SOURCE");
+
+        let cfg = Config::from_env().expect("config with defaults should succeed");
+        assert_eq!(cfg.rpc_url, "https://soroban-testnet.stellar.org");
+        assert_eq!(cfg.registry_id, "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3");
+        assert_eq!(cfg.dividend_id, "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX");
+        assert_eq!(cfg.read_source, "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA");
+    }
+
+    #[test]
+    fn config_from_env_overrides_with_env_vars() {
+        let custom_rpc = "https://custom-rpc.example.com";
+        let custom_registry = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPURZ"; // Valid contract ID
+        let custom_dividend = "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYZ"; // Valid contract ID
+        let custom_source = "GBTVJWASZ7ZZ3VJDLW36G6LG4P4GRJQSVXL7XVLX5DHVT4HWVWXJWXLT"; // Valid public key
+
+        std::env::set_var("RWA_RPC_URL", custom_rpc);
+        std::env::set_var("RWA_REGISTRY_ID", custom_registry);
+        std::env::set_var("RWA_DIVIDEND_ID", custom_dividend);
+        std::env::set_var("RWA_READ_SOURCE", custom_source);
+
+        let cfg = Config::from_env().expect("config with overrides should succeed");
+        assert_eq!(cfg.rpc_url, custom_rpc);
+        assert_eq!(cfg.registry_id, custom_registry);
+        assert_eq!(cfg.dividend_id, custom_dividend);
+        assert_eq!(cfg.read_source, custom_source);
+
+        std::env::remove_var("RWA_RPC_URL");
+        std::env::remove_var("RWA_REGISTRY_ID");
+        std::env::remove_var("RWA_DIVIDEND_ID");
+        std::env::remove_var("RWA_READ_SOURCE");
+    }
+
+    #[test]
+    fn compliance_summary_counts_by_status() {
+        let mut summary = ComplianceSummary::default();
+        summary.total_records = 100;
+        summary.approved = 60;
+        summary.suspended = 15;
+        summary.rejected = 10;
+        summary.pending = 15;
+        summary.with_expiry = 25;
+        summary.jurisdictions = vec![
+            JurisdictionCount { jurisdiction: "US".to_string(), count: 50 },
+            JurisdictionCount { jurisdiction: "SG".to_string(), count: 30 },
+            JurisdictionCount { jurisdiction: "UK".to_string(), count: 20 },
+        ];
+
+        assert_eq!(summary.total_records, 100);
+        assert_eq!(summary.approved, 60);
+        assert_eq!(summary.suspended, 15);
+        assert_eq!(summary.rejected, 10);
+        assert_eq!(summary.pending, 15);
+        assert_eq!(summary.with_expiry, 25);
+        assert_eq!(summary.jurisdictions.len(), 3);
+        assert_eq!(summary.jurisdictions[0].jurisdiction, "US");
+        assert_eq!(summary.jurisdictions[0].count, 50);
+        assert_eq!(summary.jurisdictions[1].jurisdiction, "SG");
+        assert_eq!(summary.jurisdictions[1].count, 30);
+        assert_eq!(summary.jurisdictions[2].jurisdiction, "UK");
+        assert_eq!(summary.jurisdictions[2].count, 20);
+        assert_eq!(
+            summary.approved + summary.suspended + summary.rejected + summary.pending,
+            summary.total_records
+        );
+    }
+
+    #[test]
+    fn stats_aggregation_across_assets() {
+        let mut snapshot = Snapshot::default();
+        snapshot.assets = vec![
+            Asset {
+                id: 1,
+                token_contract: "C1".to_string(),
+                issuer: "issuer1".to_string(),
+                name: "Asset1".to_string(),
+                symbol: "A1".to_string(),
+                asset_type: "Type1".to_string(),
+                description: "Desc1".to_string(),
+                valuation_cents: "100000000".to_string(),
+                valuation_usd: 1_000_000.0,
+                decimals: 7,
+                total_supply: "1000000000".to_string(),
+                holders: 50,
+                active: true,
+                paused: false,
+                compliance_contract: "CC1".to_string(),
+                created_at_ledger: 1000,
+            },
+            Asset {
+                id: 2,
+                token_contract: "C2".to_string(),
+                issuer: "issuer2".to_string(),
+                name: "Asset2".to_string(),
+                symbol: "A2".to_string(),
+                asset_type: "Type2".to_string(),
+                description: "Desc2".to_string(),
+                valuation_cents: "50000000".to_string(),
+                valuation_usd: 500_000.0,
+                decimals: 6,
+                total_supply: "5000000".to_string(),
+                holders: 30,
+                active: true,
+                paused: false,
+                compliance_contract: "CC2".to_string(),
+                created_at_ledger: 1500,
+            },
+            Asset {
+                id: 3,
+                token_contract: "C3".to_string(),
+                issuer: "issuer3".to_string(),
+                name: "Asset3".to_string(),
+                symbol: "A3".to_string(),
+                asset_type: "Type3".to_string(),
+                description: "Desc3".to_string(),
+                valuation_cents: "25000000".to_string(),
+                valuation_usd: 250_000.0,
+                decimals: 5,
+                total_supply: "25000".to_string(),
+                holders: 20,
+                active: false,
+                paused: true,
+                compliance_contract: "CC3".to_string(),
+                created_at_ledger: 2000,
+            },
+        ];
+
+        snapshot.holders.insert(1, vec![Holder {
+            address: "addr1".to_string(),
+            balance: "500000000".to_string(),
+            share_percent: 50.0,
+        }]);
+        snapshot.holders.insert(2, vec![Holder {
+            address: "addr2".to_string(),
+            balance: "2500000".to_string(),
+            share_percent: 50.0,
+        }]);
+        snapshot.holders.insert(3, vec![]);
+
+        snapshot.dividends.insert(1, vec![Distribution {
+            id: 1,
+            asset_token: "C1".to_string(),
+            payment_token: "PAY1".to_string(),
+            total_amount: "1000000".to_string(),
+            distributed: "500000".to_string(),
+            claimed_percent: 50.0,
+            completed: false,
+            snapshot_ledger: 2500,
+            created_at_ledger: 2400,
+        }]);
+        snapshot.dividends.insert(2, vec![Distribution {
+            id: 2,
+            asset_token: "C2".to_string(),
+            payment_token: "PAY2".to_string(),
+            total_amount: "500000".to_string(),
+            distributed: "250000".to_string(),
+            claimed_percent: 50.0,
+            completed: false,
+            snapshot_ledger: 2600,
+            created_at_ledger: 2500,
+        }]);
+        snapshot.dividends.insert(3, vec![]);
+
+        snapshot.stats = Stats {
+            total_assets: 3,
+            active_assets: 2,
+            tvl_cents: "175000000".to_string(),
+            tvl_usd: 1_750_000.0,
+            total_holders: 2,
+            total_distributions: 2,
+            last_indexed_ledger: 3000,
+            last_updated: Some("2026-07-26T10:00:00Z".to_string()),
+        };
+
+        assert_eq!(snapshot.stats.total_assets, 3);
+        assert_eq!(snapshot.stats.active_assets, 2);
+        assert_eq!(snapshot.stats.tvl_cents, "175000000");
+        assert_eq!(snapshot.stats.tvl_usd, 1_750_000.0);
+        assert_eq!(snapshot.stats.total_holders, 2);
+        assert_eq!(snapshot.stats.total_distributions, 2);
+        assert_eq!(snapshot.stats.last_indexed_ledger, 3000);
+        assert!(snapshot.stats.last_updated.is_some());
+    }
 }
