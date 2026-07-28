@@ -82,8 +82,16 @@ pub struct Distribution {
     pub total_amount: String,
     /// Amount claimed so far (raw i128, as a string).
     pub distributed: String,
-    /// Percentage of the pool claimed, 0–100 with two decimals.
+    /// Percentage of the pool claimed, rounded to two decimals.
+    ///
+    /// Under normal conditions this is in the range 0–100. When
+    /// `overflow_detected` is `true` the value will exceed 100, exposing the
+    /// raw on-chain anomaly rather than silently clamping it.
     pub claimed_percent: f64,
+    /// `true` when `distributed` exceeds `total_amount`, which can happen if
+    /// the on-chain dividend contract allows double-claim vectors. Callers
+    /// should treat this as a data-integrity warning.
+    pub overflow_detected: bool,
     pub completed: bool,
     pub snapshot_ledger: u32,
     pub created_at_ledger: u32,
