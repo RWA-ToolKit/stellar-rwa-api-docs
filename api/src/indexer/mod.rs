@@ -548,9 +548,6 @@ fn address_to_string(a: &xdr::ScAddress) -> Result<String, IndexError> {
             tracing::warn!("address_to_string: unsupported address variant, using placeholder: {other:?}");
             Ok(format!("unknown:{other:?}"))
         }
-        other => Err(IndexError::Unsupported(format!(
-            "unsupported address: {other:?}"
-        ))),
     }
 }
 
@@ -742,7 +739,7 @@ impl Indexer {
             let meta: RawMetadata = match serde_json::from_value(meta_read.value) {
                 Ok(m) => m,
                 Err(e) => {
-                    let err = IndexError::Decode(e.to_string());
+                    let err = IndexError::Decode(e);
                     record_asset_read_error(raw.id, "get_metadata");
                     tracing::warn!(
                         asset_id = raw.id,
@@ -770,8 +767,6 @@ impl Indexer {
                     continue;
                 }
             };
-                .inspect_err(|_| record_asset_read_error(raw.id, "get_metadata"))?;
-            let meta: RawMetadata = serde_json::from_value(meta.value)?;
 
             let total_supply = parse_i128(&meta.total_supply);
             let valuation = parse_i128(&raw.valuation);
@@ -816,22 +811,8 @@ impl Indexer {
                 Ok(dists) => dists,
                 Err(e) => {
                     record_asset_read_error(raw.id, "dividends");
-                    tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; treating as empty");
+                    tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; keeping previous distributions");
                     prev.dividends.get(&raw.id).cloned().unwrap_or_default()
-                    let prev = self
-                        .state
-                        .snapshot()
-                        .dividends
-                        .remove(&raw.id)
-                        .unwrap_or_default();
-                    tracing::warn!(
-                        asset_id = raw.id,
-                        error = %e,
-                        preserved = prev.len(),
-                        "dividends read failed; keeping previous {} distribution(s)",
-                        prev.len(),
-                    );
-                    prev
                 }
             };
             total_distributions += dists.len();

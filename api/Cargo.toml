@@ -25,8 +25,6 @@ metrics = "0.24"
 metrics-exporter-prometheus = "0.16"
 rand = "0.9"
 url = "2"
-metrics = "0.23"
-metrics-exporter-prometheus = { version = "0.15", default-features = false }
 
 [dev-dependencies]
 insta = { version = "1", features = ["json"] }
