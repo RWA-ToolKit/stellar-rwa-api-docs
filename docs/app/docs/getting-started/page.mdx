@@ -59,6 +59,8 @@ asset. See the [Compliance Guide](/docs/compliance-guide).
 
 ## Quickstart
 
+### Running the API locally
+
 Run the API against the deployed Testnet contracts:
 
 ```bash
@@ -67,6 +69,43 @@ cd stellar-rwa-api-docs/api
 cp .env.example .env      # Testnet defaults are pre-filled
 cargo run
 # → listening on 0.0.0.0:8080
+```
+
+### Environment variables
+
+The API reads the following environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RWA_RPC_URL` | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint the indexer polls |
+| `RWA_REGISTRY_ID` | `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` | Deployed registry contract id (Testnet) |
+| `RWA_DIVIDEND_ID` | `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX` | Deployed dividend contract id (Testnet) |
+| `RWA_READ_SOURCE` | `GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA` | Funded account used as source for read simulations (must exist on the RPC) |
+| `PORT` | `8080` | HTTP server port |
+| `RUST_LOG` | `stellar_rwa_api=info,tower_http=warn` | Log filter (tracing-subscriber format) |
+
+The `.env.example` file includes Testnet defaults. Copy it and adjust as needed for your network.
+
+### Running with Docker
+
+Build and run the API in a container:
+
+```bash
+cd stellar-rwa-api-docs/api
+docker build -t stellar-rwa-api .
+docker run -p 8080:8080 \
+  -e RWA_RPC_URL=https://soroban-testnet.stellar.org \
+  -e RWA_REGISTRY_ID=CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3 \
+  -e RWA_DIVIDEND_ID=CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX \
+  -e RWA_READ_SOURCE=GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA \
+  -e PORT=8080 \
+  stellar-rwa-api
+```
+
+Or use an `.env` file:
+
+```bash
+docker run -p 8080:8080 --env-file .env stellar-rwa-api
 ```
 
 Then query it:
