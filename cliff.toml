@@ -1,0 +1,93 @@
+# git-cliff configuration for the stellar-rwa-api monorepo.
+#
+# This file is consumed by `git-cliff` (https://git-cliff.org/) to convert the
+# conventional-commit history into a Keep a Changelog 1.1.0-compatible section
+# of CHANGELOG.md. It does NOT touch git, tags, or api/Cargo.toml — those are
+# updated by the maintainer runbook in RELEASING.md.
+#
+# Invoke on release:
+#   git-cliff --tag vX.Y.Z --prepend CHANGELOG.md
+#
+# The maintainer is expected to inspect the resulting diff and edit it by hand
+# before committing: a single-commit bullet rarely reads well as a user-facing
+# note, and tags / breaking-change markers / PR links may need to be cleaned up.
+
+[changelog]
+header = """\
+# Changelog
+
+All notable changes to this repository are documented here. The format is based
+on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and entries from
+v0.2.0 onward are generated from conventional commits by
+[git-cliff](https://git-cliff.org/) using the rules in `cliff.toml`.
+
+"""
+# `body` is the per-release template. `{{ version }}` is the tag passed via
+# `--tag`, `{{ timestamp }}` is the tag's author date. `{{ group }}` is the
+# group label resolved by `[commit_parsers]` below. The split-on-newline keeps
+# each entry to the conventional-commit subject line.
+body = """\
+{% if version %}\
+## [{{ version }}] — {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | filter(attribute="merge_commit", value=false) | group_by(attribute="group") %}
+### {{ group | upper_first }}
+
+{% for commit in commits | sort(attribute="message") %}\
+- {{ commit.message | split(pat="\n") | first | upper_first }}{% if commit.breaking %} **(BREAKING)**{% endif %}
+{% endfor %}\
+{% endfor %}\n
+"""
+# `footer` is intentionally empty; release-please-style "vX.Y.Z]: commit_url"
+# reference links are not used here because we don't tag every release in this
+# repo and unbacked links would 404 on the GitHub compare view.
+footer = ""
+trim = true
+postprocessors = []
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+topo_order = false
+sort_commits = "oldest"
+
+# Conventional-commit type → rendered section header. The order below also
+# controls the visual ordering of sections in the rendered CHANGELOG. Sections
+# without any commits are skipped automatically by the `group_by` filter above.
+#
+# `chore(release): ...` release commits are skipped (`skip = true`) so the
+# mechanical `git commit -am 'chore(release): vX.Y.Z'` step in RELEASING.md
+# doesn't pollute the next changelog run with a "Chores: release vX.Y.Z"
+# bullet that describes the bump itself rather than user-visible behavior.
+[commit_parsers]
+{ message = "^chore(release)", skip = true }
+{ message = "^feat", group = "Features" }
+{ message = "^fix",  group = "Bug Fixes" }
+{ message = "^perf", group = "Performance" }
+{ message = "^refactor", group = "Refactoring" }
+{ message = "^docs", group = "Documentation" }
+{ message = "^test", group = "Testing" }
+{ message = "^build", group = "Build System" }
+{ message = "^ci",   group = "Continuous Integration" }
+{ message = "^chore", group = "Chores" }
+{ message = "^style", group = "Styling" }
+{ message = "^revert", group = "Reverts" }
+{ body = ".*", group = "Other" }
+
+[include]
+# Only paths that carry user-visible behavior. This prevents housekeeping
+# commits that touch unrelated files (e.g. license clarifications, comment
+# fixes) from being misattributed to user-visible "Features" or "Bug Fixes"
+# simply because their commit message starts with the conventional prefix.
+paths = [
+  "api/**/*.rs",
+  "api/Cargo.toml",
+  "docs/**/*",
+  ".github/workflows/**",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+]

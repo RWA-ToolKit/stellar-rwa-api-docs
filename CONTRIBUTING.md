@@ -55,3 +55,11 @@ Found a problem with the API? Open an issue with:
 - the API version (from `GET /`).
 
 We'll pick it up from there.
+
+## Releasing (maintainers only)
+
+The api crate is versioned from `api/Cargo.toml`, and the `/` endpoint surfaces
+that same version to consumers. The release process is documented in
+[RELEASING.md](./RELEASING.md): a maintainer runs a small `git-cliff` step,
+bumps the version, and tags. PRs that touch the api crate are still
+maintainer-only per the scope rule above — a release PR is no exception.
