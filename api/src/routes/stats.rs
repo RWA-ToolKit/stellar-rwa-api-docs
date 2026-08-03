@@ -23,16 +23,18 @@ mod tests {
 
     #[tokio::test]
     async fn stats_json_shape() {
-        let mut snap = Snapshot::default();
-        snap.stats = Stats {
-            total_assets: 3,
-            active_assets: 2,
-            tvl_cents: "123456789".to_string(),
-            tvl_usd: 1_234_567.89,
-            total_holders: 10,
-            total_distributions: 4,
-            last_indexed_ledger: 555,
-            last_updated: Some("2024-01-01T00:00:00Z".to_string()),
+        let snap = Snapshot {
+            stats: Stats {
+                total_assets: 3,
+                active_assets: 2,
+                tvl_cents: "123456789".to_string(),
+                tvl_usd: 1_234_567.89,
+                total_holders: 10,
+                total_distributions: 4,
+                last_indexed_ledger: 555,
+                last_updated: Some("2024-01-01T00:00:00Z".to_string()),
+            },
+            ..Snapshot::default()
         };
         let state = state_with(snap);
 
