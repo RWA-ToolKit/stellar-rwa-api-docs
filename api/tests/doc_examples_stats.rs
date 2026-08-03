@@ -26,18 +26,45 @@ fn test_stats_example_has_all_required_fields() {
     assert!(obj.contains_key("tvl_cents"), "Missing tvl_cents");
     assert!(obj.contains_key("tvl_usd"), "Missing tvl_usd");
     assert!(obj.contains_key("total_holders"), "Missing total_holders");
-    assert!(obj.contains_key("total_distributions"), "Missing total_distributions");
-    assert!(obj.contains_key("last_indexed_ledger"), "Missing last_indexed_ledger");
+    assert!(
+        obj.contains_key("total_distributions"),
+        "Missing total_distributions"
+    );
+    assert!(
+        obj.contains_key("last_indexed_ledger"),
+        "Missing last_indexed_ledger"
+    );
     assert!(obj.contains_key("last_updated"), "Missing last_updated");
 
     // Verify field types
-    assert!(example["total_assets"].is_number(), "total_assets should be a number");
-    assert!(example["active_assets"].is_number(), "active_assets should be a number");
-    assert!(example["tvl_cents"].is_string(), "tvl_cents should be a string (i128)");
-    assert!(example["tvl_usd"].is_number(), "tvl_usd should be a number (f64)");
-    assert!(example["total_holders"].is_number(), "total_holders should be a number");
-    assert!(example["total_distributions"].is_number(), "total_distributions should be a number");
-    assert!(example["last_indexed_ledger"].is_number(), "last_indexed_ledger should be a number");
+    assert!(
+        example["total_assets"].is_number(),
+        "total_assets should be a number"
+    );
+    assert!(
+        example["active_assets"].is_number(),
+        "active_assets should be a number"
+    );
+    assert!(
+        example["tvl_cents"].is_string(),
+        "tvl_cents should be a string (i128)"
+    );
+    assert!(
+        example["tvl_usd"].is_number(),
+        "tvl_usd should be a number (f64)"
+    );
+    assert!(
+        example["total_holders"].is_number(),
+        "total_holders should be a number"
+    );
+    assert!(
+        example["total_distributions"].is_number(),
+        "total_distributions should be a number"
+    );
+    assert!(
+        example["last_indexed_ledger"].is_number(),
+        "last_indexed_ledger should be a number"
+    );
     assert!(
         example["last_updated"].is_string() || example["last_updated"].is_null(),
         "last_updated should be a string or null"
@@ -65,7 +92,7 @@ fn test_stats_example_tvl_cents_is_decimal_string() {
 #[test]
 fn test_stats_example_no_extra_undocumented_fields() {
     // Ensure documentation is exhaustive
-    let example_keys = vec![
+    let example_keys = [
         "total_assets",
         "active_assets",
         "tvl_cents",

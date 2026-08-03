@@ -22,26 +22,39 @@ fn holders_endpoint_example_valid() {
 
     assert!(holders_example.is_array());
     let holders = holders_example.as_array().unwrap();
-    assert!(holders.len() > 0);
+    assert!(!holders.is_empty());
 
     let holder = &holders[0];
 
     // Verify address format (Stellar account)
     assert!(holder["address"].is_string());
     let address = holder["address"].as_str().unwrap();
-    assert!(address.starts_with("G"), "Address must start with 'G' (Stellar account)");
-    assert_eq!(address.len(), 56, "Stellar address must be exactly 56 characters");
+    assert!(
+        address.starts_with("G"),
+        "Address must start with 'G' (Stellar account)"
+    );
+    assert_eq!(
+        address.len(),
+        56,
+        "Stellar address must be exactly 56 characters"
+    );
 
     // Verify balance is string (i128) to avoid precision loss
     assert!(holder["balance"].is_string());
     let balance_str = holder["balance"].as_str().unwrap();
-    assert!(balance_str.parse::<i128>().is_ok(), "Balance must be parseable as i128");
+    assert!(
+        balance_str.parse::<i128>().is_ok(),
+        "Balance must be parseable as i128"
+    );
 
     // Verify share_percent is a float between 0 and 100
     assert!(holder["share_percent"].is_number());
     let share_percent = holder["share_percent"].as_f64().unwrap();
-    assert!(share_percent >= 0.0 && share_percent <= 100.0);
-    assert_eq!(share_percent, 100.0, "In this example, holder owns 100% of supply");
+    assert!((0.0..=100.0).contains(&share_percent));
+    assert_eq!(
+        share_percent, 100.0,
+        "In this example, holder owns 100% of supply"
+    );
 }
 
 /// Validates the dividends endpoint example used by the web app for claiming distributions.
@@ -64,7 +77,7 @@ fn dividends_endpoint_example_valid() {
 
     assert!(dividends_example.is_array());
     let distributions = dividends_example.as_array().unwrap();
-    assert!(distributions.len() > 0);
+    assert!(!distributions.is_empty());
 
     let distribution = &distributions[0];
 
@@ -75,28 +88,44 @@ fn dividends_endpoint_example_valid() {
     // Verify token contract addresses
     assert!(distribution["asset_token"].is_string());
     let asset_token = distribution["asset_token"].as_str().unwrap();
-    assert!(asset_token.starts_with("C"), "Contract address must start with 'C'");
-    assert_eq!(asset_token.len(), 56, "Contract address must be exactly 56 characters");
+    assert!(
+        asset_token.starts_with("C"),
+        "Contract address must start with 'C'"
+    );
+    assert_eq!(
+        asset_token.len(),
+        56,
+        "Contract address must be exactly 56 characters"
+    );
 
     assert!(distribution["payment_token"].is_string());
     let payment_token = distribution["payment_token"].as_str().unwrap();
-    assert!(payment_token.starts_with("C"), "Contract address must start with 'C'");
+    assert!(
+        payment_token.starts_with("C"),
+        "Contract address must start with 'C'"
+    );
 
     // Verify amounts are strings (i128) to avoid precision loss
     assert!(distribution["total_amount"].is_string());
     let total_str = distribution["total_amount"].as_str().unwrap();
-    assert!(total_str.parse::<i128>().is_ok(), "total_amount must be parseable as i128");
+    assert!(
+        total_str.parse::<i128>().is_ok(),
+        "total_amount must be parseable as i128"
+    );
     assert_eq!(total_str, "100000000000");
 
     assert!(distribution["distributed"].is_string());
     let distributed_str = distribution["distributed"].as_str().unwrap();
-    assert!(distributed_str.parse::<i128>().is_ok(), "distributed must be parseable as i128");
+    assert!(
+        distributed_str.parse::<i128>().is_ok(),
+        "distributed must be parseable as i128"
+    );
     assert_eq!(distributed_str, "25000000000");
 
     // Verify claimed_percent calculation
     assert!(distribution["claimed_percent"].is_number());
     let claimed_percent = distribution["claimed_percent"].as_f64().unwrap();
-    assert!(claimed_percent >= 0.0 && claimed_percent <= 100.0);
+    assert!((0.0..=100.0).contains(&claimed_percent));
 
     // Verify percent matches the ratio of distributed to total
     let total: i128 = total_str.parse().unwrap();
@@ -160,12 +189,23 @@ fn multiple_holders_example_valid() {
         .iter()
         .map(|h| h["share_percent"].as_f64().unwrap())
         .sum();
-    assert!((total_percent - 100.0).abs() < 0.01, "Total share_percent must be ~100%");
+    assert!(
+        (total_percent - 100.0).abs() < 0.01,
+        "Total share_percent must be ~100%"
+    );
 
     // Verify holders are sorted by balance (largest first)
     assert!(
-        holders[0]["balance"].as_str().unwrap().parse::<i128>().unwrap()
-            >= holders[1]["balance"].as_str().unwrap().parse::<i128>().unwrap(),
+        holders[0]["balance"]
+            .as_str()
+            .unwrap()
+            .parse::<i128>()
+            .unwrap()
+            >= holders[1]["balance"]
+                .as_str()
+                .unwrap()
+                .parse::<i128>()
+                .unwrap(),
         "Holders must be sorted by balance descending"
     );
 }
@@ -229,8 +269,16 @@ fn distribution_uses_payment_token_decimals() {
     });
 
     // The amounts are in payment_token base units (7 decimals for SAC)
-    let total: i128 = distribution["total_amount"].as_str().unwrap().parse().unwrap();
-    let distributed: i128 = distribution["distributed"].as_str().unwrap().parse().unwrap();
+    let total: i128 = distribution["total_amount"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let distributed: i128 = distribution["distributed"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
 
     // These are sample numbers; with 7 decimals:
     // 100000000000 base units = 10,000.0000000 payment tokens

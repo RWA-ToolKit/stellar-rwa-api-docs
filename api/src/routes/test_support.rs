@@ -17,9 +17,7 @@ pub(crate) fn state_with(snapshot: Snapshot) -> AppState {
     // `build()` (not `install_recorder()`) skips the global recorder: each
     // test in this binary needs its own handle, and the global recorder can
     // only be installed once per process.
-    let (_recorder, metrics) = PrometheusBuilder::new()
-        .build()
-        .expect("build test prometheus handle");
+    let metrics = PrometheusBuilder::new().build_recorder().handle();
     AppState::for_test(config, metrics, snapshot)
 }
 
@@ -41,6 +39,8 @@ pub(crate) fn asset(id: u64) -> Asset {
         paused: false,
         compliance_contract: "COMPLIANCE".to_string(),
         created_at_ledger: 1,
+        indexed_at_ledger: 1,
+        index_error: None,
     }
 }
 
@@ -52,6 +52,7 @@ pub(crate) fn distribution(id: u64, created_at_ledger: u32) -> Distribution {
         total_amount: "1000".to_string(),
         distributed: "0".to_string(),
         claimed_percent: 0.0,
+        overflow_detected: false,
         completed: false,
         snapshot_ledger: created_at_ledger,
         created_at_ledger,

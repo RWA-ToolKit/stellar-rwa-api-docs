@@ -36,15 +36,24 @@ fn test_asset_list_example_has_all_required_fields() {
     assert!(obj.contains_key("symbol"), "Missing symbol");
     assert!(obj.contains_key("asset_type"), "Missing asset_type");
     assert!(obj.contains_key("description"), "Missing description");
-    assert!(obj.contains_key("valuation_cents"), "Missing valuation_cents");
+    assert!(
+        obj.contains_key("valuation_cents"),
+        "Missing valuation_cents"
+    );
     assert!(obj.contains_key("valuation_usd"), "Missing valuation_usd");
     assert!(obj.contains_key("decimals"), "Missing decimals");
     assert!(obj.contains_key("total_supply"), "Missing total_supply");
     assert!(obj.contains_key("holders"), "Missing holders");
     assert!(obj.contains_key("active"), "Missing active");
     assert!(obj.contains_key("paused"), "Missing paused");
-    assert!(obj.contains_key("compliance_contract"), "Missing compliance_contract");
-    assert!(obj.contains_key("created_at_ledger"), "Missing created_at_ledger");
+    assert!(
+        obj.contains_key("compliance_contract"),
+        "Missing compliance_contract"
+    );
+    assert!(
+        obj.contains_key("created_at_ledger"),
+        "Missing created_at_ledger"
+    );
 
     // Verify field types
     assert!(example["id"].is_number(), "id should be a number");
@@ -55,14 +64,26 @@ fn test_asset_list_example_has_all_required_fields() {
     assert!(example["issuer"].is_string(), "issuer should be a string");
     assert!(example["name"].is_string(), "name should be a string");
     assert!(example["symbol"].is_string(), "symbol should be a string");
-    assert!(example["asset_type"].is_string(), "asset_type should be a string");
-    assert!(example["description"].is_string(), "description should be a string");
+    assert!(
+        example["asset_type"].is_string(),
+        "asset_type should be a string"
+    );
+    assert!(
+        example["description"].is_string(),
+        "description should be a string"
+    );
     assert!(
         example["valuation_cents"].is_string(),
         "valuation_cents should be a string (i128)"
     );
-    assert!(example["valuation_usd"].is_number(), "valuation_usd should be a number");
-    assert!(example["decimals"].is_number(), "decimals should be a number");
+    assert!(
+        example["valuation_usd"].is_number(),
+        "valuation_usd should be a number"
+    );
+    assert!(
+        example["decimals"].is_number(),
+        "decimals should be a number"
+    );
     assert!(
         example["total_supply"].is_string(),
         "total_supply should be a string (i128)"

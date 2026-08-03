@@ -79,9 +79,17 @@ fn jurisdiction_codes_are_iso_format() {
 
     for jurisdiction in &jurisdictions {
         // ISO country codes must be exactly 2 uppercase letters
-        assert_eq!(jurisdiction.len(), 2, "Jurisdiction code must be 2 letters: {}", jurisdiction);
-        assert!(jurisdiction.chars().all(|c| c.is_ascii_uppercase()),
-                "Jurisdiction code must be uppercase: {}", jurisdiction);
+        assert_eq!(
+            jurisdiction.len(),
+            2,
+            "Jurisdiction code must be 2 letters: {}",
+            jurisdiction
+        );
+        assert!(
+            jurisdiction.chars().all(|c| c.is_ascii_uppercase()),
+            "Jurisdiction code must be uppercase: {}",
+            jurisdiction
+        );
     }
 }
 
@@ -108,7 +116,10 @@ fn complex_compliance_summary_valid() {
         + complex_compliance["suspended"].as_u64().unwrap()
         + complex_compliance["rejected"].as_u64().unwrap()
         + complex_compliance["pending"].as_u64().unwrap();
-    assert_eq!(total_status, complex_compliance["total_records"].as_u64().unwrap());
+    assert_eq!(
+        total_status,
+        complex_compliance["total_records"].as_u64().unwrap()
+    );
 
     // Verify jurisdiction counts add up
     let jurisdictions = complex_compliance["jurisdictions"].as_array().unwrap();
@@ -116,14 +127,22 @@ fn complex_compliance_summary_valid() {
         .iter()
         .map(|j| j["count"].as_u64().unwrap())
         .sum();
-    assert_eq!(total_jurisdiction_count, complex_compliance["total_records"].as_u64().unwrap());
+    assert_eq!(
+        total_jurisdiction_count,
+        complex_compliance["total_records"].as_u64().unwrap()
+    );
 
     // Verify at least one jurisdiction exists
-    assert!(jurisdictions.len() > 0, "Jurisdictions array should not be empty");
+    assert!(
+        !jurisdictions.is_empty(),
+        "Jurisdictions array should not be empty"
+    );
 
     // Verify with_expiry is within reasonable bounds
-    assert!(complex_compliance["with_expiry"].as_u64().unwrap()
-        <= complex_compliance["total_records"].as_u64().unwrap());
+    assert!(
+        complex_compliance["with_expiry"].as_u64().unwrap()
+            <= complex_compliance["total_records"].as_u64().unwrap()
+    );
 }
 
 /// Validates that the compliance endpoint response has no PII (addresses).
@@ -144,20 +163,28 @@ fn compliance_response_contains_no_addresses() {
     });
 
     // Verify there is no 'addresses' field
-    assert!(compliance.get("addresses").is_none(),
-        "Compliance response must not contain 'addresses' (no PII)");
+    assert!(
+        compliance.get("addresses").is_none(),
+        "Compliance response must not contain 'addresses' (no PII)"
+    );
 
     // Verify there is no 'records' field with individual entries
-    assert!(compliance.get("records").is_none(),
-        "Compliance response must not contain 'records' (no PII)");
+    assert!(
+        compliance.get("records").is_none(),
+        "Compliance response must not contain 'records' (no PII)"
+    );
 
     // Verify jurisdiction array contains only jurisdiction and count, no addresses
     let jurisdictions = compliance["jurisdictions"].as_array().unwrap();
     for jurisdiction in jurisdictions {
-        assert!(jurisdiction.get("address").is_none(),
-            "Jurisdiction entry must not contain 'address' (no PII)");
-        assert!(jurisdiction.get("status").is_none(),
-            "Jurisdiction entry must not contain individual status (no PII)");
+        assert!(
+            jurisdiction.get("address").is_none(),
+            "Jurisdiction entry must not contain 'address' (no PII)"
+        );
+        assert!(
+            jurisdiction.get("status").is_none(),
+            "Jurisdiction entry must not contain individual status (no PII)"
+        );
     }
 }
 
@@ -200,5 +227,8 @@ fn jurisdiction_blocking_documented() {
 
     // After block_jurisdiction("US"), the same addresses would fail is_allowed
     // but the API still shows the counts (no PII change needed)
-    assert!(compliance_before_block["jurisdictions"].as_array().unwrap().len() > 0);
+    assert!(!compliance_before_block["jurisdictions"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }

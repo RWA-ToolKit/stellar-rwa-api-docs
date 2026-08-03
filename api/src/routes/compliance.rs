@@ -45,7 +45,10 @@ mod tests {
         snap.assets.push(asset(7));
         let state = state_with(snap);
 
-        let body = summary(State(state), Path(7)).await.expect("asset exists").0;
+        let body = summary(State(state), Path(7))
+            .await
+            .expect("asset exists")
+            .0;
 
         assert_eq!(body.total_records, 0);
         assert_eq!(body.approved, 0);
