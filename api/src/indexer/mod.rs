@@ -216,10 +216,19 @@ impl AppState {
     #[cfg(test)]
     pub fn for_test_empty() -> Self {
         use metrics_exporter_prometheus::PrometheusBuilder;
-        let config = Config::from_env().expect("default config values are valid");
+        // Build the Config directly rather than via `Config::from_env()`.
+        // `from_env` reads process-global environment variables, so any test
+        // that mutates `RWA_*` (see `config_from_env_overrides_with_env_vars`)
+        // would race with every route test using this helper.
+        let config = Config {
+            rpc_url: "https://soroban-testnet.stellar.org".to_string(),
+            registry_id: "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3".to_string(),
+            dividend_id: "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX".to_string(),
+            read_source: "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA".to_string(),
+        };
         let metrics = PrometheusBuilder::new().build_recorder().handle();
         AppState {
-            inner: ArcSwap::from_arc(Arc::new(Snapshot::default())),
+            inner: Arc::new(ArcSwap::from(Arc::new(Snapshot::default()))),
             config: Arc::new(config),
             metrics,
         }
@@ -249,8 +258,6 @@ pub enum IndexError {
     Strkey(#[from] stellar_strkey::DecodeError),
     #[error("decode error: {0}")]
     Decode(#[from] serde_json::Error),
-    #[error("unsupported value: {0}")]
-    Unsupported(String),
     #[error("http status {status}: {body}")]
     HttpStatus { status: u16, body: String },
     #[error("rate limited or unavailable (status {status}); retry after {retry_after:?}")]
@@ -568,7 +575,9 @@ fn address_to_string(a: &xdr::ScAddress) -> Result<String, IndexError> {
         // refresh cycle via `?`.  Emit a recognisable placeholder so callers
         // can still process the rest of the response.
         other => {
-            tracing::warn!("address_to_string: unsupported address variant, using placeholder: {other:?}");
+            tracing::warn!(
+                "address_to_string: unsupported address variant, using placeholder: {other:?}"
+            );
             Ok(format!("unknown:{other:?}"))
         }
     }
@@ -737,11 +746,8 @@ impl Indexer {
                         stale.index_error = Some(e.to_string());
                         if let Some(prev_holders) = prev.holders.get(&raw.id) {
                             holders_map.insert(raw.id, prev_holders.clone());
-                            total_distributions += prev
-                                .dividends
-                                .get(&raw.id)
-                                .map(|d| d.len())
-                                .unwrap_or(0);
+                            total_distributions +=
+                                prev.dividends.get(&raw.id).map(|d| d.len()).unwrap_or(0);
                             if stale.active {
                                 tvl += parse_i128(&stale.valuation_cents);
                             }
@@ -812,16 +818,8 @@ impl Indexer {
                         error = %e,
                         "compliance/holders read failed; using previous data"
                     );
-                    let holders = prev
-                        .holders
-                        .get(&raw.id)
-                        .cloned()
-                        .unwrap_or_default();
-                    let summary = prev
-                        .compliance
-                        .get(&raw.id)
-                        .cloned()
-                        .unwrap_or_default();
+                    let holders = prev.holders.get(&raw.id).cloned().unwrap_or_default();
+                    let summary = prev.compliance.get(&raw.id).cloned().unwrap_or_default();
                     (holders, summary, Some(e.to_string()))
                 }
             };
@@ -1061,6 +1059,8 @@ mod tests {
             paused: false,
             compliance_contract: format!("compliance-{id}"),
             created_at_ledger: 0,
+            indexed_at_ledger: 0,
+            index_error: None,
         }
     }
 
@@ -1208,7 +1208,10 @@ mod tests {
             };
             (overflow_detected, claimed_percent)
         };
-        assert!(!dist_normal.0, "overflow_detected should be false for 750/1000");
+        assert!(
+            !dist_normal.0,
+            "overflow_detected should be false for 750/1000"
+        );
         assert_eq!(dist_normal.1, 75.0);
 
         // Overflow case: distributed > total (double-claim scenario).
@@ -1223,7 +1226,10 @@ mod tests {
             };
             (overflow_detected, claimed_percent)
         };
-        assert!(dist_overflow.0, "overflow_detected should be true for 1500/1000");
+        assert!(
+            dist_overflow.0,
+            "overflow_detected should be true for 1500/1000"
+        );
         assert_eq!(
             dist_overflow.1, 150.0,
             "claimed_percent must be unclamped (150 %) when overflow is detected"
@@ -1279,8 +1285,15 @@ mod tests {
         );
     }
 
+    /// Serialises the tests that mutate `RWA_*`. Environment variables are
+    /// process-global, so without this the two config tests race each other
+    /// (and previously left a bogus `RWA_REGISTRY_ID` behind that failed
+    /// unrelated route tests).
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn config_from_env_applies_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("RWA_RPC_URL");
         std::env::remove_var("RWA_REGISTRY_ID");
         std::env::remove_var("RWA_DIVIDEND_ID");
@@ -1288,17 +1301,31 @@ mod tests {
 
         let cfg = Config::from_env().expect("config with defaults should succeed");
         assert_eq!(cfg.rpc_url, "https://soroban-testnet.stellar.org");
-        assert_eq!(cfg.registry_id, "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3");
-        assert_eq!(cfg.dividend_id, "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX");
-        assert_eq!(cfg.read_source, "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA");
+        assert_eq!(
+            cfg.registry_id,
+            "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3"
+        );
+        assert_eq!(
+            cfg.dividend_id,
+            "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX"
+        );
+        assert_eq!(
+            cfg.read_source,
+            "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA"
+        );
     }
 
     #[test]
     fn config_from_env_overrides_with_env_vars() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let custom_rpc = "https://custom-rpc.example.com";
-        let custom_registry = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPURZ"; // Valid contract ID
-        let custom_dividend = "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYZ"; // Valid contract ID
-        let custom_source = "GBTVJWASZ7ZZ3VJDLW36G6LG4P4GRJQSVXL7XVLX5DHVT4HWVWXJWXLT"; // Valid public key
+        // These must be real strkeys: `Config::from_env` verifies the CRC, so an
+        // ID with a hand-edited final character is rejected. The two contract
+        // IDs below are the deployed compliance and asset-token contracts,
+        // chosen only because they are valid and differ from the defaults.
+        let custom_registry = "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU";
+        let custom_dividend = "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ";
+        let custom_source = "GBTG2AKEJQNJZLRKXM3ILXWUBCKGK7PHLEGETYTHS2Y3HIE7CGJFMNKK";
 
         std::env::set_var("RWA_RPC_URL", custom_rpc);
         std::env::set_var("RWA_REGISTRY_ID", custom_registry);
@@ -1319,18 +1346,28 @@ mod tests {
 
     #[test]
     fn compliance_summary_counts_by_status() {
-        let mut summary = ComplianceSummary::default();
-        summary.total_records = 100;
-        summary.approved = 60;
-        summary.suspended = 15;
-        summary.rejected = 10;
-        summary.pending = 15;
-        summary.with_expiry = 25;
-        summary.jurisdictions = vec![
-            JurisdictionCount { jurisdiction: "US".to_string(), count: 50 },
-            JurisdictionCount { jurisdiction: "SG".to_string(), count: 30 },
-            JurisdictionCount { jurisdiction: "UK".to_string(), count: 20 },
-        ];
+        let summary = ComplianceSummary {
+            total_records: 100,
+            approved: 60,
+            suspended: 15,
+            rejected: 10,
+            pending: 15,
+            with_expiry: 25,
+            jurisdictions: vec![
+                JurisdictionCount {
+                    jurisdiction: "US".to_string(),
+                    count: 50,
+                },
+                JurisdictionCount {
+                    jurisdiction: "SG".to_string(),
+                    count: 30,
+                },
+                JurisdictionCount {
+                    jurisdiction: "UK".to_string(),
+                    count: 20,
+                },
+            ],
+        };
 
         assert_eq!(summary.total_records, 100);
         assert_eq!(summary.approved, 60);
@@ -1353,98 +1390,120 @@ mod tests {
 
     #[test]
     fn stats_aggregation_across_assets() {
-        let mut snapshot = Snapshot::default();
-        snapshot.assets = vec![
-            Asset {
-                id: 1,
-                token_contract: "C1".to_string(),
-                issuer: "issuer1".to_string(),
-                name: "Asset1".to_string(),
-                symbol: "A1".to_string(),
-                asset_type: "Type1".to_string(),
-                description: "Desc1".to_string(),
-                valuation_cents: "100000000".to_string(),
-                valuation_usd: 1_000_000.0,
-                decimals: 7,
-                total_supply: "1000000000".to_string(),
-                holders: 50,
-                active: true,
-                paused: false,
-                compliance_contract: "CC1".to_string(),
-                created_at_ledger: 1000,
-            },
-            Asset {
-                id: 2,
-                token_contract: "C2".to_string(),
-                issuer: "issuer2".to_string(),
-                name: "Asset2".to_string(),
-                symbol: "A2".to_string(),
-                asset_type: "Type2".to_string(),
-                description: "Desc2".to_string(),
-                valuation_cents: "50000000".to_string(),
-                valuation_usd: 500_000.0,
-                decimals: 6,
-                total_supply: "5000000".to_string(),
-                holders: 30,
-                active: true,
-                paused: false,
-                compliance_contract: "CC2".to_string(),
-                created_at_ledger: 1500,
-            },
-            Asset {
-                id: 3,
-                token_contract: "C3".to_string(),
-                issuer: "issuer3".to_string(),
-                name: "Asset3".to_string(),
-                symbol: "A3".to_string(),
-                asset_type: "Type3".to_string(),
-                description: "Desc3".to_string(),
-                valuation_cents: "25000000".to_string(),
-                valuation_usd: 250_000.0,
-                decimals: 5,
-                total_supply: "25000".to_string(),
-                holders: 20,
-                active: false,
-                paused: true,
-                compliance_contract: "CC3".to_string(),
-                created_at_ledger: 2000,
-            },
-        ];
+        let mut snapshot = Snapshot {
+            assets: vec![
+                Asset {
+                    id: 1,
+                    token_contract: "C1".to_string(),
+                    issuer: "issuer1".to_string(),
+                    name: "Asset1".to_string(),
+                    symbol: "A1".to_string(),
+                    asset_type: "Type1".to_string(),
+                    description: "Desc1".to_string(),
+                    valuation_cents: "100000000".to_string(),
+                    valuation_usd: 1_000_000.0,
+                    decimals: 7,
+                    total_supply: "1000000000".to_string(),
+                    holders: 50,
+                    active: true,
+                    paused: false,
+                    compliance_contract: "CC1".to_string(),
+                    created_at_ledger: 1000,
+                    indexed_at_ledger: 1000,
+                    index_error: None,
+                },
+                Asset {
+                    id: 2,
+                    token_contract: "C2".to_string(),
+                    issuer: "issuer2".to_string(),
+                    name: "Asset2".to_string(),
+                    symbol: "A2".to_string(),
+                    asset_type: "Type2".to_string(),
+                    description: "Desc2".to_string(),
+                    valuation_cents: "50000000".to_string(),
+                    valuation_usd: 500_000.0,
+                    decimals: 6,
+                    total_supply: "5000000".to_string(),
+                    holders: 30,
+                    active: true,
+                    paused: false,
+                    compliance_contract: "CC2".to_string(),
+                    created_at_ledger: 1500,
+                    indexed_at_ledger: 1500,
+                    index_error: None,
+                },
+                Asset {
+                    id: 3,
+                    token_contract: "C3".to_string(),
+                    issuer: "issuer3".to_string(),
+                    name: "Asset3".to_string(),
+                    symbol: "A3".to_string(),
+                    asset_type: "Type3".to_string(),
+                    description: "Desc3".to_string(),
+                    valuation_cents: "25000000".to_string(),
+                    valuation_usd: 250_000.0,
+                    decimals: 5,
+                    total_supply: "25000".to_string(),
+                    holders: 20,
+                    active: false,
+                    paused: true,
+                    compliance_contract: "CC3".to_string(),
+                    created_at_ledger: 2000,
+                    indexed_at_ledger: 2000,
+                    index_error: None,
+                },
+            ],
+            ..Snapshot::default()
+        };
 
-        snapshot.holders.insert(1, vec![Holder {
-            address: "addr1".to_string(),
-            balance: "500000000".to_string(),
-            share_percent: 50.0,
-        }]);
-        snapshot.holders.insert(2, vec![Holder {
-            address: "addr2".to_string(),
-            balance: "2500000".to_string(),
-            share_percent: 50.0,
-        }]);
+        snapshot.holders.insert(
+            1,
+            vec![Holder {
+                address: "addr1".to_string(),
+                balance: "500000000".to_string(),
+                share_percent: 50.0,
+            }],
+        );
+        snapshot.holders.insert(
+            2,
+            vec![Holder {
+                address: "addr2".to_string(),
+                balance: "2500000".to_string(),
+                share_percent: 50.0,
+            }],
+        );
         snapshot.holders.insert(3, vec![]);
 
-        snapshot.dividends.insert(1, vec![Distribution {
-            id: 1,
-            asset_token: "C1".to_string(),
-            payment_token: "PAY1".to_string(),
-            total_amount: "1000000".to_string(),
-            distributed: "500000".to_string(),
-            claimed_percent: 50.0,
-            completed: false,
-            snapshot_ledger: 2500,
-            created_at_ledger: 2400,
-        }]);
-        snapshot.dividends.insert(2, vec![Distribution {
-            id: 2,
-            asset_token: "C2".to_string(),
-            payment_token: "PAY2".to_string(),
-            total_amount: "500000".to_string(),
-            distributed: "250000".to_string(),
-            claimed_percent: 50.0,
-            completed: false,
-            snapshot_ledger: 2600,
-            created_at_ledger: 2500,
-        }]);
+        snapshot.dividends.insert(
+            1,
+            vec![Distribution {
+                id: 1,
+                asset_token: "C1".to_string(),
+                payment_token: "PAY1".to_string(),
+                total_amount: "1000000".to_string(),
+                distributed: "500000".to_string(),
+                claimed_percent: 50.0,
+                overflow_detected: false,
+                completed: false,
+                snapshot_ledger: 2500,
+                created_at_ledger: 2400,
+            }],
+        );
+        snapshot.dividends.insert(
+            2,
+            vec![Distribution {
+                id: 2,
+                asset_token: "C2".to_string(),
+                payment_token: "PAY2".to_string(),
+                total_amount: "500000".to_string(),
+                distributed: "250000".to_string(),
+                claimed_percent: 50.0,
+                overflow_detected: false,
+                completed: false,
+                snapshot_ledger: 2600,
+                created_at_ledger: 2500,
+            }],
+        );
         snapshot.dividends.insert(3, vec![]);
 
         snapshot.stats = Stats {

@@ -51,9 +51,14 @@ fn stats_endpoint_example_valid() {
     // last_updated must be an RFC3339 timestamp string
     assert!(stats_example["last_updated"].is_string());
     let timestamp_str = stats_example["last_updated"].as_str().unwrap();
-    assert!(timestamp_str.contains("T"), "Timestamp must be in RFC3339 format (contain 'T')");
-    assert!(timestamp_str.ends_with("Z") || timestamp_str.contains("+") || timestamp_str.contains("-"),
-            "Timestamp must have timezone info");
+    assert!(
+        timestamp_str.contains("T"),
+        "Timestamp must be in RFC3339 format (contain 'T')"
+    );
+    assert!(
+        timestamp_str.ends_with("Z") || timestamp_str.contains("+") || timestamp_str.contains("-"),
+        "Timestamp must have timezone info"
+    );
 }
 
 /// Validates the /assets endpoint example from Getting Started documentation.
@@ -107,7 +112,10 @@ fn assets_endpoint_example_valid() {
 
     let cents: i128 = "500000000".parse().unwrap();
     let expected_usd = (cents as f64) / 100.0;
-    assert_eq!(asset_example["valuation_usd"].as_f64().unwrap(), expected_usd);
+    assert_eq!(
+        asset_example["valuation_usd"].as_f64().unwrap(),
+        expected_usd
+    );
 
     // Verify supply is a string (i128)
     assert!(asset_example["total_supply"].is_string());
@@ -139,8 +147,8 @@ fn example_uses_correct_testnet_addresses() {
     // These are the actual Testnet addresses from the deployment
     let expected_compliance = "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU";
     let expected_asset_token = "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ";
-    let expected_registry = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3";
-    let expected_dividend = "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX";
+    let _expected_registry = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3";
+    let _expected_dividend = "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX";
     let expected_issuer = "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA";
 
     // Verify that example uses these addresses

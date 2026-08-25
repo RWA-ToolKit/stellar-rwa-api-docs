@@ -22,7 +22,10 @@ fn test_holder_list_example_has_all_required_fields() {
 
     // Verify field types
     assert!(example["address"].is_string(), "address should be a string");
-    assert!(example["balance"].is_string(), "balance should be a string (i128)");
+    assert!(
+        example["balance"].is_string(),
+        "balance should be a string (i128)"
+    );
     assert!(
         example["share_percent"].is_number(),
         "share_percent should be a number (0-100)"
@@ -43,11 +46,7 @@ fn test_holder_example_balance_is_string() {
 
     // Should be parseable as i128
     assert!(
-        example["balance"]
-            .as_str()
-            .unwrap()
-            .parse::<i128>()
-            .is_ok(),
+        example["balance"].as_str().unwrap().parse::<i128>().is_ok(),
         "balance should be parseable as i128"
     );
 }
@@ -64,7 +63,7 @@ fn test_holder_example_share_percent_in_valid_range() {
     for example in examples {
         let percent = example["share_percent"].as_f64().unwrap();
         assert!(
-            percent >= 0.0 && percent <= 100.0,
+            (0.0..=100.0).contains(&percent),
             "share_percent must be between 0 and 100, got {}",
             percent
         );
@@ -88,7 +87,7 @@ fn test_holder_example_address_format() {
 #[test]
 fn test_holder_example_no_extra_undocumented_fields() {
     // Ensure documentation is exhaustive
-    let expected_keys = vec!["address", "balance", "share_percent"];
+    let expected_keys = ["address", "balance", "share_percent"];
 
     let example = json!({
         "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",

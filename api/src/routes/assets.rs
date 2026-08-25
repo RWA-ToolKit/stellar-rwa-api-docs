@@ -91,6 +91,8 @@ mod tests {
             paused: false,
             compliance_contract: format!("COMPLIANCE{id}"),
             created_at_ledger: 1,
+            indexed_at_ledger: 1,
+            index_error: None,
         }
     }
 
@@ -106,7 +108,12 @@ mod tests {
             .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "expected 200 from {uri}, got {}", resp.status());
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "expected 200 from {uri}, got {}",
+            resp.status()
+        );
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -118,7 +125,12 @@ mod tests {
     async fn get_asset_by_unknown_id_returns_404() {
         let app = test_router();
         let response = app
-            .oneshot(Request::builder().uri("/assets/99999").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/99999")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -161,7 +173,11 @@ mod tests {
             stub_asset(2, "real_estate", false),
             stub_asset(3, "bond", true),
         ];
-        let result = get_assets(list_router(assets), "/assets?asset_type=real_estate&active=true").await;
+        let result = get_assets(
+            list_router(assets),
+            "/assets?asset_type=real_estate&active=true",
+        )
+        .await;
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, 1);
     }

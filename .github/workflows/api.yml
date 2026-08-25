@@ -23,11 +23,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: api
-      - name: Format check
-        run: cargo fmt --check
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+      # Tests and clippy run before the formatting gate. `cargo fmt --check`
+      # used to be the first step, so 59 cosmetic violations aborted the job
+      # before anything was compiled — hiding a test suite that had not built
+      # for weeks. Formatting is still enforced, just no longer as a mask.
       - name: Test
         run: cargo test
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Format check
+        run: cargo fmt --check
       - name: Build (release)
         run: cargo build --release

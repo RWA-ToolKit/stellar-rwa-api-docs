@@ -5,8 +5,7 @@
 //! This ensures field names, types, and the presence of *_usd convenience fields
 //! remain consistent with the contract and documentation.
 
-use serde_json::{json, Value};
-use std::collections::HashMap;
+use serde_json::json;
 
 /// Validates that an Asset response object has all required fields with correct types.
 #[test]
@@ -32,20 +31,47 @@ fn asset_response_has_required_fields() {
 
     // Verify all required fields exist
     assert!(asset.get("id").is_some(), "Asset must have 'id' field");
-    assert!(asset.get("token_contract").is_some(), "Asset must have 'token_contract' field");
-    assert!(asset.get("issuer").is_some(), "Asset must have 'issuer' field");
+    assert!(
+        asset.get("token_contract").is_some(),
+        "Asset must have 'token_contract' field"
+    );
+    assert!(
+        asset.get("issuer").is_some(),
+        "Asset must have 'issuer' field"
+    );
     assert!(asset.get("name").is_some(), "Asset must have 'name' field");
-    assert!(asset.get("symbol").is_some(), "Asset must have 'symbol' field");
-    assert!(asset.get("asset_type").is_some(), "Asset must have 'asset_type' field");
-    assert!(asset.get("description").is_some(), "Asset must have 'description' field");
+    assert!(
+        asset.get("symbol").is_some(),
+        "Asset must have 'symbol' field"
+    );
+    assert!(
+        asset.get("asset_type").is_some(),
+        "Asset must have 'asset_type' field"
+    );
+    assert!(
+        asset.get("description").is_some(),
+        "Asset must have 'description' field"
+    );
 
     // Large integers must be strings to avoid precision loss
-    assert!(asset["valuation_cents"].is_string(), "valuation_cents must be string (i128)");
-    assert!(asset["total_supply"].is_string(), "total_supply must be string (i128)");
+    assert!(
+        asset["valuation_cents"].is_string(),
+        "valuation_cents must be string (i128)"
+    );
+    assert!(
+        asset["total_supply"].is_string(),
+        "total_supply must be string (i128)"
+    );
 
     // Convenience float fields must exist
-    assert!(asset.get("valuation_usd").is_some(), "Asset must have 'valuation_usd' convenience field");
-    assert!(asset["valuation_usd"].is_number(), "valuation_usd must be a number");
+    assert!(
+        asset.get("valuation_usd").is_some(),
+        "Asset must have 'valuation_usd' convenience field"
+    );
+    assert!(
+        asset["valuation_usd"].is_number(),
+        "valuation_usd must be a number"
+    );
 
     // Verify field types
     assert!(asset["id"].is_number(), "id must be a number");
@@ -53,7 +79,10 @@ fn asset_response_has_required_fields() {
     assert!(asset["holders"].is_number(), "holders must be a number");
     assert!(asset["active"].is_boolean(), "active must be a boolean");
     assert!(asset["paused"].is_boolean(), "paused must be a boolean");
-    assert!(asset["created_at_ledger"].is_number(), "created_at_ledger must be a number");
+    assert!(
+        asset["created_at_ledger"].is_number(),
+        "created_at_ledger must be a number"
+    );
 }
 
 /// Validates that a Holder response object has all required fields with correct types.
@@ -65,15 +94,30 @@ fn holder_response_has_required_fields() {
         "share_percent": 100.0
     });
 
-    assert!(holder.get("address").is_some(), "Holder must have 'address' field");
-    assert!(holder.get("balance").is_some(), "Holder must have 'balance' field");
-    assert!(holder.get("share_percent").is_some(), "Holder must have 'share_percent' field");
+    assert!(
+        holder.get("address").is_some(),
+        "Holder must have 'address' field"
+    );
+    assert!(
+        holder.get("balance").is_some(),
+        "Holder must have 'balance' field"
+    );
+    assert!(
+        holder.get("share_percent").is_some(),
+        "Holder must have 'share_percent' field"
+    );
 
     // Balance must be string to avoid precision loss
-    assert!(holder["balance"].is_string(), "balance must be string (i128)");
+    assert!(
+        holder["balance"].is_string(),
+        "balance must be string (i128)"
+    );
 
     // Share percent must be a float
-    assert!(holder["share_percent"].is_number(), "share_percent must be a number");
+    assert!(
+        holder["share_percent"].is_number(),
+        "share_percent must be a number"
+    );
 
     // Verify address is a string
     assert!(holder["address"].is_string(), "address must be a string");
@@ -94,21 +138,51 @@ fn compliance_summary_has_required_fields() {
         ]
     });
 
-    assert!(compliance.get("total_records").is_some(), "ComplianceSummary must have 'total_records'");
-    assert!(compliance.get("approved").is_some(), "ComplianceSummary must have 'approved'");
-    assert!(compliance.get("suspended").is_some(), "ComplianceSummary must have 'suspended'");
-    assert!(compliance.get("rejected").is_some(), "ComplianceSummary must have 'rejected'");
-    assert!(compliance.get("pending").is_some(), "ComplianceSummary must have 'pending'");
-    assert!(compliance.get("with_expiry").is_some(), "ComplianceSummary must have 'with_expiry'");
-    assert!(compliance.get("jurisdictions").is_some(), "ComplianceSummary must have 'jurisdictions'");
+    assert!(
+        compliance.get("total_records").is_some(),
+        "ComplianceSummary must have 'total_records'"
+    );
+    assert!(
+        compliance.get("approved").is_some(),
+        "ComplianceSummary must have 'approved'"
+    );
+    assert!(
+        compliance.get("suspended").is_some(),
+        "ComplianceSummary must have 'suspended'"
+    );
+    assert!(
+        compliance.get("rejected").is_some(),
+        "ComplianceSummary must have 'rejected'"
+    );
+    assert!(
+        compliance.get("pending").is_some(),
+        "ComplianceSummary must have 'pending'"
+    );
+    assert!(
+        compliance.get("with_expiry").is_some(),
+        "ComplianceSummary must have 'with_expiry'"
+    );
+    assert!(
+        compliance.get("jurisdictions").is_some(),
+        "ComplianceSummary must have 'jurisdictions'"
+    );
 
     // Verify jurisdictions is an array
-    assert!(compliance["jurisdictions"].is_array(), "jurisdictions must be an array");
+    assert!(
+        compliance["jurisdictions"].is_array(),
+        "jurisdictions must be an array"
+    );
 
     // Verify jurisdiction entries have required fields
     let jurisdiction = &compliance["jurisdictions"][0];
-    assert!(jurisdiction.get("jurisdiction").is_some(), "Jurisdiction must have 'jurisdiction' field");
-    assert!(jurisdiction.get("count").is_some(), "Jurisdiction must have 'count' field");
+    assert!(
+        jurisdiction.get("jurisdiction").is_some(),
+        "Jurisdiction must have 'jurisdiction' field"
+    );
+    assert!(
+        jurisdiction.get("count").is_some(),
+        "Jurisdiction must have 'count' field"
+    );
 }
 
 /// Validates that a Distribution response object has all required fields.
@@ -126,21 +200,48 @@ fn distribution_response_has_required_fields() {
         "created_at_ledger": 3510000
     });
 
-    assert!(distribution.get("id").is_some(), "Distribution must have 'id'");
-    assert!(distribution.get("asset_token").is_some(), "Distribution must have 'asset_token'");
-    assert!(distribution.get("payment_token").is_some(), "Distribution must have 'payment_token'");
+    assert!(
+        distribution.get("id").is_some(),
+        "Distribution must have 'id'"
+    );
+    assert!(
+        distribution.get("asset_token").is_some(),
+        "Distribution must have 'asset_token'"
+    );
+    assert!(
+        distribution.get("payment_token").is_some(),
+        "Distribution must have 'payment_token'"
+    );
 
     // Large amounts must be strings to avoid precision loss
-    assert!(distribution["total_amount"].is_string(), "total_amount must be string (i128)");
-    assert!(distribution["distributed"].is_string(), "distributed must be string (i128)");
+    assert!(
+        distribution["total_amount"].is_string(),
+        "total_amount must be string (i128)"
+    );
+    assert!(
+        distribution["distributed"].is_string(),
+        "distributed must be string (i128)"
+    );
 
     // Percentage must be a float
-    assert!(distribution["claimed_percent"].is_number(), "claimed_percent must be a number");
+    assert!(
+        distribution["claimed_percent"].is_number(),
+        "claimed_percent must be a number"
+    );
 
     // Verify other fields
-    assert!(distribution["completed"].is_boolean(), "completed must be a boolean");
-    assert!(distribution["snapshot_ledger"].is_number(), "snapshot_ledger must be a number");
-    assert!(distribution["created_at_ledger"].is_number(), "created_at_ledger must be a number");
+    assert!(
+        distribution["completed"].is_boolean(),
+        "completed must be a boolean"
+    );
+    assert!(
+        distribution["snapshot_ledger"].is_number(),
+        "snapshot_ledger must be a number"
+    );
+    assert!(
+        distribution["created_at_ledger"].is_number(),
+        "created_at_ledger must be a number"
+    );
 }
 
 /// Validates that a Stats response object has all required fields.
@@ -157,20 +258,44 @@ fn stats_response_has_required_fields() {
         "last_updated": "2026-07-09T08:43:12.101772791+00:00"
     });
 
-    assert!(stats.get("total_assets").is_some(), "Stats must have 'total_assets'");
-    assert!(stats.get("active_assets").is_some(), "Stats must have 'active_assets'");
+    assert!(
+        stats.get("total_assets").is_some(),
+        "Stats must have 'total_assets'"
+    );
+    assert!(
+        stats.get("active_assets").is_some(),
+        "Stats must have 'active_assets'"
+    );
 
     // Large values must be strings to avoid precision loss
-    assert!(stats["tvl_cents"].is_string(), "tvl_cents must be string (i128)");
+    assert!(
+        stats["tvl_cents"].is_string(),
+        "tvl_cents must be string (i128)"
+    );
 
     // Convenience float must exist
-    assert!(stats.get("tvl_usd").is_some(), "Stats must have 'tvl_usd' convenience field");
+    assert!(
+        stats.get("tvl_usd").is_some(),
+        "Stats must have 'tvl_usd' convenience field"
+    );
     assert!(stats["tvl_usd"].is_number(), "tvl_usd must be a number");
 
-    assert!(stats.get("total_holders").is_some(), "Stats must have 'total_holders'");
-    assert!(stats.get("total_distributions").is_some(), "Stats must have 'total_distributions'");
-    assert!(stats.get("last_indexed_ledger").is_some(), "Stats must have 'last_indexed_ledger'");
-    assert!(stats.get("last_updated").is_some(), "Stats must have 'last_updated'");
+    assert!(
+        stats.get("total_holders").is_some(),
+        "Stats must have 'total_holders'"
+    );
+    assert!(
+        stats.get("total_distributions").is_some(),
+        "Stats must have 'total_distributions'"
+    );
+    assert!(
+        stats.get("last_indexed_ledger").is_some(),
+        "Stats must have 'last_indexed_ledger'"
+    );
+    assert!(
+        stats.get("last_updated").is_some(),
+        "Stats must have 'last_updated'"
+    );
 }
 
 /// Validates that error responses have the correct structure.
@@ -181,8 +306,14 @@ fn error_response_has_required_fields() {
         "message": "no asset with id 999"
     });
 
-    assert!(error.get("error").is_some(), "Error must have 'error' field");
-    assert!(error.get("message").is_some(), "Error must have 'message' field");
+    assert!(
+        error.get("error").is_some(),
+        "Error must have 'error' field"
+    );
+    assert!(
+        error.get("message").is_some(),
+        "Error must have 'message' field"
+    );
     assert!(error["error"].is_string(), "error must be a string");
     assert!(error["message"].is_string(), "message must be a string");
 }
@@ -192,22 +323,37 @@ fn error_response_has_required_fields() {
 fn large_integers_serialized_as_strings() {
     // Test that valuation_cents (i128) is serialized as a string
     let valuation_cents = "500000000";
-    assert!(valuation_cents.parse::<i128>().is_ok(), "valuation_cents must be parseable as i128");
+    assert!(
+        valuation_cents.parse::<i128>().is_ok(),
+        "valuation_cents must be parseable as i128"
+    );
 
     // Test that total_supply (i128) is serialized as a string
     let total_supply = "1000000";
-    assert!(total_supply.parse::<i128>().is_ok(), "total_supply must be parseable as i128");
+    assert!(
+        total_supply.parse::<i128>().is_ok(),
+        "total_supply must be parseable as i128"
+    );
 
     // Test that balance (i128) is serialized as a string
     let balance = "1000000";
-    assert!(balance.parse::<i128>().is_ok(), "balance must be parseable as i128");
+    assert!(
+        balance.parse::<i128>().is_ok(),
+        "balance must be parseable as i128"
+    );
 
     // Test that distribution amounts (i128) are serialized as strings
     let total_amount = "100000000000";
-    assert!(total_amount.parse::<i128>().is_ok(), "total_amount must be parseable as i128");
+    assert!(
+        total_amount.parse::<i128>().is_ok(),
+        "total_amount must be parseable as i128"
+    );
 
     let distributed = "25000000000";
-    assert!(distributed.parse::<i128>().is_ok(), "distributed must be parseable as i128");
+    assert!(
+        distributed.parse::<i128>().is_ok(),
+        "distributed must be parseable as i128"
+    );
 }
 
 /// Validates that convenience fields (_usd) are present alongside raw cent values.
@@ -220,14 +366,19 @@ fn convenience_float_fields_paired_with_string_cents() {
 
     // When valuation_cents exists, valuation_usd must also exist
     if asset.get("valuation_cents").is_some() {
-        assert!(asset.get("valuation_usd").is_some(),
-            "Asset with valuation_cents must have valuation_usd convenience field");
+        assert!(
+            asset.get("valuation_usd").is_some(),
+            "Asset with valuation_cents must have valuation_usd convenience field"
+        );
 
         // Verify the relationship: valuation_usd = valuation_cents / 100
         let cents: i128 = asset["valuation_cents"].as_str().unwrap().parse().unwrap();
         let usd = asset["valuation_usd"].as_f64().unwrap();
         let expected_usd = (cents as f64) / 100.0;
-        assert!((usd - expected_usd).abs() < 0.01, "valuation_usd must equal valuation_cents / 100");
+        assert!(
+            (usd - expected_usd).abs() < 0.01,
+            "valuation_usd must equal valuation_cents / 100"
+        );
     }
 
     let stats = json!({
@@ -237,14 +388,19 @@ fn convenience_float_fields_paired_with_string_cents() {
 
     // When tvl_cents exists, tvl_usd must also exist
     if stats.get("tvl_cents").is_some() {
-        assert!(stats.get("tvl_usd").is_some(),
-            "Stats with tvl_cents must have tvl_usd convenience field");
+        assert!(
+            stats.get("tvl_usd").is_some(),
+            "Stats with tvl_cents must have tvl_usd convenience field"
+        );
 
         // Verify the relationship
         let cents: i128 = stats["tvl_cents"].as_str().unwrap().parse().unwrap();
         let usd = stats["tvl_usd"].as_f64().unwrap();
         let expected_usd = (cents as f64) / 100.0;
-        assert!((usd - expected_usd).abs() < 0.01, "tvl_usd must equal tvl_cents / 100");
+        assert!(
+            (usd - expected_usd).abs() < 0.01,
+            "tvl_usd must equal tvl_cents / 100"
+        );
     }
 }
 
@@ -253,9 +409,15 @@ fn convenience_float_fields_paired_with_string_cents() {
 fn percentage_fields_have_correct_format() {
     let holder = json!({"share_percent": 100.0});
     let percent = holder["share_percent"].as_f64().unwrap();
-    assert!(percent >= 0.0 && percent <= 100.0, "share_percent must be between 0 and 100");
+    assert!(
+        (0.0..=100.0).contains(&percent),
+        "share_percent must be between 0 and 100"
+    );
 
     let distribution = json!({"claimed_percent": 25.5});
     let claimed = distribution["claimed_percent"].as_f64().unwrap();
-    assert!(claimed >= 0.0 && claimed <= 100.0, "claimed_percent must be between 0 and 100");
+    assert!(
+        (0.0..=100.0).contains(&claimed),
+        "claimed_percent must be between 0 and 100"
+    );
 }

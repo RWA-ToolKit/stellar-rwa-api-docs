@@ -31,14 +31,20 @@ fn test_integration_guide_asset_interface_has_required_fields() {
     assert!(obj.contains_key("name"), "Missing name");
     assert!(obj.contains_key("symbol"), "Missing symbol");
     assert!(obj.contains_key("asset_type"), "Missing asset_type");
-    assert!(obj.contains_key("valuation_cents"), "Missing valuation_cents");
+    assert!(
+        obj.contains_key("valuation_cents"),
+        "Missing valuation_cents"
+    );
     assert!(obj.contains_key("valuation_usd"), "Missing valuation_usd");
     assert!(obj.contains_key("decimals"), "Missing decimals");
     assert!(obj.contains_key("total_supply"), "Missing total_supply");
     assert!(obj.contains_key("holders"), "Missing holders");
     assert!(obj.contains_key("active"), "Missing active");
     assert!(obj.contains_key("paused"), "Missing paused");
-    assert!(obj.contains_key("compliance_contract"), "Missing compliance_contract");
+    assert!(
+        obj.contains_key("compliance_contract"),
+        "Missing compliance_contract"
+    );
 }
 
 #[test]
@@ -141,7 +147,10 @@ fn test_integration_guide_typescript_precision_notes() {
 
     let decimals = example["decimals"].as_u64().unwrap();
     let divisor = 10u64.pow(decimals as u32);
-    assert!(divisor > 0, "decimals should allow calculating display value");
+    assert!(
+        divisor > 0,
+        "decimals should allow calculating display value"
+    );
 }
 
 #[test]
