@@ -623,7 +623,6 @@ struct RawDistribution {
     payment_token: String,
     total_amount: String,
     distributed: String,
-    snapshot_ledger: u32,
     created_at: u32,
     completed: bool,
 }
@@ -633,15 +632,19 @@ fn parse_i128(s: &str) -> i128 {
 }
 
 fn cents_to_usd(cents: i128) -> f64 {
-    cents as f64 / 100.0
+    (cents / 100) as f64 + (cents % 100) as f64 / 100.0
 }
 
 fn ratio_percent(part: i128, whole: i128) -> f64 {
     if whole <= 0 {
         return 0.0;
     }
-    let pct = (part as f64 / whole as f64) * 100.0;
-    (pct.clamp(0.0, 100.0) * 100.0).round() / 100.0
+    let scaled = part
+        .clamp(0, whole)
+        .saturating_mul(10_000)
+        .saturating_add(whole / 2)
+        / whole;
+    scaled as f64 / 100.0
 }
 
 /// Normalise a compliance status that may decode as `"Approved"` or
@@ -1003,7 +1006,7 @@ impl Indexer {
                 // Instead compute the raw percentage so callers can see
                 // the true magnitude of the overflow.
                 let claimed_percent = if overflow_detected && total > 0 {
-                    ((distributed as f64 / total as f64) * 100.0 * 100.0).round() / 100.0
+                    (distributed.saturating_mul(10_000) / total) as f64 / 100.0
                 } else {
                     ratio_percent(distributed, total)
                 };
@@ -1016,7 +1019,6 @@ impl Indexer {
                     claimed_percent,
                     overflow_detected,
                     completed: d.completed,
-                    snapshot_ledger: d.snapshot_ledger,
                     created_at_ledger: d.created_at,
                 }
             })
@@ -1192,6 +1194,21 @@ mod tests {
         assert_eq!(ratio_percent(5, 0), 0.0);
         // clamps above 100
         assert_eq!(ratio_percent(150, 100), 100.0);
+        assert_eq!(
+            ratio_percent(3_002_399_751_580_331, 9_007_199_254_740_993),
+            33.33
+        );
+    }
+
+    #[test]
+    fn distribution_decodes_current_contract_shape() {
+        let raw = json!({
+            "id": 1, "asset_token": "ASSET", "payment_token": "PAY",
+            "total_amount": "100", "distributed": "25", "created_at": 42,
+            "completed": false
+        });
+        let decoded: RawDistribution = serde_json::from_value(raw).unwrap();
+        assert_eq!(decoded.created_at, 42);
     }
 
     #[test]
@@ -1485,7 +1502,6 @@ mod tests {
                 claimed_percent: 50.0,
                 overflow_detected: false,
                 completed: false,
-                snapshot_ledger: 2500,
                 created_at_ledger: 2400,
             }],
         );
@@ -1500,7 +1516,6 @@ mod tests {
                 claimed_percent: 50.0,
                 overflow_detected: false,
                 completed: false,
-                snapshot_ledger: 2600,
                 created_at_ledger: 2500,
             }],
         );

@@ -32,7 +32,6 @@ creation ledger (newest first).
 | `distributed` | string | Claimed so far, base units (`i128`) |
 | `claimed_percent` | number | 0–100 (2 dp) |
 | `completed` | boolean | `true` once fully claimed |
-| `snapshot_ledger` | number | Ledger at creation |
 | `created_at_ledger` | number | |
 
 **Example**
@@ -51,7 +50,6 @@ curl $API_BASE_URL/assets/1/dividends
     "distributed": "25000000000",
     "claimed_percent": 25.0,
     "completed": false,
-    "snapshot_ledger": 3510000,
     "created_at_ledger": 3510000
   }
 ]

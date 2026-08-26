@@ -171,15 +171,55 @@ async fn version() -> Json<serde_json::Value> {
 }
 
 /// Liveness probe.
-async fn health() -> Json<serde_json::Value> {
-    Json(json!({ "status": "ok" }))
+async fn health(State(state): State<AppState>) -> Response {
+    let updated = state
+        .snapshot()
+        .stats
+        .last_updated
+        .as_deref()
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok());
+    let age = updated.map(|time| {
+        (chrono::Utc::now() - time.with_timezone(&chrono::Utc))
+            .num_seconds()
+            .max(0)
+    });
+    let max_age = (POLL_INTERVAL * 3).as_secs() as i64;
+    let healthy = age.is_some_and(|seconds| seconds <= max_age);
+    let status = if healthy {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(json!({
+            "status": if healthy { "ok" } else { "degraded" },
+            "snapshot_age_seconds": age,
+            "max_age_seconds": max_age,
+        })),
+    )
+        .into_response()
 }
 
 /// Prometheus scrape endpoint: indexer refresh latency, failure counts, last
 /// success timestamp, and per-asset read errors.
-async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+async fn metrics(headers: HeaderMap, State(state): State<AppState>) -> Response {
+    let supplied = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let expected = std::env::var("RWA_METRICS_TOKEN").ok();
+    let authorized = expected
+        .as_deref()
+        .filter(|token| !token.is_empty())
+        .zip(supplied)
+        .is_some_and(|(expected, supplied)| expected == supplied);
+    if !authorized {
+        return (StatusCode::UNAUTHORIZED, "metrics authentication required").into_response();
+    }
     (
         [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
         state.metrics.render(),
     )
+        .into_response()
 }

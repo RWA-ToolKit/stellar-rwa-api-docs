@@ -196,7 +196,6 @@ fn distribution_response_has_required_fields() {
         "distributed": "25000000000",
         "claimed_percent": 25.0,
         "completed": false,
-        "snapshot_ledger": 3510000,
         "created_at_ledger": 3510000
     });
 
@@ -233,10 +232,6 @@ fn distribution_response_has_required_fields() {
     assert!(
         distribution["completed"].is_boolean(),
         "completed must be a boolean"
-    );
-    assert!(
-        distribution["snapshot_ledger"].is_number(),
-        "snapshot_ledger must be a number"
     );
     assert!(
         distribution["created_at_ledger"].is_number(),

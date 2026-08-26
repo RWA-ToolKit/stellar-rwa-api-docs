@@ -99,7 +99,6 @@ pub struct Distribution {
     /// should treat this as a data-integrity warning.
     pub overflow_detected: bool,
     pub completed: bool,
-    pub snapshot_ledger: u32,
     pub created_at_ledger: u32,
 }
 

@@ -54,7 +54,6 @@ pub(crate) fn distribution(id: u64, created_at_ledger: u32) -> Distribution {
         claimed_percent: 0.0,
         overflow_detected: false,
         completed: false,
-        snapshot_ledger: created_at_ledger,
         created_at_ledger,
     }
 }
