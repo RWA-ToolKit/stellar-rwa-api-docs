@@ -13,8 +13,8 @@
 //! the last good snapshot.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use metrics_exporter_prometheus::PrometheusHandle;
@@ -39,6 +39,9 @@ const MAX_READ_ATTEMPTS: u32 = 4;
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(150);
 /// Ceiling on backoff growth between retries.
 const RETRY_MAX_DELAY: Duration = Duration::from_secs(2);
+const EXPECTED_ABI_VERSION: u64 = 1;
+const DIVIDEND_CACHE_TTL: Duration = Duration::from_secs(60);
+const TESTNET_RPC: &str = "https://soroban-testnet.stellar.org";
 
 /// Fee used for read-only `simulateTransaction` envelopes.
 ///
@@ -89,12 +92,21 @@ pub enum ConfigError {
     DividendId(String),
     #[error("invalid read source account: {0}")]
     ReadSource(String),
+    #[error("RWA_REGISTRY_ID and RWA_DIVIDEND_ID are required for a non-testnet RPC")]
+    ContractIdsRequired,
 }
 
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
-        let rpc_url = env_or("RWA_RPC_URL", "https://soroban-testnet.stellar.org");
+        let rpc_url = env_or("RWA_RPC_URL", TESTNET_RPC);
         url::Url::parse(&rpc_url).map_err(|e| ConfigError::RpcUrl(format!("{e}: {rpc_url}")))?;
+
+        if rpc_url != TESTNET_RPC
+            && (std::env::var_os("RWA_REGISTRY_ID").is_none()
+                || std::env::var_os("RWA_DIVIDEND_ID").is_none())
+        {
+            return Err(ConfigError::ContractIdsRequired);
+        }
 
         let registry_id = env_or(
             "RWA_REGISTRY_ID",
@@ -265,6 +277,12 @@ pub enum IndexError {
         status: u16,
         retry_after: Option<Duration>,
         body: String,
+    },
+    #[error("{contract} ABI version {actual} does not match expected {expected}")]
+    AbiVersion {
+        contract: String,
+        actual: u64,
+        expected: u64,
     },
 }
 
@@ -665,6 +683,7 @@ fn normalize_status(v: &serde_json::Value) -> String {
 pub struct Indexer {
     rpc: Rpc,
     state: AppState,
+    dividend_cache: Mutex<HashMap<String, (Instant, Vec<Distribution>, Option<String>)>>,
 }
 
 impl Indexer {
@@ -673,6 +692,7 @@ impl Indexer {
         Indexer {
             rpc: Rpc::new(cfg.rpc_url.clone(), cfg.read_source.clone()),
             state,
+            dividend_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -701,6 +721,9 @@ impl Indexer {
     async fn refresh(&self) -> Result<usize, IndexError> {
         let cfg = &self.state.config;
 
+        self.check_abi(&cfg.registry_id).await?;
+        self.check_abi(&cfg.dividend_id).await?;
+
         let entries_read = self
             .rpc
             .read(&cfg.registry_id, "get_all_assets", vec![])
@@ -720,6 +743,7 @@ impl Indexer {
         let mut tvl: i128 = 0;
 
         for raw in &raw_entries {
+            self.check_abi(&raw.token_contract).await?;
             // ── per-asset metadata + compliance reads (best-effort) ───────────
             // A failure here is recorded and the asset is emitted with its
             // previous data (if any) plus an `index_error`.  This mirrors the
@@ -799,6 +823,7 @@ impl Indexer {
 
             let total_supply = parse_i128(&meta.total_supply);
             let valuation = parse_i128(&raw.valuation);
+            self.check_abi(&meta.compliance_contract).await?;
 
             // Holders: every allowlisted address with a positive balance.
             // Also best-effort: fall back to previous holders on failure.
@@ -828,12 +853,18 @@ impl Indexer {
             // known distributions from the previous snapshot rather than
             // resetting to empty, so a transient RPC hiccup doesn't make the
             // API silently report "no dividends" for an asset.
-            let dists = match self.index_dividends(&raw.token_contract).await {
-                Ok(dists) => dists,
+            let (dists, dividend_err) = match self
+                .index_dividends(raw.id, &raw.token_contract)
+                .await
+            {
+                Ok(result) => result,
                 Err(e) => {
                     record_asset_read_error(raw.id, "dividends");
                     tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; keeping previous distributions");
-                    prev.dividends.get(&raw.id).cloned().unwrap_or_default()
+                    (
+                        prev.dividends.get(&raw.id).cloned().unwrap_or_default(),
+                        Some(e.to_string()),
+                    )
                 }
             };
             total_distributions += dists.len();
@@ -860,7 +891,7 @@ impl Indexer {
                 compliance_contract: meta.compliance_contract,
                 created_at_ledger: raw.created_at,
                 indexed_at_ledger: asset_ledger,
-                index_error: compliance_err,
+                index_error: dividend_err.or(compliance_err),
             };
 
             holders_map.insert(raw.id, holders);
@@ -981,8 +1012,30 @@ impl Indexer {
         Ok((holders, summary, approved_addresses))
     }
 
-    /// Read all distributions for an asset token from the dividend contract.
-    async fn index_dividends(&self, token_contract: &str) -> Result<Vec<Distribution>, IndexError> {
+    async fn check_abi(&self, contract: &str) -> Result<(), IndexError> {
+        let read = self.rpc.read(contract, "version", vec![]).await?;
+        let actual = read.value.as_u64().unwrap_or_default();
+        if actual != EXPECTED_ABI_VERSION {
+            return Err(IndexError::AbiVersion {
+                contract: contract.to_string(),
+                actual,
+                expected: EXPECTED_ABI_VERSION,
+            });
+        }
+        Ok(())
+    }
+
+    /// Read distributions at most once per cache window.
+    async fn index_dividends(
+        &self,
+        asset_id: u64,
+        token_contract: &str,
+    ) -> Result<(Vec<Distribution>, Option<String>), IndexError> {
+        if let Some((at, cached, error)) = self.dividend_cache.lock().unwrap().get(token_contract) {
+            if at.elapsed() < DIVIDEND_CACHE_TTL {
+                return Ok((cached.clone(), error.clone()));
+            }
+        }
         let read = self
             .rpc
             .read(
@@ -991,9 +1044,21 @@ impl Indexer {
                 vec![address_scval(token_contract)?],
             )
             .await?;
-        let raw: Vec<RawDistribution> = serde_json::from_value(read.value)?;
-        Ok(raw
+        let entries: Vec<serde_json::Value> = serde_json::from_value(read.value)?;
+        let mut failures = 0;
+        let result = entries
             .into_iter()
+            .filter_map(
+                |value| match serde_json::from_value::<RawDistribution>(value) {
+                    Ok(d) => Some(d),
+                    Err(error) => {
+                        failures += 1;
+                        record_asset_read_error(asset_id, "dividend_decode");
+                        tracing::warn!(asset_id, error = %error, "skipping malformed distribution");
+                        None
+                    }
+                },
+            )
             .map(|d| {
                 let total = parse_i128(&d.total_amount);
                 let distributed = parse_i128(&d.distributed);
@@ -1020,7 +1085,13 @@ impl Indexer {
                     created_at_ledger: d.created_at,
                 }
             })
-            .collect())
+            .collect::<Vec<_>>();
+        let error = (failures > 0).then(|| format!("skipped {failures} malformed distribution(s)"));
+        self.dividend_cache.lock().unwrap().insert(
+            token_contract.to_string(),
+            (Instant::now(), result.clone(), error.clone()),
+        );
+        Ok((result, error))
     }
 }
 
