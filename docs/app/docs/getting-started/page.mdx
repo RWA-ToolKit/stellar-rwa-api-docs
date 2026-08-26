@@ -79,6 +79,11 @@ The API reads the following environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RWA_RPC_URL` | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint the indexer polls |
+| `RWA_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated browser origin allowlist |
+| `RWA_RATE_LIMIT_PER_SECOND` | `5` | Sustained requests allowed per client IP each second |
+| `RWA_RATE_LIMIT_BURST` | `20` | Maximum per-client request burst |
+| `RWA_REQUEST_TIMEOUT_SECS` | `30` | Maximum request duration in seconds |
+| `RWA_MAX_BODY_BYTES` | `1048576` | Maximum request body size in bytes |
 | `RWA_REGISTRY_ID` | `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` | Deployed registry contract id (Testnet) |
 | `RWA_DIVIDEND_ID` | `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX` | Deployed dividend contract id (Testnet) |
 | `RWA_READ_SOURCE` | `GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA` | Funded account used as source for read simulations (must exist on the RPC) |
