@@ -57,14 +57,18 @@ pub async fn detail(
 mod tests {
     use axum::{
         body::Body,
+        extract::{Path, State},
         http::{Request, StatusCode},
+        response::IntoResponse,
         routing::get,
         Router,
     };
     use tower::ServiceExt as _;
 
-    use crate::indexer::AppState;
+    use crate::indexer::{AppState, Snapshot};
     use crate::models::{ApiErrorBody, Asset};
+    use crate::routes::test_support::state_with;
+    use crate::routes::ApiError;
 
     fn test_router() -> Router {
         let state = AppState::for_test_empty();
@@ -181,4 +185,25 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, 1);
     }
+
+    #[tokio::test]
+    async fn get_asset_by_unknown_id_returns_404_error_shape() {
+        let state = state_with(Snapshot::default());
+        let err = super::detail(State(state), Path(999)).await.unwrap_err();
+
+        assert!(matches!(err, ApiError::NotFound(_)));
+
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(value.get("error").is_some(), "Error must have 'error' field");
+        assert!(value.get("message").is_some(), "Error must have 'message' field");
+        assert_eq!(value["error"], "not_found");
+        assert_eq!(value["message"], "no asset with id 999");
+    }
 }
+
