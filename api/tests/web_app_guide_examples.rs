@@ -70,7 +70,6 @@ fn dividends_endpoint_example_valid() {
             "distributed": "25000000000",
             "claimed_percent": 25.0,
             "completed": false,
-            "snapshot_ledger": 3510000,
             "created_at_ledger": 3510000
         }
     ]);
@@ -138,9 +137,7 @@ fn dividends_endpoint_example_valid() {
     assert_eq!(distribution["completed"], false);
 
     // Verify ledger numbers are reasonable
-    assert!(distribution["snapshot_ledger"].is_number());
     assert!(distribution["created_at_ledger"].is_number());
-    assert_eq!(distribution["snapshot_ledger"], 3510000);
     assert_eq!(distribution["created_at_ledger"], 3510000);
 }
 
@@ -223,7 +220,6 @@ fn multiple_distributions_example_valid() {
             "distributed": "50000000000",
             "claimed_percent": 100.0,
             "completed": true,
-            "snapshot_ledger": 3520000,
             "created_at_ledger": 3520000
         },
         {
@@ -234,7 +230,6 @@ fn multiple_distributions_example_valid() {
             "distributed": "25000000000",
             "claimed_percent": 25.0,
             "completed": false,
-            "snapshot_ledger": 3510000,
             "created_at_ledger": 3510000
         }
     ]);

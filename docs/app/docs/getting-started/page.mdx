@@ -87,6 +87,7 @@ The API reads the following environment variables:
 | `RWA_REGISTRY_ID` | `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` | Deployed registry contract id (Testnet) |
 | `RWA_DIVIDEND_ID` | `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX` | Deployed dividend contract id (Testnet) |
 | `RWA_READ_SOURCE` | `GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA` | Funded account used as source for read simulations (must exist on the RPC) |
+| `RWA_METRICS_TOKEN` | _(none)_ | Bearer token required by `/metrics`; requests are denied when unset |
 | `PORT` | `8080` | HTTP server port |
 | `RUST_LOG` | `stellar_rwa_api=info,tower_http=warn` | Log filter (tracing-subscriber format) |
 

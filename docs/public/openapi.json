@@ -543,7 +543,6 @@
           "distributed",
           "claimed_percent",
           "completed",
-          "snapshot_ledger",
           "created_at_ledger"
         ],
         "properties": {
@@ -578,11 +577,6 @@
           "completed": {
             "type": "boolean",
             "description": "Whether the distribution is fully claimed"
-          },
-          "snapshot_ledger": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Ledger at distribution creation (snapshot point)"
           },
           "created_at_ledger": {
             "type": "integer",

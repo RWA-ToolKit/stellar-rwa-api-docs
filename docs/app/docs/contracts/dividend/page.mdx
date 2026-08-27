@@ -11,8 +11,7 @@ holdings. An issuer funds a distribution with a payment token; each holder then
 claims `total_amount * balance / total_supply`, paid from the escrow this contract
 holds. Each holder can claim a given distribution once.
 
-Balances are read **at claim time** from the asset token. `snapshot_ledger` records
-the ledger at which the distribution was created, for reference.
+Balances are read **at claim time** from the asset token.
 
 **Testnet:** `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX`
 
@@ -27,7 +26,6 @@ the ledger at which the distribution was created, for reference.
 | `payment_token` | `Address` | The token used to pay (e.g. USDC) |
 | `total_amount` | `i128` | Pool size in payment-token base units |
 | `distributed` | `i128` | Claimed so far |
-| `snapshot_ledger` | `u32` | Ledger at creation |
 | `created_at` | `u32` | Ledger at creation |
 | `completed` | `bool` | `true` once fully claimed |
 

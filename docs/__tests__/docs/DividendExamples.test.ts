@@ -9,7 +9,6 @@ interface Distribution {
   distributed: string;
   claimed_percent: number;
   completed: boolean;
-  snapshot_ledger: number;
   created_at_ledger: number;
 }
 
@@ -24,7 +23,6 @@ describe("Dividend API Examples", () => {
         distributed: "25000000000",
         claimed_percent: 25.0,
         completed: false,
-        snapshot_ledger: 3510000,
         created_at_ledger: 3510000,
       },
     ];
@@ -38,7 +36,6 @@ describe("Dividend API Examples", () => {
         expect(dist).toHaveProperty("distributed");
         expect(dist).toHaveProperty("claimed_percent");
         expect(dist).toHaveProperty("completed");
-        expect(dist).toHaveProperty("snapshot_ledger");
         expect(dist).toHaveProperty("created_at_ledger");
       });
     });
@@ -52,7 +49,6 @@ describe("Dividend API Examples", () => {
       expect(typeof dist.distributed).toBe("string");
       expect(typeof dist.claimed_percent).toBe("number");
       expect(typeof dist.completed).toBe("boolean");
-      expect(typeof dist.snapshot_ledger).toBe("number");
       expect(typeof dist.created_at_ledger).toBe("number");
     });
 
@@ -88,7 +84,6 @@ describe("Dividend API Examples", () => {
 
     it("should have valid ledger numbers", () => {
       exampleResponse.forEach((dist) => {
-        expect(dist.snapshot_ledger).toBeGreaterThan(0);
         expect(dist.created_at_ledger).toBeGreaterThan(0);
       });
     });
@@ -106,7 +101,6 @@ describe("Dividend API Examples", () => {
         distributed: "0",
         claimed_percent: 0.0,
         completed: false,
-        snapshot_ledger: 3510000,
         created_at_ledger: 3510000,
       };
 
@@ -124,7 +118,6 @@ describe("Dividend API Examples", () => {
         distributed: "0",
         claimed_percent: 0.0,
         completed: false,
-        snapshot_ledger: 3510000,
         created_at_ledger: 3510000,
       };
 
@@ -141,7 +134,6 @@ describe("Dividend API Examples", () => {
         distributed: "100000000000",
         claimed_percent: 100.0,
         completed: true,
-        snapshot_ledger: 3510000,
         created_at_ledger: 3510001,
       };
 
