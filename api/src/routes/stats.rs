@@ -47,4 +47,22 @@ mod tests {
         assert_eq!(value["tvl_usd"], json!(1_234_567.89));
         assert_eq!(value["last_updated"], json!("2024-01-01T00:00:00Z"));
     }
+
+    #[tokio::test]
+    async fn stats_empty_snapshot_returns_defaults() {
+        let state = state_with(Snapshot::default());
+
+        let body = get(State(state)).await.0;
+        let value = serde_json::to_value(&body).expect("serialize stats");
+
+        assert_eq!(value["total_assets"], 0);
+        assert_eq!(value["active_assets"], 0);
+        assert_eq!(value["tvl_cents"], "");
+        assert_eq!(value["tvl_usd"], 0.0);
+        assert_eq!(value["total_holders"], 0);
+        assert_eq!(value["total_distributions"], 0);
+        assert_eq!(value["last_indexed_ledger"], 0);
+        assert!(value["last_updated"].is_null());
+    }
 }
+
