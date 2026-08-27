@@ -9,12 +9,12 @@ pub mod stats;
 #[cfg(test)]
 mod test_support;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
@@ -22,7 +22,7 @@ use axum::{
 };
 use serde_json::json;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, timeout::TimeoutLayer};
 
 use crate::indexer::{AppState, POLL_INTERVAL};
 use crate::models::ApiErrorBody;
@@ -30,6 +30,16 @@ use crate::models::ApiErrorBody;
 /// Sustained requests-per-second allowed per client IP, with bursting.
 const RATE_LIMIT_PER_SECOND: u64 = 5;
 const RATE_LIMIT_BURST: u32 = 20;
+const REQUEST_TIMEOUT_SECS: u64 = 30;
+const MAX_BODY_BYTES: usize = 1_048_576;
+const DEFAULT_CORS_ORIGIN: &str = "http://localhost:3000";
+
+fn env_value<T: std::str::FromStr>(name: &str, default: T) -> T {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}
 
 /// Errors surfaced to API clients as a JSON body with an appropriate status.
 #[derive(Debug)]
@@ -55,18 +65,27 @@ impl IntoResponse for ApiError {
 
 /// Build the application router with CORS enabled for the docs/web app.
 pub fn router(state: AppState) -> Router {
+    let origins = std::env::var("RWA_CORS_ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| DEFAULT_CORS_ORIGIN.into())
+        .split(',')
+        .map(str::trim)
+        .map(|origin| origin.parse::<HeaderValue>().expect("valid CORS origin"))
+        .collect::<Vec<_>>();
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(origins)
+        .allow_methods([Method::GET])
+        .allow_headers([header::CONTENT_TYPE]);
+
+    let per_second = env_value("RWA_RATE_LIMIT_PER_SECOND", RATE_LIMIT_PER_SECOND);
+    let burst = env_value("RWA_RATE_LIMIT_BURST", RATE_LIMIT_BURST);
 
     // Each request clones the in-memory snapshot, so cap how fast a single
     // client can drive that cost. Checked before `cache_headers`, which
     // itself touches shared state, so a throttled request stays cheap.
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(RATE_LIMIT_PER_SECOND)
-            .burst_size(RATE_LIMIT_BURST)
+            .per_second(per_second)
+            .burst_size(burst)
             .finish()
             .expect("rate limit config: period and burst size are non-zero"),
     );
@@ -83,10 +102,7 @@ pub fn router(state: AppState) -> Router {
         .route("/assets/:id/holders", get(holders::list))
         .route("/assets/:id/compliance", get(compliance::summary))
         .route("/assets/:id/dividends", get(dividends::list))
-        .layer(middleware::from_fn_with_state(state.clone(), cache_headers))
-        .layer(GovernorLayer {
-            config: governor_conf,
-        });
+        .layer(middleware::from_fn_with_state(state.clone(), cache_headers));
 
     Router::new()
         .route("/", get(index))
@@ -95,6 +111,17 @@ pub fn router(state: AppState) -> Router {
         .route("/metrics", get(metrics))
         .nest("/v1", data_routes)
         .with_state(state)
+        .layer(TimeoutLayer::new(Duration::from_secs(env_value(
+            "RWA_REQUEST_TIMEOUT_SECS",
+            REQUEST_TIMEOUT_SECS,
+        ))))
+        .layer(RequestBodyLimitLayer::new(env_value(
+            "RWA_MAX_BODY_BYTES",
+            MAX_BODY_BYTES,
+        )))
+        .layer(GovernorLayer {
+            config: governor_conf,
+        })
         .layer(cors)
 }
 

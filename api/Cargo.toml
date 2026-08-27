@@ -9,7 +9,7 @@ license = "Apache-2.0"
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower-http = { version = "0.5", features = ["cors", "limit", "timeout", "trace"] }
 tower_governor = "0.5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
