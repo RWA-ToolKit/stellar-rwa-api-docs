@@ -7,7 +7,7 @@ pub mod holders;
 pub mod stats;
 
 #[cfg(test)]
-mod test_support;
+pub mod test_support;
 
 use std::{sync::Arc, time::Duration};
 

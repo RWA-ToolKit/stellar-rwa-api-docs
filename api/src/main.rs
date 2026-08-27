@@ -5,13 +5,10 @@
 //! and serves the current in-memory snapshot over HTTP. It holds no secrets,
 //! signs nothing, and never mutates on-chain state.
 
-mod indexer;
-mod models;
-mod routes;
-
 use std::net::SocketAddr;
 
-use indexer::{AppState, Config, Indexer};
+use stellar_rwa_api::indexer::{AppState, Config, Indexer};
+use stellar_rwa_api::routes;
 use metrics_exporter_prometheus::PrometheusBuilder;
 
 #[tokio::main]
