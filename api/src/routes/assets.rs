@@ -10,23 +10,34 @@ use super::ApiError;
 use crate::indexer::AppState;
 use crate::models::Asset;
 
-/// Optional filters for the asset list.
+const DEFAULT_PAGE_SIZE: usize = 50;
+const MAX_PAGE_SIZE: usize = 100;
+
+/// Optional filters and pagination for the asset list.
 #[derive(Debug, Deserialize)]
 pub struct AssetQuery {
     /// Filter by asset class, e.g. `real_estate`.
     pub asset_type: Option<String>,
     /// Filter by active status.
     pub active: Option<bool>,
+    /// Skip the first `offset` matching assets.
+    #[serde(default)]
+    pub offset: Option<usize>,
+    /// Limit the number of matching assets returned. Defaults to 50 and is capped at 100.
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 
 /// All tokenized assets with valuation, supply and holder counts.
 ///
-/// Supports optional `?asset_type=` and `?active=` query filters.
+/// Supports optional `?asset_type=`, `?active=`, `?offset=` and `?limit=` query filters.
 pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<AssetQuery>,
 ) -> Json<Vec<Asset>> {
     let snap = state.snapshot();
+    let offset = query.offset.unwrap_or(0);
+    let limit = query.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
     let assets = snap
         .assets
         .into_iter()
@@ -37,6 +48,8 @@ pub async fn list(
                 .is_none_or(|t| a.asset_type == t)
         })
         .filter(|a| query.active.is_none_or(|active| a.active == active))
+        .skip(offset)
+        .take(limit)
         .collect();
     Json(assets)
 }
@@ -180,6 +193,29 @@ mod tests {
         .await;
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, 1);
+    }
+
+    #[tokio::test]
+    async fn limit_and_offset_paginate_assets() {
+        let assets = vec![
+            stub_asset(1, "real_estate", true),
+            stub_asset(2, "real_estate", true),
+            stub_asset(3, "real_estate", true),
+            stub_asset(4, "real_estate", true),
+        ];
+        let result = get_assets(list_router(assets), "/assets?offset=1&limit=2").await;
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].id, 2);
+        assert_eq!(result[1].id, 3);
+    }
+
+    #[tokio::test]
+    async fn limit_is_clamped_to_max_page_size() {
+        let assets = (1..=150)
+            .map(|id| stub_asset(id, "real_estate", true))
+            .collect();
+        let result = get_assets(list_router(assets), "/assets?limit=1000").await;
+        assert_eq!(result.len(), 100);
     }
 
     // #194 – non-numeric asset id returns 400, not 404
