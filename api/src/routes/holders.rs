@@ -49,4 +49,48 @@ mod tests {
 
         assert!(holders.is_empty());
     }
+
+    #[tokio::test]
+    async fn holder_share_percentages_sum_to_100() {
+        use crate::models::Holder;
+
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        snap.holders.insert(
+            1,
+            vec![
+                Holder {
+                    address: "ADDR1".to_string(),
+                    balance: "500000".to_string(),
+                    share_percent: 50.0,
+                },
+                Holder {
+                    address: "ADDR2".to_string(),
+                    balance: "333333".to_string(),
+                    share_percent: 33.3333,
+                },
+                Holder {
+                    address: "ADDR3".to_string(),
+                    balance: "166667".to_string(),
+                    share_percent: 16.6667,
+                },
+            ],
+        );
+        let state = state_with(snap);
+
+        let body = list(State(state), Path(1)).await.expect("asset exists").0;
+        let value = serde_json::to_value(&body).expect("serialize holder list");
+
+        let sum_shares: f64 = value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| h["share_percent"].as_f64().unwrap())
+            .sum();
+
+        assert!(
+            (sum_shares - 100.0).abs() < 0.01,
+            "holder share percentages sum ({sum_shares}) must equal 100 within rounding tolerance"
+        );
+    }
 }

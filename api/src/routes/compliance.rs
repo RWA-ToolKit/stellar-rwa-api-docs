@@ -58,4 +58,49 @@ mod tests {
         assert_eq!(body.with_expiry, 0);
         assert!(body.jurisdictions.is_empty());
     }
+
+    #[tokio::test]
+    async fn compliance_counts_sum_to_total_records() {
+        use crate::models::{ComplianceSummary, JurisdictionCount};
+
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        snap.compliance.insert(
+            1,
+            ComplianceSummary {
+                total_records: 15,
+                approved: 7,
+                suspended: 3,
+                rejected: 2,
+                pending: 3,
+                with_expiry: 4,
+                jurisdictions: vec![
+                    JurisdictionCount {
+                        jurisdiction: "US".to_string(),
+                        count: 10,
+                    },
+                    JurisdictionCount {
+                        jurisdiction: "EU".to_string(),
+                        count: 5,
+                    },
+                ],
+            },
+        );
+        let state = state_with(snap);
+
+        let body = summary(State(state), Path(1)).await.expect("asset exists").0;
+        let value = serde_json::to_value(&body).expect("serialize compliance summary");
+
+        let approved = value["approved"].as_u64().unwrap();
+        let suspended = value["suspended"].as_u64().unwrap();
+        let rejected = value["rejected"].as_u64().unwrap();
+        let pending = value["pending"].as_u64().unwrap();
+        let total_records = value["total_records"].as_u64().unwrap();
+
+        assert_eq!(
+            approved + suspended + rejected + pending,
+            total_records,
+            "approved + suspended + rejected + pending must sum to total_records"
+        );
+    }
 }

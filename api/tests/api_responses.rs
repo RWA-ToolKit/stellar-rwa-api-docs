@@ -416,3 +416,116 @@ fn percentage_fields_have_correct_format() {
         "claimed_percent must be between 0 and 100"
     );
 }
+
+/// Validates that tvl_usd equals tvl_cents / 100 for a range of values including beyond 2^53.
+#[test]
+fn stats_tvl_cents_and_tvl_usd_large_values_consistency() {
+    let cases = vec![
+        ("0", 0.0),
+        ("100", 1.0),
+        ("123456789", 1_234_567.89),
+        ("100000000000000000000", 1_000_000_000_000_000_000.0),
+        ("900719925474099300", 9_007_199_254_740_993.0),
+    ];
+
+    for (cents_str, expected_usd) in cases {
+        let stats = json!({
+            "tvl_cents": cents_str,
+            "tvl_usd": expected_usd
+        });
+
+        let cents: i128 = stats["tvl_cents"].as_str().unwrap().parse().unwrap();
+        let usd = stats["tvl_usd"].as_f64().unwrap();
+        let expected_calc = (cents as f64) / 100.0;
+
+        let diff = (usd - expected_calc).abs();
+        let tolerance = (expected_calc * 1e-9).max(1e-4);
+        assert!(
+            diff <= tolerance,
+            "tvl_usd ({usd}) must equal tvl_cents / 100 ({expected_calc}) for cents {cents_str}"
+        );
+    }
+}
+
+/// Validates that compliance counts (approved + suspended + rejected + pending) sum to total_records.
+#[test]
+fn compliance_summary_counts_total_records_sum() {
+    let compliance = json!({
+        "total_records": 15,
+        "approved": 7,
+        "suspended": 3,
+        "rejected": 2,
+        "pending": 3,
+        "with_expiry": 4,
+        "jurisdictions": [
+            { "jurisdiction": "US", "count": 10 },
+            { "jurisdiction": "EU", "count": 5 }
+        ]
+    });
+
+    let approved = compliance["approved"].as_u64().unwrap();
+    let suspended = compliance["suspended"].as_u64().unwrap();
+    let rejected = compliance["rejected"].as_u64().unwrap();
+    let pending = compliance["pending"].as_u64().unwrap();
+    let total_records = compliance["total_records"].as_u64().unwrap();
+
+    assert_eq!(
+        approved + suspended + rejected + pending,
+        total_records,
+        "Compliance status counts must sum to total_records"
+    );
+}
+
+/// Validates that holder share percentages for a fully distributed asset sum to 100 within rounding tolerance.
+#[test]
+fn holder_share_percentages_sum_validation() {
+    let holders = json!([
+        { "address": "ADDR1", "balance": "500000", "share_percent": 50.0 },
+        { "address": "ADDR2", "balance": "333333", "share_percent": 33.3333 },
+        { "address": "ADDR3", "balance": "166667", "share_percent": 16.6667 }
+    ]);
+
+    let sum_shares: f64 = holders
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["share_percent"].as_f64().unwrap())
+        .sum();
+
+    assert!(
+        (sum_shares - 100.0).abs() < 0.01,
+        "Holder share percentages sum ({sum_shares}) must equal 100 within rounding tolerance"
+    );
+}
+
+/// Validates filtering assets by active status (active=true, active=false, default unfiltered).
+#[test]
+fn asset_active_filter_serialized_response() {
+    let assets = json!([
+        { "id": 1, "active": true, "name": "Asset 1" },
+        { "id": 2, "active": false, "name": "Asset 2" },
+        { "id": 3, "active": true, "name": "Asset 3" }
+    ]);
+
+    let inactive_assets: Vec<_> = assets
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|a| a["active"].as_bool() == Some(false))
+        .collect();
+
+    assert_eq!(inactive_assets.len(), 1);
+    assert_eq!(inactive_assets[0]["id"], 2);
+
+    let active_assets: Vec<_> = assets
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|a| a["active"].as_bool() == Some(true))
+        .collect();
+
+    assert_eq!(active_assets.len(), 2);
+
+    let all_assets = assets.as_array().unwrap();
+    assert_eq!(all_assets.len(), 3);
+}

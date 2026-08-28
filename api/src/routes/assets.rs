@@ -181,4 +181,56 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, 1);
     }
+
+    #[tokio::test]
+    async fn filter_by_active_false_returns_only_inactive_assets() {
+        let assets = vec![
+            stub_asset(1, "real_estate", true),
+            stub_asset(2, "bond", true),
+            stub_asset(3, "real_estate", false),
+        ];
+        let result = get_assets(list_router(assets), "/assets?active=false").await;
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 3);
+        assert!(!result[0].active);
+    }
+
+    #[tokio::test]
+    async fn list_assets_filter_active_via_handler_and_test_support() {
+        use axum::extract::Query;
+        use crate::indexer::Snapshot;
+        use crate::routes::assets::{list, AssetQuery};
+        use crate::routes::test_support::{asset, state_with};
+
+        let mut snap = Snapshot::default();
+        snap.assets = vec![
+            Asset { id: 1, active: true, ..asset(1) },
+            Asset { id: 2, active: false, ..asset(2) },
+            Asset { id: 3, active: true, ..asset(3) },
+        ];
+        let state = state_with(snap);
+
+        // active=false returns only inactive assets
+        let query_inactive = AssetQuery { asset_type: None, active: Some(false) };
+        let body_inactive = list(axum::extract::State(state.clone()), Query(query_inactive)).await.0;
+        let val_inactive = serde_json::to_value(&body_inactive).expect("serialize inactive");
+        let list_inactive = val_inactive.as_array().unwrap();
+        assert_eq!(list_inactive.len(), 1);
+        assert_eq!(list_inactive[0]["id"], 2);
+        assert_eq!(list_inactive[0]["active"], false);
+
+        // active=true returns only active assets
+        let query_active = AssetQuery { asset_type: None, active: Some(true) };
+        let body_active = list(axum::extract::State(state.clone()), Query(query_active)).await.0;
+        let val_active = serde_json::to_value(&body_active).expect("serialize active");
+        let list_active = val_active.as_array().unwrap();
+        assert_eq!(list_active.len(), 2);
+        assert!(list_active.iter().all(|a| a["active"] == true));
+
+        // unfiltered default returns all assets
+        let query_default = AssetQuery { asset_type: None, active: None };
+        let body_default = list(axum::extract::State(state), Query(query_default)).await.0;
+        let val_default = serde_json::to_value(&body_default).expect("serialize default");
+        assert_eq!(val_default.as_array().unwrap().len(), 3);
+    }
 }
