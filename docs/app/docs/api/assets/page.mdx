@@ -22,9 +22,13 @@ Returns an array of asset objects.
 |------|------|-------|
 | `asset_type` | string | Filter by class: `real_estate`, `invoice`, `commodity` |
 | `active` | boolean | Filter by active status |
+| `offset` | integer | Skip the first N matching assets. Default: `0`. |
+| `limit` | integer | Page size. Default: `50`; maximum: `100`. |
+
+Results are paginated to keep large collections bounded. Use `offset` and `limit` together to walk the list in chunks.
 
 ```bash
-curl "$API_BASE_URL/assets?asset_type=real_estate&active=true"
+curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 ```
 
 **Response schema** (per asset):

@@ -103,6 +103,27 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of matching assets to skip before returning results. Defaults to 0.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of assets to return. Defaults to 50 and is capped at 100.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "default": 50
+            }
           }
         ],
         "responses": {
@@ -179,6 +200,27 @@
             "schema": {
               "type": "integer",
               "format": "int32"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of holders to skip before returning results. Defaults to 0.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of holders to return. Defaults to 50 and is capped at 100.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "default": 50
             }
           }
         ],

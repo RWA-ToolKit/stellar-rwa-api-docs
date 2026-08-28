@@ -22,6 +22,13 @@ the indexer derives this from the allowlist intersected with balances.
 |------|------|-------|
 | `id` | number | Registry id |
 
+**Query parameters** (all optional)
+
+| Name | Type | Notes |
+|------|------|-------|
+| `offset` | integer | Skip the first N holders. Default: `0`. |
+| `limit` | integer | Page size. Default: `50`; maximum: `100`. |
+
 **Response schema** (per holder):
 
 | Field | Type | Notes |
