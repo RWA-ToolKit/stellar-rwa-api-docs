@@ -60,16 +60,147 @@ asset. See the [Compliance Guide](/docs/compliance-guide).
 
 ## Quickstart
 
-### Running the API locally
+The fastest way to see the API working is to run it locally against the deployed
+Testnet contracts — no wallet, no signing, no tokens required.
 
-Run the API against the deployed Testnet contracts:
+### 1. Clone and start the API
 
 ```bash
-git clone https://github.com/your-org/stellar-rwa-api-docs
+git clone https://github.com/RWA-ToolKit/stellar-rwa-api-docs
 cd stellar-rwa-api-docs/api
-cp .env.example .env      # Testnet defaults are pre-filled
+cp .env.example .env      # Testnet contract IDs and RPC URL are pre-filled
 cargo run
 # → listening on 0.0.0.0:8080
+```
+
+The API is ready when you see `listening on 0.0.0.0:8080` in the terminal.
+It will start polling Soroban Testnet immediately; the first snapshot is
+available within ~10 seconds.
+
+### 2. Hit the live endpoints
+
+Open a second terminal and run these commands against `http://localhost:8080`:
+
+**Check the liveness probe:**
+
+```bash
+curl http://localhost:8080/health
+```
+
+```json
+{"status":"ok"}
+```
+
+**Fetch platform-wide stats:**
+
+```bash
+curl http://localhost:8080/stats
+```
+
+```json
+{
+  "total_assets": 1,
+  "active_assets": 1,
+  "tvl_cents": "500000000",
+  "tvl_usd": 5000000.0,
+  "total_holders": 1,
+  "total_distributions": 0,
+  "last_indexed_ledger": 3514152,
+  "last_updated": "2026-07-09T08:43:12.101772791+00:00"
+}
+```
+
+`tvl_cents` is a string to avoid JavaScript precision loss; divide by 100 for
+dollars. `last_updated` is the wall-clock time of the most recent successful
+Soroban RPC poll.
+
+**List all tokenized assets:**
+
+```bash
+curl http://localhost:8080/assets
+```
+
+```json
+[
+  {
+    "id": 1,
+    "contract_id": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+    "name": "Manhattan Loft",
+    "symbol": "MLOFT",
+    "asset_type": "real_estate",
+    "decimals": 7,
+    "total_supply": "50000000000000",
+    "valuation_cents": "500000000",
+    "valuation_usd": 5000000.0,
+    "active": true
+  }
+]
+```
+
+**Fetch the sample asset (id `1`) directly:**
+
+```bash
+curl http://localhost:8080/assets/1
+```
+
+```json
+{
+  "id": 1,
+  "contract_id": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "name": "Manhattan Loft",
+  "symbol": "MLOFT",
+  "asset_type": "real_estate",
+  "decimals": 7,
+  "total_supply": "50000000000000",
+  "valuation_cents": "500000000",
+  "valuation_usd": 5000000.0,
+  "active": true
+}
+```
+
+**Check token holders for asset `1`:**
+
+```bash
+curl http://localhost:8080/assets/1/holders
+```
+
+```json
+[
+  {
+    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+    "balance": "50000000000000",
+    "share_percent": 100.0
+  }
+]
+```
+
+**Check the compliance summary for asset `1`:**
+
+```bash
+curl http://localhost:8080/assets/1/compliance
+```
+
+```json
+{
+  "asset_id": 1,
+  "total_approved": 1,
+  "total_suspended": 0,
+  "total_expired": 0
+}
+```
+
+<CalloutBox variant="note">
+Your `last_indexed_ledger` and `last_updated` values will differ from the
+examples above — they reflect the ledger height at the time your local indexer
+ran. Everything else should match the sample Testnet deployment.
+</CalloutBox>
+
+### 3. Run the docs site
+
+```bash
+cd ../docs
+npm install
+npm run dev               # http://localhost:3000
 ```
 
 ### Environment variables
@@ -115,20 +246,7 @@ Or use an `.env` file:
 docker run -p 8080:8080 --env-file .env stellar-rwa-api
 ```
 
-Then query it:
-
-```bash
-curl $API_BASE_URL/stats
-curl $API_BASE_URL/assets
-```
-
-Run the docs site:
-
-```bash
-cd ../docs
-npm install
-npm run dev               # http://localhost:3000
-```
+Then run the same curl commands from step 2 against `http://localhost:8080`.
 
 ## Network guide
 
