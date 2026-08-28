@@ -1371,6 +1371,73 @@ mod tests {
         assert_eq!(percent, 0.0);
     }
 
+    const STUB_SOURCE: &str = "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA";
+    const STUB_CONTRACT: &str = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3";
+
+    /// Serve `router` on an ephemeral loopback port and return the URL to
+    /// point an [`Rpc`] at. The task is left running for the whole test.
+    async fn spawn_rpc_stub(router: axum::Router) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        format!("http://{addr}/")
+    }
+
+    #[tokio::test]
+    async fn read_retries_then_gives_up_after_max_read_attempts() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static HITS: AtomicUsize = AtomicUsize::new(0);
+
+        // An RPC-level error is transient, so `read` retries it. A
+        // persistently failing node must not be retried forever.
+        let router = axum::Router::new().route(
+            "/",
+            axum::routing::post(|| async {
+                HITS.fetch_add(1, Ordering::SeqCst);
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "error": { "message": "node busy" }
+                }))
+            }),
+        );
+        let url = spawn_rpc_stub(router).await;
+
+        let rpc = Rpc::new(url, STUB_SOURCE.to_string());
+        let started = Instant::now();
+        let err = rpc
+            .read(STUB_CONTRACT, "get_assets", vec![])
+            .await
+            .expect_err("a persistently failing read must surface an error");
+
+        assert!(
+            matches!(&err, IndexError::Rpc(message) if message == "node busy"),
+            "the last failure should be surfaced verbatim, got {err}"
+        );
+        assert_eq!(
+            HITS.load(Ordering::SeqCst),
+            MAX_READ_ATTEMPTS as usize,
+            "the read must be attempted exactly MAX_READ_ATTEMPTS times"
+        );
+        // Three backoff sleeps happened between the four attempts, each
+        // drawn from `[0, cap]`. The sum of those caps bounds the wait, so
+        // a regression that stops capping the backoff shows up here.
+        let mut max_backoff = Duration::ZERO;
+        for attempt in 1..MAX_READ_ATTEMPTS {
+            max_backoff += RETRY_BASE_DELAY
+                .saturating_mul(1u32 << (attempt - 1).min(4))
+                .min(RETRY_MAX_DELAY);
+        }
+        assert!(
+            started.elapsed() < max_backoff * 4,
+            "backoff should stay within the jittered bound, took {:?}",
+            started.elapsed()
+        );
+    }
+
     #[test]
     fn normalizes_unit_enum_status() {
         // Soroban encodes a unit-variant enum as a vec of one symbol.
