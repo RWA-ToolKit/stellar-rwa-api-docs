@@ -1354,6 +1354,44 @@ mod tests {
         assert_eq!(scval_to_json(&s).unwrap(), json!("hello"));
     }
 
+    /// `address_to_string` must not trap on `ScAddress` variants that are not
+    /// used by the RWA contracts today (MuxedAccount, ClaimableBalance,
+    /// LiquidityPool).  A single unrecognised address must return a
+    /// recognisable placeholder — `"unknown:…"` — so the rest of the
+    /// response can still be processed and one bad address cannot abort an
+    /// entire refresh cycle.
+    #[test]
+    fn address_to_string_falls_back_for_unsupported_variants() {
+        // ClaimableBalance — a v0 balance id with a zeroed hash.
+        let claimable = xdr::ScAddress::ClaimableBalance(
+            xdr::ClaimableBalanceId::ClaimableBalanceIdTypeV0(xdr::Hash([0u8; 32])),
+        );
+        let result = address_to_string(&claimable);
+        assert!(
+            result.is_ok(),
+            "ClaimableBalance must not return Err (got {result:?})"
+        );
+        let s = result.unwrap();
+        assert!(
+            s.starts_with("unknown:"),
+            "ClaimableBalance placeholder must start with 'unknown:' (got {s:?})"
+        );
+
+        // LiquidityPool — a pool id with a zeroed hash.
+        let liquidity_pool =
+            xdr::ScAddress::LiquidityPool(xdr::PoolId(xdr::Hash([0u8; 32])));
+        let result = address_to_string(&liquidity_pool);
+        assert!(
+            result.is_ok(),
+            "LiquidityPool must not return Err (got {result:?})"
+        );
+        let s = result.unwrap();
+        assert!(
+            s.starts_with("unknown:"),
+            "LiquidityPool placeholder must start with 'unknown:' (got {s:?})"
+        );
+    }
+
     #[test]
     fn scval_map_becomes_object() {
         let entries = vec![
