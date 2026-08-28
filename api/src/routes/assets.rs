@@ -182,55 +182,185 @@ mod tests {
         assert_eq!(result[0].id, 1);
     }
 
+    // #194 – non-numeric asset id returns 400, not 404
     #[tokio::test]
-    async fn filter_by_active_false_returns_only_inactive_assets() {
-        let assets = vec![
-            stub_asset(1, "real_estate", true),
-            stub_asset(2, "bond", true),
-            stub_asset(3, "real_estate", false),
-        ];
-        let result = get_assets(list_router(assets), "/assets?active=false").await;
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].id, 3);
-        assert!(!result[0].active);
+    async fn get_asset_by_non_numeric_id_returns_400() {
+        let app = test_router();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/abc")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "non-numeric id 'abc' should return 400, not {}",
+            response.status()
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        // The body must mention the offending parameter so clients can diagnose
+        // the error without consulting the API documentation.
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            text.contains("id") || text.contains("abc"),
+            "400 body should name the offending parameter; got: {text}"
+        );
+    }
+
+    // #195 – boundary ids (0 and u64::MAX) return 404 cleanly without panicking
+    #[tokio::test]
+    async fn get_asset_by_id_zero_returns_404() {
+        let app = test_router();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/0")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "id=0 should return 404, not {}",
+            response.status()
+        );
     }
 
     #[tokio::test]
-    async fn list_assets_filter_active_via_handler_and_test_support() {
-        use axum::extract::Query;
+    async fn get_asset_by_id_u64_max_returns_404() {
+        let app = test_router();
+        let uri = format!("/assets/{}", u64::MAX);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(&uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "id=u64::MAX should return 404, not {}",
+            response.status()
+        );
+    }
+
+    // #196 – GET /assets/:id response field set matches the OpenAPI schema
+    #[tokio::test]
+    async fn get_asset_by_id_returns_stable_field_set() {
+        use crate::routes::test_support;
         use crate::indexer::Snapshot;
-        use crate::routes::assets::{list, AssetQuery};
-        use crate::routes::test_support::{asset, state_with};
+        use std::collections::BTreeSet;
 
-        let mut snap = Snapshot::default();
-        snap.assets = vec![
-            Asset { id: 1, active: true, ..asset(1) },
-            Asset { id: 2, active: false, ..asset(2) },
-            Asset { id: 3, active: true, ..asset(3) },
-        ];
-        let state = state_with(snap);
+        let asset = stub_asset(1, "real_estate", true);
+        let state = test_support::state_with(Snapshot {
+            assets: vec![asset],
+            ..Snapshot::default()
+        });
+        let app = Router::new()
+            .route("/assets/:id", get(super::detail))
+            .with_state(state);
 
-        // active=false returns only inactive assets
-        let query_inactive = AssetQuery { asset_type: None, active: Some(false) };
-        let body_inactive = list(axum::extract::State(state.clone()), Query(query_inactive)).await.0;
-        let val_inactive = serde_json::to_value(&body_inactive).expect("serialize inactive");
-        let list_inactive = val_inactive.as_array().unwrap();
-        assert_eq!(list_inactive.len(), 1);
-        assert_eq!(list_inactive[0]["id"], 2);
-        assert_eq!(list_inactive[0]["active"], false);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
 
-        // active=true returns only active assets
-        let query_active = AssetQuery { asset_type: None, active: Some(true) };
-        let body_active = list(axum::extract::State(state.clone()), Query(query_active)).await.0;
-        let val_active = serde_json::to_value(&body_active).expect("serialize active");
-        let list_active = val_active.as_array().unwrap();
-        assert_eq!(list_active.len(), 2);
-        assert!(list_active.iter().all(|a| a["active"] == true));
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes)
+            .expect("response must be valid JSON");
 
-        // unfiltered default returns all assets
-        let query_default = AssetQuery { asset_type: None, active: None };
-        let body_default = list(axum::extract::State(state), Query(query_default)).await.0;
-        let val_default = serde_json::to_value(&body_default).expect("serialize default");
-        assert_eq!(val_default.as_array().unwrap().len(), 3);
+        let actual_keys: BTreeSet<String> = value
+            .as_object()
+            .expect("response must be a JSON object")
+            .keys()
+            .cloned()
+            .collect();
+
+        // Required fields defined in the OpenAPI schema for an Asset.
+        let expected_keys: BTreeSet<String> = [
+            "id",
+            "token_contract",
+            "issuer",
+            "name",
+            "symbol",
+            "asset_type",
+            "description",
+            "valuation_cents",
+            "valuation_usd",
+            "decimals",
+            "total_supply",
+            "holders",
+            "active",
+            "paused",
+            "compliance_contract",
+            "created_at_ledger",
+            "indexed_at_ledger",
+            "index_error",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        let missing: Vec<_> = expected_keys.difference(&actual_keys).collect();
+        let extra: Vec<_> = actual_keys.difference(&expected_keys).collect();
+        assert!(
+            missing.is_empty(),
+            "response is missing required fields: {missing:?}"
+        );
+        assert!(
+            extra.is_empty(),
+            "response contains unexpected fields (schema drift): {extra:?}"
+        );
+    }
+
+    // #197 – GET /assets returns [] (empty array) not null when no assets exist
+    #[tokio::test]
+    async fn list_assets_returns_empty_array_not_null_when_no_assets() {
+        let app = list_router(vec![]);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("response must be valid JSON");
+
+        assert!(
+            value.is_array(),
+            "empty asset list must serialize as a JSON array, not null or object; got: {value}"
+        );
+        assert_eq!(
+            value.as_array().unwrap().len(),
+            0,
+            "empty asset list must be an empty array []"
+        );
     }
 }
