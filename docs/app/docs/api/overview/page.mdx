@@ -33,10 +33,17 @@ retries on the next tick. The API never panics on a transient failure.
 
 ### Authentication and rate limiting
 
-There is currently **no authentication** required to call the API, and **no rate limits**
-are enforced. All endpoints are open to the public. If you are building a production
-service, consider caching responses locally or rate-limiting your own requests to be
-a good neighbor.
+There is currently **no authentication** required to call the API. All endpoints
+are open to the public.
+
+**Rate limits and HTTP caching (ETag) are being introduced.** See the dedicated
+reference for the full specification:
+
+<CalloutBox variant="tip">
+See <a href="/docs/api/rate-limits">Rate Limits &amp; Caching</a> for the
+planned <code>X-RateLimit-*</code> headers, <code>429</code> behaviour, ETag
+conditional-request flow, and polling recommendations.
+</CalloutBox>
 
 ### Data freshness and caching
 

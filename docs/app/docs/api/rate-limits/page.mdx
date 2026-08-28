@@ -1,0 +1,161 @@
+export const metadata = {
+  title: "API · Rate Limits & Caching",
+  description: "Rate-limit headers, ETag-based conditional requests, and Cache-Control guidance for the Stellar RWA API.",
+  canonical: "/docs/api/rate-limits",
+};
+
+# Rate Limits & Caching
+
+<CalloutBox variant="note">
+Rate limiting and ETag support are **not yet enforced** on the current Testnet
+deployment. This page documents the planned behaviour so integrators can build to
+the correct contract before it goes live. The section headings will be updated and
+this callout removed once the features ship.
+</CalloutBox>
+
+## Rate limits
+
+Each IP address is allowed **300 requests per minute** (sliding window). This
+applies to all endpoints equally — there are no per-endpoint overrides.
+
+### Response headers
+
+Every response includes the following headers so clients can track their
+remaining budget without waiting for a `429`:
+
+| Header | Example | Meaning |
+|--------|---------|---------|
+| `X-RateLimit-Limit` | `300` | Maximum requests allowed per window |
+| `X-RateLimit-Remaining` | `247` | Requests remaining in the current window |
+| `X-RateLimit-Reset` | `1756472340` | Unix timestamp when the window resets (UTC) |
+
+### When the limit is exceeded
+
+Once `X-RateLimit-Remaining` reaches `0`, the server responds with:
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 12
+X-RateLimit-Limit: 300
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1756472340
+```
+
+```json
+{
+  "error": "rate_limited",
+  "message": "too many requests — retry after 12 seconds"
+}
+```
+
+The `Retry-After` value (in seconds) is the time until the window resets. Back
+off for at least that long before retrying.
+
+<CalloutBox variant="tip">
+For polling use cases, read `X-RateLimit-Remaining` before every request and add
+a short sleep when it drops below 10. The API refreshes its state every ~10 seconds,
+so polling faster than that does not give you fresher data anyway.
+</CalloutBox>
+
+## HTTP caching with ETags
+
+Every cacheable endpoint returns a strong `ETag` derived from the content hash of
+the serialized snapshot. This lets clients skip parsing a full response body when
+nothing has changed.
+
+### How it works
+
+1. Make a normal request — the response includes an `ETag` header.
+2. On the next request, send the value back in `If-None-Match`.
+3. If the snapshot has not changed, the server returns `304 Not Modified` with an
+   empty body, saving bandwidth and counting as **one request** against your rate
+   limit.
+4. If the snapshot has changed, the server returns `200 OK` with the new body and
+   a new `ETag`.
+
+```bash
+# First request — capture the ETag
+curl -i $API_BASE_URL/assets/1
+# HTTP/1.1 200 OK
+# ETag: "a3f9c2b1d4e7"
+# Cache-Control: no-cache
+
+# Second request — send the ETag back
+curl -i -H 'If-None-Match: "a3f9c2b1d4e7"' $API_BASE_URL/assets/1
+# HTTP/1.1 304 Not Modified   ← no body, not re-counted as a full hit
+```
+
+### TypeScript helper
+
+```ts
+const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+
+const etagCache = new Map<string, { etag: string; data: unknown }>();
+
+export async function fetchWithEtag<T>(path: string): Promise<T> {
+  const url = `${API}${path}`;
+  const cached = etagCache.get(url);
+
+  const headers: HeadersInit = cached
+    ? { "If-None-Match": cached.etag }
+    : {};
+
+  const res = await fetch(url, { headers });
+
+  if (res.status === 304 && cached) {
+    // Server confirmed nothing changed — reuse the cached body.
+    return cached.data as T;
+  }
+
+  if (!res.ok) throw new Error(`API ${res.status}`);
+
+  const data = (await res.json()) as T;
+  const etag = res.headers.get("ETag");
+  if (etag) etagCache.set(url, { etag, data });
+
+  return data;
+}
+```
+
+### Which endpoints support ETags?
+
+All read endpoints that return JSON data support ETags. The `/health` endpoint
+does **not** return an `ETag` because liveness probes should always get a fresh
+`200`.
+
+| Endpoint | ETag |
+|----------|------|
+| `GET /stats` | ✅ |
+| `GET /assets` | ✅ |
+| `GET /assets/:id` | ✅ |
+| `GET /assets/:id/holders` | ✅ |
+| `GET /assets/:id/compliance` | ✅ |
+| `GET /assets/:id/dividends` | ✅ |
+| `GET /health` | ❌ |
+
+## Cache-Control
+
+The API sets `Cache-Control: no-cache` on all responses. This tells intermediate
+proxies (CDNs, reverse proxies) to revalidate with the origin on every request,
+but still allows ETag-based conditional requests from the client. It intentionally
+does **not** set `max-age`, since the state can change as often as every 10 seconds.
+
+If you are fronting the API with a CDN, configure it to **forward** the
+`If-None-Match` / `ETag` headers so conditional requests reach the origin rather
+than being absorbed by the CDN's own cache.
+
+## Recommendations for integrators
+
+- **Poll at the refresh interval.** The indexer rebuilds state every ~10 seconds.
+  Polling more frequently wastes budget without gaining fresher data. A 10–15 s
+  interval is a good default.
+- **Use ETags for asset detail pages.** Asset metadata rarely changes. Send
+  `If-None-Match` on every poll — most responses will be `304`.
+- **Watch `X-RateLimit-Remaining`.** Build in a backoff when the counter is low
+  rather than waiting for a `429`.
+- **Cache locally for read-heavy UIs.** If your frontend renders the same data
+  across multiple components, fetch once and share the result rather than making
+  one request per component.
+- **Prefer the API over direct Soroban RPC for display data.** The API reduces the
+  number of outbound RPC calls your integration makes and returns pre-decoded JSON.
+  Use direct RPC only when you need live data that has not been indexed yet.

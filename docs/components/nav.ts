@@ -35,6 +35,7 @@ export const NAV: NavSection[] = [
       { title: "Holders", href: "/docs/api/holders" },
       { title: "Compliance", href: "/docs/api/compliance" },
       { title: "Dividends", href: "/docs/api/dividends" },
+      { title: "Rate Limits & Caching", href: "/docs/api/rate-limits" },
     ],
   },
   {
