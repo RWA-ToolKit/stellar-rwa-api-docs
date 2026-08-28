@@ -1324,6 +1324,340 @@ mod tests {
         );
     }
 
+    /// Mirrors the `claimed_percent` / `overflow_detected` computation in
+    /// `Indexer::distributions_for`, which is inlined in an async RPC path
+    /// and so cannot be called directly from a unit test.
+    fn claimed(total: i128, distributed: i128) -> (bool, f64) {
+        let overflow_detected = distributed > total;
+        let claimed_percent = if overflow_detected && total > 0 {
+            (distributed.saturating_mul(10_000) / total) as f64 / 100.0
+        } else {
+            ratio_percent(distributed, total)
+        };
+        (overflow_detected, claimed_percent)
+    }
+
+    #[test]
+    fn overflow_detected_surfaces_double_claim_without_clamping() {
+        // The flag exists to surface the on-chain double-claim anomaly, so
+        // the percentage must stay raw. `ratio_percent` would clamp to 100
+        // and hide the magnitude entirely.
+        let (overflow, percent) = claimed(1_000, 2_000);
+        assert!(overflow, "distributed 2000 > total 1000 must set the flag");
+        assert!(
+            percent > 100.0,
+            "claimed_percent must exceed 100 when overflowing, got {percent}"
+        );
+        assert_eq!(percent, 200.0);
+        assert_eq!(
+            ratio_percent(2_000, 1_000),
+            100.0,
+            "sanity: the clamped helper is what the overflow branch avoids"
+        );
+
+        // A single stroop over is still an overflow.
+        let (overflow, percent) = claimed(1_000, 1_001);
+        assert!(overflow);
+        assert_eq!(percent, 100.1);
+
+        // Exactly fully distributed is not an overflow.
+        let (overflow, percent) = claimed(1_000, 1_000);
+        assert!(!overflow);
+        assert_eq!(percent, 100.0);
+
+        // A zero total cannot yield a percentage; the flag still fires.
+        let (overflow, percent) = claimed(0, 5);
+        assert!(overflow, "any distribution against a zero total overflows");
+        assert_eq!(percent, 0.0);
+    }
+
+    const STUB_SOURCE: &str = "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA";
+    const STUB_CONTRACT: &str = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3";
+
+    /// Serve `router` on an ephemeral loopback port and return the URL to
+    /// point an [`Rpc`] at. The task is left running for the whole test.
+    async fn spawn_rpc_stub(router: axum::Router) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        format!("http://{addr}/")
+    }
+
+    #[tokio::test]
+    async fn read_retries_then_gives_up_after_max_read_attempts() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static HITS: AtomicUsize = AtomicUsize::new(0);
+
+        // An RPC-level error is transient, so `read` retries it. A
+        // persistently failing node must not be retried forever.
+        let router = axum::Router::new().route(
+            "/",
+            axum::routing::post(|| async {
+                HITS.fetch_add(1, Ordering::SeqCst);
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "error": { "message": "node busy" }
+                }))
+            }),
+        );
+        let url = spawn_rpc_stub(router).await;
+
+        let rpc = Rpc::new(url, STUB_SOURCE.to_string());
+        let started = Instant::now();
+        let err = rpc
+            .read(STUB_CONTRACT, "get_assets", vec![])
+            .await
+            .expect_err("a persistently failing read must surface an error");
+
+        assert!(
+            matches!(&err, IndexError::Rpc(message) if message == "node busy"),
+            "the last failure should be surfaced verbatim, got {err}"
+        );
+        assert_eq!(
+            HITS.load(Ordering::SeqCst),
+            MAX_READ_ATTEMPTS as usize,
+            "the read must be attempted exactly MAX_READ_ATTEMPTS times"
+        );
+        // Three backoff sleeps happened between the four attempts, each
+        // drawn from `[0, cap]`. The sum of those caps bounds the wait, so
+        // a regression that stops capping the backoff shows up here.
+        let mut max_backoff = Duration::ZERO;
+        for attempt in 1..MAX_READ_ATTEMPTS {
+            max_backoff += RETRY_BASE_DELAY
+                .saturating_mul(1u32 << (attempt - 1).min(4))
+                .min(RETRY_MAX_DELAY);
+        }
+        assert!(
+            started.elapsed() < max_backoff * 4,
+            "backoff should stay within the jittered bound, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn rate_limited_response_carries_parsed_retry_after() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static HITS: AtomicUsize = AtomicUsize::new(0);
+
+        fn count() {
+            HITS.fetch_add(1, Ordering::SeqCst);
+        }
+
+        let router = axum::Router::new()
+            .route(
+                "/rate-limited",
+                axum::routing::post(|| async {
+                    count();
+                    (
+                        axum::http::StatusCode::TOO_MANY_REQUESTS,
+                        [("retry-after", "7")],
+                        "slow down",
+                    )
+                }),
+            )
+            .route(
+                "/unavailable",
+                axum::routing::post(|| async {
+                    count();
+                    (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        [("retry-after", "30")],
+                        "maintenance",
+                    )
+                }),
+            )
+            .route(
+                "/no-retry-after",
+                axum::routing::post(|| async {
+                    count();
+                    (axum::http::StatusCode::TOO_MANY_REQUESTS, "slow down")
+                }),
+            );
+        let base = spawn_rpc_stub(router).await;
+
+        let read = |path: &str| {
+            let rpc = Rpc::new(format!("{base}{path}"), STUB_SOURCE.to_string());
+            async move { rpc.read(STUB_CONTRACT, "get_assets", vec![]).await }
+        };
+
+        // Mirrors how `Indexer::run` picks its wait: the advised delay wins
+        // over the fixed poll interval when the node supplied one.
+        let backoff = |e: &IndexError| match e {
+            IndexError::RateLimited { retry_after, .. } => retry_after.unwrap_or(POLL_INTERVAL),
+            _ => POLL_INTERVAL,
+        };
+
+        let err = read("rate-limited")
+            .await
+            .expect_err("429 must not be reported as success");
+        let IndexError::RateLimited {
+            status,
+            retry_after,
+            body,
+        } = &err
+        else {
+            panic!("429 must map to IndexError::RateLimited, got {err}");
+        };
+        assert_eq!(*status, 429);
+        assert_eq!(
+            *retry_after,
+            Some(Duration::from_secs(7)),
+            "Retry-After must be parsed as whole seconds"
+        );
+        assert_eq!(body, "slow down", "the node's body is kept for diagnosis");
+        assert_eq!(
+            backoff(&err),
+            Duration::from_secs(7),
+            "the advised delay must be honoured over POLL_INTERVAL"
+        );
+
+        // 503 is treated the same way: the node is asking us to wait.
+        let err = read("unavailable")
+            .await
+            .expect_err("503 must not be reported as success");
+        let IndexError::RateLimited {
+            status,
+            retry_after,
+            ..
+        } = &err
+        else {
+            panic!("503 must map to IndexError::RateLimited, got {err}");
+        };
+        assert_eq!(*status, 503);
+        assert_eq!(*retry_after, Some(Duration::from_secs(30)));
+        assert_eq!(backoff(&err), Duration::from_secs(30));
+
+        // Without the header there is no advice to honour, but the variant
+        // still has to be RateLimited rather than a plain HTTP status.
+        let err = read("no-retry-after")
+            .await
+            .expect_err("429 must not be reported as success");
+        let IndexError::RateLimited { retry_after, .. } = &err else {
+            panic!("429 must map to IndexError::RateLimited, got {err}");
+        };
+        assert_eq!(*retry_after, None);
+        assert_eq!(
+            backoff(&err),
+            POLL_INTERVAL,
+            "with no advice the caller falls back to the poll interval"
+        );
+
+        assert_eq!(
+            HITS.load(Ordering::SeqCst),
+            3,
+            "a rate-limit response is not transient and must not be retried in place"
+        );
+    }
+
+    #[test]
+    fn concurrent_readers_never_observe_a_partial_snapshot_swap() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        // Two internally consistent generations. Every field is keyed to the
+        // generation, so any mix of the two is detectable by a reader.
+        fn generation(ledger: u32, ids: &[u64]) -> Snapshot {
+            Snapshot {
+                assets: ids.iter().copied().map(test_asset).collect(),
+                holders: ids.iter().map(|&id| (id, Vec::new())).collect(),
+                compliance: ids
+                    .iter()
+                    .map(|&id| (id, ComplianceSummary::default()))
+                    .collect(),
+                dividends: ids.iter().map(|&id| (id, Vec::new())).collect(),
+                stats: Stats {
+                    total_assets: ids.len() as u64,
+                    last_indexed_ledger: ledger,
+                    ..Stats::default()
+                },
+            }
+        }
+
+        let old = generation(100, &[1, 2, 3]);
+        let new = generation(200, &[10, 11, 12, 13, 14]);
+        let state = AppState::for_test_empty();
+        state.replace(old.clone());
+
+        let stop = AtomicBool::new(false);
+
+        std::thread::scope(|scope| {
+            let writer = scope.spawn(|| {
+                for i in 0..2_000 {
+                    state.replace(if i % 2 == 0 {
+                        new.clone()
+                    } else {
+                        old.clone()
+                    });
+                }
+                stop.store(true, Ordering::Release);
+            });
+
+            let readers: Vec<_> = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut seen_ledgers = HashSet::new();
+                        while !stop.load(Ordering::Acquire) {
+                            let snapshot = state.snapshot();
+                            let ledger = snapshot.stats.last_indexed_ledger;
+                            seen_ledgers.insert(ledger);
+
+                            // A torn read would pair one generation's stats
+                            // with the other's assets or derived maps.
+                            let ids: HashSet<u64> =
+                                snapshot.assets.iter().map(|asset| asset.id).collect();
+                            let expected: HashSet<u64> = match ledger {
+                                100 => HashSet::from([1, 2, 3]),
+                                200 => HashSet::from([10, 11, 12, 13, 14]),
+                                other => panic!("observed a ledger from neither generation: {other}"),
+                            };
+                            assert_eq!(ids, expected, "assets do not match stats ledger {ledger}");
+                            assert_eq!(
+                                snapshot.stats.total_assets as usize,
+                                snapshot.assets.len(),
+                                "stats count does not match the assets in the same snapshot"
+                            );
+                            assert_eq!(
+                                snapshot.holders.keys().copied().collect::<HashSet<_>>(),
+                                expected,
+                                "holders map belongs to a different generation"
+                            );
+                            assert_eq!(
+                                snapshot.compliance.keys().copied().collect::<HashSet<_>>(),
+                                expected,
+                                "compliance map belongs to a different generation"
+                            );
+                            assert_eq!(
+                                snapshot.dividends.keys().copied().collect::<HashSet<_>>(),
+                                expected,
+                                "dividends map belongs to a different generation"
+                            );
+                        }
+                        seen_ledgers
+                    })
+                })
+                .collect();
+
+            writer.join().unwrap();
+            let seen: HashSet<u32> = readers
+                .into_iter()
+                .flat_map(|reader| reader.join().unwrap())
+                .collect();
+            assert!(
+                seen.contains(&100) || seen.contains(&200),
+                "readers should have observed at least one published generation"
+            );
+        });
+
+        // The last write wins and is fully visible afterwards.
+        let final_snapshot = state.snapshot();
+        assert_eq!(final_snapshot.stats.last_indexed_ledger, 100);
+        assert_eq!(final_snapshot.assets.len(), 3);
+    }
+
     #[test]
     fn normalizes_unit_enum_status() {
         // Soroban encodes a unit-variant enum as a vec of one symbol.
