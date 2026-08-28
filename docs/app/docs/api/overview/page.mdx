@@ -73,6 +73,12 @@ via Soroban RPC.
 
 Plus `GET /` (self-describing index) and `GET /health` (liveness).
 
+<CalloutBox variant="note">
+All data endpoints are served under the <code>/v1</code> prefix. For the full
+stability guarantee, how breaking changes are introduced, and the deprecation
+timeline, see the <a href="/docs/api/versioning">Versioning &amp; Deprecation</a> policy.
+</CalloutBox>
+
 ## Error responses
 
 All errors return an appropriate HTTP status code and a JSON body with a consistent

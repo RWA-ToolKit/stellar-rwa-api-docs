@@ -1,0 +1,170 @@
+export const metadata = {
+  title: "API · Versioning & Deprecation",
+  description: "Stability guarantees, the versioning scheme, and the deprecation policy for the Stellar RWA REST API.",
+  canonical: "/docs/api/versioning",
+};
+
+# Versioning & Deprecation
+
+This page defines what stability you can rely on when building against the
+Stellar RWA REST API, how breaking changes are introduced, and how much notice
+you will get before anything changes.
+
+<CalloutBox variant="tip">
+TL;DR — All data endpoints live under <code>/v1</code>. A breaking change means
+a new <code>/v2</code> prefix and at least 90 days of parallel support. We will
+not silently mutate a field or remove an endpoint within a version.
+</CalloutBox>
+
+## Current version
+
+The API is at **v1**. All data endpoints are served from the `/v1` prefix:
+
+| Endpoint | URL |
+|----------|-----|
+| Stats | `GET /v1/stats` |
+| Asset list | `GET /v1/assets` |
+| Asset detail | `GET /v1/assets/:id` |
+| Holders | `GET /v1/assets/:id/holders` |
+| Compliance | `GET /v1/assets/:id/compliance` |
+| Dividends | `GET /v1/assets/:id/dividends` |
+
+The utility endpoints (`GET /`, `GET /version`, `GET /health`, `GET /metrics`)
+sit at the root and are version-stable — they will not move to a `/v1` prefix.
+
+### Checking the version programmatically
+
+```bash
+curl $API_BASE_URL/version
+```
+
+```json
+{
+  "version": "0.1.0",
+  "release": "v0.1.0"
+}
+```
+
+The `version` field tracks the crate's `Cargo.toml` version using semantic
+versioning. The `release` field is a display-friendly label with a `v` prefix.
+Both are set at compile time from `CARGO_PKG_VERSION` — they are never
+back-filled or overridden at runtime.
+
+## Versioning scheme
+
+The API uses **URL versioning**: the path prefix (`/v1`, `/v2`, …) is the
+contract boundary.
+
+- **Major version** (`v1 → v2`) — a breaking change is shipping. The old version
+  continues to be served in parallel for a minimum deprecation window before
+  being retired (see [Deprecation policy](#deprecation-policy)).
+- **Minor changes** — new optional fields added to existing responses, new
+  optional query parameters, or new endpoints added within the same major
+  version. These are backward-compatible and happen without version bumps.
+- **Patch / internal changes** — bug fixes, performance work, infrastructure
+  changes. No effect on the response schema.
+
+### What counts as a breaking change
+
+The following changes will never happen silently within a version:
+
+- Removing a field from a response body
+- Renaming a field
+- Changing a field's type (e.g., `number → string` or vice-versa)
+- Changing the semantics of a field (e.g., changing the unit of `valuation_cents`)
+- Removing an endpoint
+- Removing a query parameter
+- Changing an HTTP status code for a documented scenario
+- Changing a documented error code in the `error` field
+
+### What is not a breaking change
+
+- Adding a new field to a response body (parse defensively — do not reject
+  unknown keys)
+- Adding a new optional query parameter
+- Adding a new endpoint
+- Changing the value of a field that is explicitly documented as approximate
+  (e.g., `snapshot_age_seconds` in `/health`)
+- Tightening validation on inputs that were already documented as invalid
+- Changing log output, headers unrelated to caching, or internal behavior
+
+## Deprecation policy
+
+When a breaking change requires a new major version:
+
+1. **Announcement** — a notice is published in the project's GitHub Discussions at
+   least **90 days** before the old version is retired. The notice includes the
+   target retirement date, a migration guide, and a diff of schema changes.
+
+2. **Parallel operation** — the old and new versions run side by side during the
+   deprecation window. Both return valid responses; no traffic is forcibly
+   redirected.
+
+3. **Deprecation header** — once retirement is scheduled, responses from the old
+   version include:
+   ```
+   Deprecation: true
+   Sunset: <RFC 7231 date>
+   Link: <https://…/docs/api/versioning>; rel="deprecation"
+   ```
+   These headers follow [RFC 8594](https://www.rfc-editor.org/rfc/rfc8594) and
+   [RFC 8288](https://www.rfc-editor.org/rfc/rfc8288). Monitor for them if you
+   want automated notice.
+
+4. **Retirement** — on the sunset date the old version returns `410 Gone` with a
+   JSON body pointing to the migration guide. It is not silently removed.
+
+<CalloutBox variant="warning">
+The 90-day window is a minimum, not a maximum. For changes that affect a large
+number of consumers we will extend the window. Emergency security fixes may
+shorten it, but we will communicate that explicitly.
+</CalloutBox>
+
+## Stability tiers
+
+Not every surface has the same stability guarantee.
+
+| Surface | Stability | Notes |
+|---------|-----------|-------|
+| `/v1/*` response schemas | **Stable** | No breaking changes without a new major version and full deprecation window |
+| `/version`, `/health`, `/` | **Stable** | Root utility endpoints will not move or change shape |
+| `/metrics` (Prometheus) | **Best-effort** | Metric names and labels may change; we will note changes in release notes |
+| `/openapi.json` | **Stable** | Follows the same rules as the response schemas it describes |
+| Field ordering in JSON | **Unstable** | Do not rely on the order of keys in response objects |
+| Undocumented fields | **Unstable** | Fields not in this documentation may be removed without notice |
+
+## ETag and caching behaviour
+
+Every `/v1` response includes a ledger-derived `ETag`:
+
+```
+ETag: "ledger-3514152"
+Cache-Control: public, max-age=10
+```
+
+The ETag value is `"ledger-<last_indexed_ledger>"`. Two requests against the
+same indexed ledger are guaranteed to return identical response bodies — you can
+use `If-None-Match` to get a `304 Not Modified` and save bandwidth. The
+`max-age` matches the indexer's poll interval (10 seconds).
+
+These headers are part of the stable API surface. The ETag format
+(`"ledger-<N>"`) will not change within a major version.
+
+## v0 → v1 migration note
+
+Early development builds served endpoints directly at the root (e.g., `/assets`
+instead of `/v1/assets`). If you integrated against a pre-release build you will
+need to prefix all data endpoint paths with `/v1`. Utility endpoints (`/health`,
+`/version`, `/metrics`) are unchanged.
+
+## Getting notified
+
+- **GitHub Discussions** — deprecation announcements and migration guides are
+  published there first.
+- **`Deprecation` response header** — set on all responses from a version that
+  has entered its retirement window (see above).
+- **`/version` endpoint** — poll this if you want to detect a server upgrade
+  programmatically. A change in the `version` field indicates a new release.
+
+No mailing list is required. Watching the repository on GitHub and filtering for
+the `breaking-change` label is the most reliable signal.
