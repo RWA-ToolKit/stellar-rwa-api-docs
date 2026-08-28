@@ -1438,6 +1438,122 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn rate_limited_response_carries_parsed_retry_after() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static HITS: AtomicUsize = AtomicUsize::new(0);
+
+        fn count() {
+            HITS.fetch_add(1, Ordering::SeqCst);
+        }
+
+        let router = axum::Router::new()
+            .route(
+                "/rate-limited",
+                axum::routing::post(|| async {
+                    count();
+                    (
+                        axum::http::StatusCode::TOO_MANY_REQUESTS,
+                        [("retry-after", "7")],
+                        "slow down",
+                    )
+                }),
+            )
+            .route(
+                "/unavailable",
+                axum::routing::post(|| async {
+                    count();
+                    (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        [("retry-after", "30")],
+                        "maintenance",
+                    )
+                }),
+            )
+            .route(
+                "/no-retry-after",
+                axum::routing::post(|| async {
+                    count();
+                    (axum::http::StatusCode::TOO_MANY_REQUESTS, "slow down")
+                }),
+            );
+        let base = spawn_rpc_stub(router).await;
+
+        let read = |path: &str| {
+            let rpc = Rpc::new(format!("{base}{path}"), STUB_SOURCE.to_string());
+            async move { rpc.read(STUB_CONTRACT, "get_assets", vec![]).await }
+        };
+
+        // Mirrors how `Indexer::run` picks its wait: the advised delay wins
+        // over the fixed poll interval when the node supplied one.
+        let backoff = |e: &IndexError| match e {
+            IndexError::RateLimited { retry_after, .. } => retry_after.unwrap_or(POLL_INTERVAL),
+            _ => POLL_INTERVAL,
+        };
+
+        let err = read("rate-limited")
+            .await
+            .expect_err("429 must not be reported as success");
+        let IndexError::RateLimited {
+            status,
+            retry_after,
+            body,
+        } = &err
+        else {
+            panic!("429 must map to IndexError::RateLimited, got {err}");
+        };
+        assert_eq!(*status, 429);
+        assert_eq!(
+            *retry_after,
+            Some(Duration::from_secs(7)),
+            "Retry-After must be parsed as whole seconds"
+        );
+        assert_eq!(body, "slow down", "the node's body is kept for diagnosis");
+        assert_eq!(
+            backoff(&err),
+            Duration::from_secs(7),
+            "the advised delay must be honoured over POLL_INTERVAL"
+        );
+
+        // 503 is treated the same way: the node is asking us to wait.
+        let err = read("unavailable")
+            .await
+            .expect_err("503 must not be reported as success");
+        let IndexError::RateLimited {
+            status,
+            retry_after,
+            ..
+        } = &err
+        else {
+            panic!("503 must map to IndexError::RateLimited, got {err}");
+        };
+        assert_eq!(*status, 503);
+        assert_eq!(*retry_after, Some(Duration::from_secs(30)));
+        assert_eq!(backoff(&err), Duration::from_secs(30));
+
+        // Without the header there is no advice to honour, but the variant
+        // still has to be RateLimited rather than a plain HTTP status.
+        let err = read("no-retry-after")
+            .await
+            .expect_err("429 must not be reported as success");
+        let IndexError::RateLimited { retry_after, .. } = &err else {
+            panic!("429 must map to IndexError::RateLimited, got {err}");
+        };
+        assert_eq!(*retry_after, None);
+        assert_eq!(
+            backoff(&err),
+            POLL_INTERVAL,
+            "with no advice the caller falls back to the poll interval"
+        );
+
+        assert_eq!(
+            HITS.load(Ordering::SeqCst),
+            3,
+            "a rate-limit response is not transient and must not be retried in place"
+        );
+    }
+
     #[test]
     fn normalizes_unit_enum_status() {
         // Soroban encodes a unit-variant enum as a vec of one symbol.
