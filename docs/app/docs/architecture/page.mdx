@@ -1,0 +1,112 @@
+export const metadata = {
+  title: "Architecture Overview",
+  description: "How the three Stellar RWA repositories fit together: contracts, API, and web app.",
+  canonical: "/docs/architecture",
+};
+
+# Architecture Overview
+
+The Stellar RWA Toolkit is split across three repositories. Each owns a distinct
+layer; they interact only through well-defined interfaces.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                       stellar-rwa-web                                │
+│  (Next.js front-end — issuers & investors)                           │
+│                                                                      │
+│   • Freighter  ──sign──▶  Soroban RPC  ──submit──▶  contracts        │
+│   • fetch()   ──────────▶  REST API   (read-only data)               │
+└──────────────────────────────────────────────────────────────────────┘
+         ▲                          ▲
+         │  REST JSON               │  Soroban RPC
+         │                         │  simulateTransaction
+┌────────┴──────────┐    ┌─────────┴────────────────────────────────┐
+│  stellar-rwa-     │    │  Stellar network (Testnet / Mainnet)      │
+│  api-docs / api   │    │                                           │
+│  (Rust / Axum)    │    │  ┌─────────────┐  ┌──────────────────┐   │
+│                   │    │  │  registry   │  │  compliance      │   │
+│  polls every 10 s │◀───│  └─────────────┘  └──────────────────┘   │
+│  never signs      │    │  ┌─────────────┐  ┌──────────────────┐   │
+│  never submits    │    │  │  dividend   │  │  asset-token ×N  │   │
+└───────────────────┘    │  └─────────────┘  └──────────────────┘   │
+                         │           stellar-rwa-contracts            │
+                         └───────────────────────────────────────────┘
+```
+
+## Repository ownership
+
+| Repository | Language / stack | Owns | Open to contributors? |
+|---|---|---|---|
+| [`stellar-rwa-contracts`](https://github.com/RWA-ToolKit/stellar-rwa-contracts) | Rust · Soroban SDK | The four on-chain programs; all business logic and compliance rules | Maintainer-only |
+| [`stellar-rwa-api-docs`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs) — `api/` | Rust · Axum · tokio | Read-only indexer; polls Soroban RPC, caches state in memory, serves JSON | Maintainer-only |
+| [`stellar-rwa-api-docs`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs) — `docs/` | Next.js 14 · MDX | This documentation site | Open — see [CONTRIBUTING.md](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/blob/main/CONTRIBUTING.md) |
+| [`stellar-rwa-web`](https://github.com/RWA-ToolKit/stellar-rwa-web) | Next.js · Freighter API | Issuer and investor front-end; the only layer that signs transactions | Maintainer-only |
+
+## How data flows
+
+**Writes (user → chain)**
+
+1. A user opens the web app and connects Freighter.
+2. The web app builds a Soroban transaction and asks Freighter to sign it.
+3. The signed transaction is submitted to Soroban RPC and lands on the ledger.
+4. The contract executes — e.g., an `asset-token` transfer triggers a
+   cross-contract `is_allowed` check in the `compliance` contract.
+
+**Reads (chain → API → web app)**
+
+1. The API's background indexer calls `simulateTransaction` on Soroban RPC every
+   10 seconds, decoding the returned `ScVal` with `stellar-xdr`.
+2. The decoded state is held in an in-memory snapshot (no database in v1).
+3. The web app — and any other client — fetches that snapshot over REST. This is
+   cheaper and simpler than every client simulating its own contract calls.
+
+<CalloutBox variant="note">
+The API is a **read-only cache**, not the source of truth. The Soroban ledger is.
+If you need data fresher than ~10 seconds, simulate the relevant view call
+directly with the Stellar JS SDK — see the [Integration Guide](/docs/integration#reading-contracts-directly).
+</CalloutBox>
+
+## Contracts on Stellar
+
+There are four Soroban contracts, each with a distinct responsibility:
+
+| Contract | Responsibility |
+|---|---|
+| `asset-token` | Fungible token (SEP-41) with compliance gating. One instance per RWA. |
+| `compliance` | Per-asset allowlist, KYC records, jurisdiction rules, expiry. |
+| `registry` | Global index of all tokenized assets on the platform. |
+| `dividend` | Escrows and distributes payment-token dividends to token holders. |
+
+`asset-token` and `compliance` are **always deployed as a pair** — each asset-token
+holds the address of its compliance contract and calls `is_allowed` on every
+transfer. The `registry` and `dividend` contracts are **platform-wide singletons**.
+
+See the [Contract Reference](/docs/contracts/asset-token) for full method
+signatures.
+
+## What the API does and does not do
+
+| Does | Does not |
+|---|---|
+| Poll Soroban RPC and cache the result | Hold private keys |
+| Serve plain JSON over REST | Sign or submit transactions |
+| Decode XDR `ScVal` from contract view calls | Store data persistently (in-memory only) |
+| Provide aggregated stats (TVL, holder counts) | Enforce any access control beyond rate limiting |
+
+Because the API never holds keys or submits transactions, it has a minimal attack
+surface. All write operations go through the web app → Freighter → Soroban RPC
+path, where the user's wallet is the only key holder.
+
+## Interface contracts
+
+The three layers communicate through two stable interfaces:
+
+- **Soroban contract ABI** — the method names and `ScVal` types exposed by the
+  four contracts. The API's `indexer/mod.rs` and the web app's SDK calls both
+  depend on this.
+- **REST API schema** — the JSON shapes documented in the [API Reference](/docs/api/overview).
+  The web app fetches from these endpoints; you can too.
+
+Changes to either interface are versioned. The API currently has no URL
+versioning (all paths are `/...`); a `v2` prefix will be added when breaking
+changes are needed.

@@ -13,7 +13,10 @@ export interface NavSection {
 export const NAV: NavSection[] = [
   {
     title: "Introduction",
-    items: [{ title: "Getting Started", href: "/docs/getting-started" }],
+    items: [
+      { title: "Getting Started", href: "/docs/getting-started" },
+      { title: "Architecture Overview", href: "/docs/architecture" },
+    ],
   },
   {
     title: "Contract Reference",
