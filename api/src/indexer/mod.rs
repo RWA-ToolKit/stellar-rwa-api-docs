@@ -1555,6 +1555,110 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_readers_never_observe_a_partial_snapshot_swap() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        // Two internally consistent generations. Every field is keyed to the
+        // generation, so any mix of the two is detectable by a reader.
+        fn generation(ledger: u32, ids: &[u64]) -> Snapshot {
+            Snapshot {
+                assets: ids.iter().copied().map(test_asset).collect(),
+                holders: ids.iter().map(|&id| (id, Vec::new())).collect(),
+                compliance: ids
+                    .iter()
+                    .map(|&id| (id, ComplianceSummary::default()))
+                    .collect(),
+                dividends: ids.iter().map(|&id| (id, Vec::new())).collect(),
+                stats: Stats {
+                    total_assets: ids.len() as u64,
+                    last_indexed_ledger: ledger,
+                    ..Stats::default()
+                },
+            }
+        }
+
+        let old = generation(100, &[1, 2, 3]);
+        let new = generation(200, &[10, 11, 12, 13, 14]);
+        let state = AppState::for_test_empty();
+        state.replace(old.clone());
+
+        let stop = AtomicBool::new(false);
+
+        std::thread::scope(|scope| {
+            let writer = scope.spawn(|| {
+                for i in 0..2_000 {
+                    state.replace(if i % 2 == 0 {
+                        new.clone()
+                    } else {
+                        old.clone()
+                    });
+                }
+                stop.store(true, Ordering::Release);
+            });
+
+            let readers: Vec<_> = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut seen_ledgers = HashSet::new();
+                        while !stop.load(Ordering::Acquire) {
+                            let snapshot = state.snapshot();
+                            let ledger = snapshot.stats.last_indexed_ledger;
+                            seen_ledgers.insert(ledger);
+
+                            // A torn read would pair one generation's stats
+                            // with the other's assets or derived maps.
+                            let ids: HashSet<u64> =
+                                snapshot.assets.iter().map(|asset| asset.id).collect();
+                            let expected: HashSet<u64> = match ledger {
+                                100 => HashSet::from([1, 2, 3]),
+                                200 => HashSet::from([10, 11, 12, 13, 14]),
+                                other => panic!("observed a ledger from neither generation: {other}"),
+                            };
+                            assert_eq!(ids, expected, "assets do not match stats ledger {ledger}");
+                            assert_eq!(
+                                snapshot.stats.total_assets as usize,
+                                snapshot.assets.len(),
+                                "stats count does not match the assets in the same snapshot"
+                            );
+                            assert_eq!(
+                                snapshot.holders.keys().copied().collect::<HashSet<_>>(),
+                                expected,
+                                "holders map belongs to a different generation"
+                            );
+                            assert_eq!(
+                                snapshot.compliance.keys().copied().collect::<HashSet<_>>(),
+                                expected,
+                                "compliance map belongs to a different generation"
+                            );
+                            assert_eq!(
+                                snapshot.dividends.keys().copied().collect::<HashSet<_>>(),
+                                expected,
+                                "dividends map belongs to a different generation"
+                            );
+                        }
+                        seen_ledgers
+                    })
+                })
+                .collect();
+
+            writer.join().unwrap();
+            let seen: HashSet<u32> = readers
+                .into_iter()
+                .flat_map(|reader| reader.join().unwrap())
+                .collect();
+            assert!(
+                seen.contains(&100) || seen.contains(&200),
+                "readers should have observed at least one published generation"
+            );
+        });
+
+        // The last write wins and is fully visible afterwards.
+        let final_snapshot = state.snapshot();
+        assert_eq!(final_snapshot.stats.last_indexed_ledger, 100);
+        assert_eq!(final_snapshot.assets.len(), 3);
+    }
+
+    #[test]
     fn normalizes_unit_enum_status() {
         // Soroban encodes a unit-variant enum as a vec of one symbol.
         assert_eq!(normalize_status(&json!(["Approved"])), "Approved");
