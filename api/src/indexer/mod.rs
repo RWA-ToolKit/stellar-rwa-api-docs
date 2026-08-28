@@ -1324,6 +1324,53 @@ mod tests {
         );
     }
 
+    /// Mirrors the `claimed_percent` / `overflow_detected` computation in
+    /// `Indexer::distributions_for`, which is inlined in an async RPC path
+    /// and so cannot be called directly from a unit test.
+    fn claimed(total: i128, distributed: i128) -> (bool, f64) {
+        let overflow_detected = distributed > total;
+        let claimed_percent = if overflow_detected && total > 0 {
+            (distributed.saturating_mul(10_000) / total) as f64 / 100.0
+        } else {
+            ratio_percent(distributed, total)
+        };
+        (overflow_detected, claimed_percent)
+    }
+
+    #[test]
+    fn overflow_detected_surfaces_double_claim_without_clamping() {
+        // The flag exists to surface the on-chain double-claim anomaly, so
+        // the percentage must stay raw. `ratio_percent` would clamp to 100
+        // and hide the magnitude entirely.
+        let (overflow, percent) = claimed(1_000, 2_000);
+        assert!(overflow, "distributed 2000 > total 1000 must set the flag");
+        assert!(
+            percent > 100.0,
+            "claimed_percent must exceed 100 when overflowing, got {percent}"
+        );
+        assert_eq!(percent, 200.0);
+        assert_eq!(
+            ratio_percent(2_000, 1_000),
+            100.0,
+            "sanity: the clamped helper is what the overflow branch avoids"
+        );
+
+        // A single stroop over is still an overflow.
+        let (overflow, percent) = claimed(1_000, 1_001);
+        assert!(overflow);
+        assert_eq!(percent, 100.1);
+
+        // Exactly fully distributed is not an overflow.
+        let (overflow, percent) = claimed(1_000, 1_000);
+        assert!(!overflow);
+        assert_eq!(percent, 100.0);
+
+        // A zero total cannot yield a percentage; the flag still fires.
+        let (overflow, percent) = claimed(0, 5);
+        assert!(overflow, "any distribution against a zero total overflows");
+        assert_eq!(percent, 0.0);
+    }
+
     #[test]
     fn normalizes_unit_enum_status() {
         // Soroban encodes a unit-variant enum as a vec of one symbol.
