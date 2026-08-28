@@ -50,13 +50,15 @@ snapshot, and holds no keys — it never signs or submits transactions.
 
 | Method & path | Description |
 |---------------|-------------|
-| `GET /stats` | Platform stats: total assets, TVL, holders |
-| `GET /assets` | All tokenized assets |
-| `GET /assets/:id` | Full asset detail |
-| `GET /assets/:id/holders` | Holder list with balances |
-| `GET /assets/:id/compliance` | Allowlist summary (counts, no PII) |
-| `GET /assets/:id/dividends` | Distribution history |
+| `GET /v1/stats` | Platform stats: total assets, TVL, holders |
+| `GET /v1/assets` | All tokenized assets |
+| `GET /v1/assets/:id` | Full asset detail |
+| `GET /v1/assets/:id/holders` | Holder list with balances |
+| `GET /v1/assets/:id/compliance` | Allowlist summary (counts, no PII) |
+| `GET /v1/assets/:id/dividends` | Distribution history |
 | `GET /health` | Liveness probe |
+| `GET /version` | Crate version |
+| `GET /metrics` | Prometheus metrics (requires Bearer token) |
 
 ### Run it
 
@@ -67,8 +69,8 @@ cargo run                 # listens on 0.0.0.0:8080
 ```
 
 ```bash
-curl http://localhost:8080/stats
-curl http://localhost:8080/assets
+curl http://localhost:8080/v1/stats
+curl http://localhost:8080/v1/assets
 ```
 
 ### Tech stack

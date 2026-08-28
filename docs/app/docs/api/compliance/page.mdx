@@ -10,7 +10,7 @@ export const metadata = {
 Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
 </CalloutBox>
 
-<ApiEndpoint method="GET" path="/assets/:id/compliance" description="Aggregate compliance summary — counts only, no addresses." />
+<ApiEndpoint method="GET" path="/v1/assets/:id/compliance" description="Aggregate compliance summary — counts only, no addresses." />
 
 Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 **counts, not addresses** — no personally identifying information leaves the API.
@@ -36,7 +36,7 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 **Example**
 
 ```bash
-curl $API_BASE_URL/assets/1/compliance
+curl $API_BASE_URL/v1/assets/1/compliance
 ```
 
 ```json

@@ -96,29 +96,43 @@ never wall-clock timestamps:
 
 ### Compliance endpoint
 
+The `/v1/assets/:id/compliance` endpoint returns an **aggregate summary** — counts only,
+no per-address data. Ledger numbers appear in the on-chain `KycRecord` fields
+(`verified_at`, `expires_at`) but the API deliberately does not expose individual records.
+The aggregate carries a `last_indexed_ledger` via the stats endpoint, not inline here.
+
 ```json
 {
-  "address": "GBUQWP...",
-  "status": "Approved",
-  "jurisdiction": "US",
-  "verified_at": 3500000,
-  "expires_at": 9800000,
-  "expired": false
+  "total_records": 3,
+  "approved": 2,
+  "suspended": 1,
+  "rejected": 0,
+  "pending": 0,
+  "with_expiry": 1,
+  "jurisdictions": [
+    { "jurisdiction": "US", "count": 2 },
+    { "jurisdiction": "KE", "count": 1 }
+  ]
 }
 ```
 
-The `expired` field is a convenience boolean: `true` if `expires_at != 0 && expires_at <= last_indexed_ledger`.
+To check whether a specific address's approval has expired, simulate `is_allowed` directly
+via Soroban RPC (see the [Integration Guide](/docs/integration#reading-contracts-directly)), or
+compare the on-chain `expires_at` ledger against `last_indexed_ledger` from `/v1/stats`.
 
 ### Dividends endpoint
 
 ```json
 {
   "id": 1,
-  "asset_id": 1,
-  "per_share_cents": "100",
-  "created_at_ledger": 3510000,
-  "payable_at_ledger": 3520000,
-  "claimed": 500
+  "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  "total_amount": "100000000000",
+  "distributed": "25000000000",
+  "claimed_percent": 25.0,
+  "overflow_detected": false,
+  "completed": false,
+  "created_at_ledger": 3510000
 }
 ```
 
@@ -143,13 +157,14 @@ future is roughly 58 days away.
 
 When building an integration against the API:
 
-1. **Display the ledger number and the `expired` boolean.** Don't try to calculate expiry
-   yourself; trust the `expired` field from the API.
+1. **Display the ledger number.** The compliance API returns aggregate counts, not per-record
+   expiry details. For per-address expiry, read the `KycRecord` directly via Soroban RPC
+   (see the [Integration Guide](/docs/integration#reading-contracts-directly)).
 2. **Refresh approval before expiry.** If you're tracking approval expiry, call
    `add_to_allowlist` again before the `expires_at` ledger is reached.
 3. **Remember `expires_at = 0` means never.** Don't treat `0` as an epoch or default timestamp.
-4. **Use the API's `expired` field.** The API already handles the comparison against the
-   current indexed ledger for you.
+4. **Use `last_indexed_ledger` for reference.** To estimate whether an expiry has passed,
+   compare the `expires_at` ledger against `last_indexed_ledger` from `/v1/stats`.
 
 ## Common mistakes
 

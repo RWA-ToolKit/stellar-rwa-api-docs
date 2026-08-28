@@ -10,7 +10,7 @@ export const metadata = {
 Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
 </CalloutBox>
 
-<ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history for an asset, newest ledger first." />
+<ApiEndpoint method="GET" path="/v1/assets/:id/dividends" description="Distribution history for an asset, newest ledger first." />
 
 Returns every dividend distribution created for the asset's token, ordered by
 creation ledger (newest first).
@@ -30,14 +30,15 @@ creation ledger (newest first).
 | `payment_token` | string | Token used to pay |
 | `total_amount` | string | Pool size, base units (`i128`) |
 | `distributed` | string | Claimed so far, base units (`i128`) |
-| `claimed_percent` | number | 0–100 (2 dp) |
+| `claimed_percent` | number | 0–100 (2 dp); may exceed 100 if `overflow_detected` is `true` |
+| `overflow_detected` | boolean | `true` when `distributed` exceeds `total_amount` — data-integrity warning |
 | `completed` | boolean | `true` once fully claimed |
 | `created_at_ledger` | number | |
 
 **Example**
 
 ```bash
-curl $API_BASE_URL/assets/1/dividends
+curl $API_BASE_URL/v1/assets/1/dividends
 ```
 
 ```json
@@ -49,6 +50,7 @@ curl $API_BASE_URL/assets/1/dividends
     "total_amount": "100000000000",
     "distributed": "25000000000",
     "claimed_percent": 25.0,
+    "overflow_detected": false,
     "completed": false,
     "created_at_ledger": 3510000
   }

@@ -33,10 +33,14 @@ retries on the next tick. The API never panics on a transient failure.
 
 ### Authentication and rate limiting
 
-There is currently **no authentication** required to call the API, and **no rate limits**
-are enforced. All endpoints are open to the public. If you are building a production
-service, consider caching responses locally or rate-limiting your own requests to be
-a good neighbor.
+Most endpoints require **no authentication**. The exception is `GET /metrics`,
+which requires an `Authorization: Bearer <token>` header matching the
+`RWA_METRICS_TOKEN` environment variable configured on the server.
+
+**Rate limiting is active.** The API enforces a per-client-IP limit of
+**5 requests per second** sustained, with a **burst allowance of 20**. Requests
+beyond this ceiling receive `429 Too Many Requests`. If you are building an
+integration, cache responses locally rather than polling on every user action.
 
 ### Data freshness and caching
 
@@ -64,14 +68,16 @@ via Soroban RPC.
 
 ## Endpoints
 
-<ApiEndpoint method="GET" path="/stats" description="Platform-wide statistics." />
-<ApiEndpoint method="GET" path="/assets" description="All tokenized assets." />
-<ApiEndpoint method="GET" path="/assets/:id" description="A single asset by registry id." />
-<ApiEndpoint method="GET" path="/assets/:id/holders" description="Holder list with balances." />
-<ApiEndpoint method="GET" path="/assets/:id/compliance" description="Non-PII compliance summary." />
-<ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history." />
-
-Plus `GET /` (self-describing index) and `GET /health` (liveness).
+<ApiEndpoint method="GET" path="/" description="Self-describing JSON index of all available endpoints." />
+<ApiEndpoint method="GET" path="/version" description="Crate version and release label." />
+<ApiEndpoint method="GET" path="/health" description="Liveness probe — 200 ok / 503 degraded." />
+<ApiEndpoint method="GET" path="/metrics" description="Prometheus scrape endpoint (requires Authorization: Bearer token)." />
+<ApiEndpoint method="GET" path="/v1/stats" description="Platform-wide statistics." />
+<ApiEndpoint method="GET" path="/v1/assets" description="All tokenized assets." />
+<ApiEndpoint method="GET" path="/v1/assets/:id" description="A single asset by registry id." />
+<ApiEndpoint method="GET" path="/v1/assets/:id/holders" description="Holder list with balances." />
+<ApiEndpoint method="GET" path="/v1/assets/:id/compliance" description="Non-PII compliance summary." />
+<ApiEndpoint method="GET" path="/v1/assets/:id/dividends" description="Distribution history." />
 
 ## Error responses
 
@@ -99,10 +105,14 @@ format:
 
 ## CORS
 
-All origins, methods and headers are allowed, so the docs site and the web app
-can call the API directly from the browser.
+CORS is **restricted to configured origins**. The server allows only the origins
+listed in the `RWA_CORS_ALLOWED_ORIGINS` environment variable (default:
+`http://localhost:3000`). Only `GET` requests with a `Content-Type` header are
+permitted cross-origin. If your client origin is not on the allowlist, browser
+requests will be blocked by CORS policy — contact the API operator to add your
+origin.
 
-## `/stats` response
+## `/v1/stats` response
 
 ```json
 {

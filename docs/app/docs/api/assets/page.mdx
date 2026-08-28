@@ -12,7 +12,7 @@ Replace <code>$API_BASE_URL</code> in examples with your configured API base URL
 
 ## List assets
 
-<ApiEndpoint method="GET" path="/assets" description="All tokenized assets with valuation, supply and holder counts." />
+<ApiEndpoint method="GET" path="/v1/assets" description="All tokenized assets with valuation, supply and holder counts." />
 
 Returns an array of asset objects.
 
@@ -24,7 +24,7 @@ Returns an array of asset objects.
 | `active` | boolean | Filter by active status |
 
 ```bash
-curl "$API_BASE_URL/assets?asset_type=real_estate&active=true"
+curl "$API_BASE_URL/v1/assets?asset_type=real_estate&active=true"
 ```
 
 **Response schema** (per asset):
@@ -47,11 +47,13 @@ curl "$API_BASE_URL/assets?asset_type=real_estate&active=true"
 | `paused` | boolean | |
 | `compliance_contract` | string | Gate for this asset |
 | `created_at_ledger` | number | |
+| `indexed_at_ledger` | number | Ledger at which this asset was last successfully indexed |
+| `index_error` | string \| null | Non-null when the most recent index attempt for this asset failed; indicates potentially stale data |
 
 **Example**
 
 ```bash
-curl $API_BASE_URL/assets
+curl $API_BASE_URL/v1/assets
 ```
 
 ```json
@@ -72,14 +74,16 @@ curl $API_BASE_URL/assets
     "active": true,
     "paused": false,
     "compliance_contract": "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU",
-    "created_at_ledger": 3502885
+    "created_at_ledger": 3502885,
+    "indexed_at_ledger": 3514152,
+    "index_error": null
   }
 ]
 ```
 
 ## Get an asset
 
-<ApiEndpoint method="GET" path="/assets/:id" description="Full detail for a single asset by registry id." />
+<ApiEndpoint method="GET" path="/v1/assets/:id" description="Full detail for a single asset by registry id." />
 
 **Path parameters**
 
@@ -90,7 +94,7 @@ curl $API_BASE_URL/assets
 **Example**
 
 ```bash
-curl $API_BASE_URL/assets/1
+curl $API_BASE_URL/v1/assets/1
 ```
 
 Returns a single asset object with the schema above.
