@@ -17,8 +17,10 @@ COPY src ./src
 RUN cargo build --release --locked
 
 FROM debian:bookworm-slim AS runtime
+# curl is required by HEALTHCHECK below — debian:bookworm-slim ships neither
+# curl nor wget by default.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 app
 
@@ -30,5 +32,5 @@ ENV PORT=8080
 EXPOSE 8080
 USER app
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --quiet --tries=1 --spider http://localhost:8080/health || exit 1
+    CMD curl --fail --silent --show-error http://localhost:8080/health || exit 1
 CMD ["stellar-rwa-api"]
