@@ -102,6 +102,7 @@ pub fn router(state: AppState) -> Router {
         .route("/assets/:id/holders", get(holders::list))
         .route("/assets/:id/compliance", get(compliance::summary))
         .route("/assets/:id/dividends", get(dividends::list))
+        .route("/assets/:id/distributions/:did", get(dividends::get_one))
         .layer(middleware::from_fn_with_state(state.clone(), cache_headers));
 
     Router::new()
@@ -179,6 +180,7 @@ async fn index() -> Json<serde_json::Value> {
             "GET /v1/assets/:id/holders",
             "GET /v1/assets/:id/compliance",
             "GET /v1/assets/:id/dividends",
+            "GET /v1/assets/:id/distributions/:did",
             "GET /health",
             "GET /metrics"
         ],
