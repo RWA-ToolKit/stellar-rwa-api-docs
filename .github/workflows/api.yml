@@ -35,3 +35,5 @@ jobs:
         run: cargo fmt --check
       - name: Build (release)
         run: cargo build --release
+      - name: Build with locked lockfile
+        run: cargo build --locked
