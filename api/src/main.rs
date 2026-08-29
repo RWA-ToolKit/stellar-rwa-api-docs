@@ -11,8 +11,15 @@ mod routes;
 
 use std::net::SocketAddr;
 
+use axum::http::{HeaderName, Request};
 use indexer::{AppState, Config, Indexer};
 use metrics_exporter_prometheus::PrometheusBuilder;
+use tower::ServiceBuilder;
+use tower_http::{request_id::MakeRequestUuid, trace::TraceLayer, ServiceBuilderExt};
+
+/// Header used to correlate a single request across all of its log lines,
+/// and echoed back to the caller so client and server logs can be joined.
+const REQUEST_ID_HEADER: &str = "x-request-id";
 
 #[tokio::main]
 async fn main() {
@@ -41,7 +48,34 @@ async fn main() {
     let indexer = Indexer::new(state.clone());
     tokio::spawn(async move { indexer.run().await });
 
-    let app = routes::router(state).layer(tower_http::trace::TraceLayer::new_for_http());
+    let request_id_header = HeaderName::from_static(REQUEST_ID_HEADER);
+
+    let app = routes::router(state).layer(
+        ServiceBuilder::new()
+            // Assign a request id (from an inbound X-Request-Id, or a fresh
+            // UUID) before anything downstream — including the trace span —
+            // sees the request.
+            .set_request_id(request_id_header.clone(), MakeRequestUuid)
+            .layer(TraceLayer::new_for_http().make_span_with({
+                let request_id_header = request_id_header.clone();
+                move |request: &Request<_>| {
+                    let request_id = request
+                        .headers()
+                        .get(&request_id_header)
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("-");
+                    tracing::info_span!(
+                        "http_request",
+                        request_id = %request_id,
+                        method = %request.method(),
+                        path = %request.uri().path(),
+                    )
+                }
+            }))
+            // Echo the request id back on the response so callers can quote
+            // it when reporting an issue.
+            .propagate_request_id(request_id_header),
+    );
 
     let port: u16 = std::env::var("PORT")
         .ok()
