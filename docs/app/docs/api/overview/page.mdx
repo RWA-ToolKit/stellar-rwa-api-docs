@@ -55,8 +55,29 @@ Soroban RPC. This means:
 - If Soroban RPC is temporarily unreachable, the API continues serving the last
   successful snapshot (no error, just stale data).
 
-For integrations where you need real-time data, consider reading contracts directly
-via Soroban RPC.
+**Responses are eventually consistent.** The `/stats` endpoint includes a
+`last_updated` field (ISO 8601 UTC timestamp) that tells you when the indexer last
+successfully refreshed its state from the chain. Compare this to the current time to
+detect staleness:
+
+```javascript
+const response = await fetch('$API_BASE_URL/stats');
+const stats = await response.json();
+const now = new Date();
+const staleness_seconds = (now - new Date(stats.last_updated)) / 1000;
+
+if (staleness_seconds > 60) {
+  console.warn(`Indexer hasn't updated in ${staleness_seconds}s — may indicate stalled RPC`);
+}
+```
+
+If `last_updated` stops advancing, the indexer's polling loop has likely encountered
+a sustained failure (e.g., RPC is unreachable). In this case, **data in responses is
+stale, but responses themselves do not error** — the API gracefully continues serving
+the last known good snapshot until the RPC recovers.
+
+For integrations where you need real-time data or cannot tolerate staleness, consider
+reading contracts directly via Soroban RPC.
 
 ## Conventions
 
