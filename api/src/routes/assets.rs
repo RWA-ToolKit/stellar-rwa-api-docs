@@ -275,12 +275,7 @@ mod tests {
         let app = test_router();
         let uri = format!("/assets/{}", u64::MAX);
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri(&uri)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(
@@ -294,8 +289,8 @@ mod tests {
     // #196 – GET /assets/:id response field set matches the OpenAPI schema
     #[tokio::test]
     async fn get_asset_by_id_returns_stable_field_set() {
-        use crate::routes::test_support;
         use crate::indexer::Snapshot;
+        use crate::routes::test_support;
         use std::collections::BTreeSet;
 
         let asset = stub_asset(1, "real_estate", true);
@@ -321,8 +316,8 @@ mod tests {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        let value: serde_json::Value = serde_json::from_slice(&bytes)
-            .expect("response must be valid JSON");
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("response must be valid JSON");
 
         let actual_keys: BTreeSet<String> = value
             .as_object()

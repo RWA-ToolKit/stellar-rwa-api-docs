@@ -195,6 +195,7 @@ fn distribution_response_has_required_fields() {
         "total_amount": "100000000000",
         "distributed": "25000000000",
         "claimed_percent": 25.0,
+        "overflow_detected": false,
         "completed": false,
         "created_at_ledger": 3510000
     });
@@ -230,12 +231,68 @@ fn distribution_response_has_required_fields() {
 
     // Verify other fields
     assert!(
+        distribution["overflow_detected"].is_boolean(),
+        "overflow_detected must be a boolean"
+    );
+    assert!(
         distribution["completed"].is_boolean(),
         "completed must be a boolean"
     );
     assert!(
         distribution["created_at_ledger"].is_number(),
         "created_at_ledger must be a number"
+    );
+}
+
+/// Guards against the `Distribution` API surface drifting from the documented
+/// OpenAPI schema (see #172): a serialized field with no source (or an
+/// undocumented one), a documented field going missing, or a stale field from
+/// a superseded contract shape all fail in CI instead of shipping.
+#[test]
+fn distribution_key_set_matches_openapi_schema() {
+    let openapi: serde_json::Value =
+        serde_json::from_str(include_str!("../../docs/public/openapi.json"))
+            .expect("docs/public/openapi.json is valid JSON");
+    let expected = openapi["components"]["schemas"]["Distribution"]["required"]
+        .as_array()
+        .expect("Distribution schema has a required list")
+        .iter()
+        .map(|v| v.as_str().expect("required entries are strings"))
+        .collect::<Vec<_>>();
+
+    // The exact JSON `models::Distribution` serializes today.
+    let serialized = json!({
+        "id": 1,
+        "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+        "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        "total_amount": "100000000000",
+        "distributed": "25000000000",
+        "claimed_percent": 25.0,
+        "overflow_detected": false,
+        "completed": false,
+        "created_at_ledger": 3510000
+    });
+
+    let mut actual = serialized
+        .as_object()
+        .expect("serialized distribution is a JSON object")
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let mut expected = expected;
+    actual.sort_unstable();
+    expected.sort_unstable();
+
+    assert_eq!(
+        actual, expected,
+        "serialized Distribution keys must exactly match the OpenAPI schema's required list"
+    );
+    assert!(
+        !serialized
+            .as_object()
+            .expect("serialized distribution is a JSON object")
+            .contains_key("snapshot_ledger"),
+        "stale snapshot_ledger field must not be serialized (see #172)"
     );
 }
 

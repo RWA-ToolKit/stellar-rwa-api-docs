@@ -85,7 +85,12 @@ async fn binary_boots_and_serves_health_and_version() {
 async fn wait_until_ready(client: &reqwest::Client, base_url: &str, timeout: Duration) {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if client.get(format!("{base_url}/health")).send().await.is_ok() {
+        if client
+            .get(format!("{base_url}/health"))
+            .send()
+            .await
+            .is_ok()
+        {
             return;
         }
         if tokio::time::Instant::now() >= deadline {

@@ -333,6 +333,7 @@ struct SimResultEntry {
 }
 
 /// Outcome of a single simulated read.
+#[derive(Debug)]
 struct ReadOutcome {
     value: serde_json::Value,
     latest_ledger: u32,
@@ -683,10 +684,14 @@ fn normalize_status(v: &serde_json::Value) -> String {
 // Indexer
 // ---------------------------------------------------------------------------
 
+/// Cache of the most recent successful dividend read per asset token,
+/// keyed by contract address.
+type DividendCache = HashMap<String, (Instant, Vec<Distribution>, Option<String>)>;
+
 pub struct Indexer {
     rpc: Rpc,
     state: AppState,
-    dividend_cache: Mutex<HashMap<String, (Instant, Vec<Distribution>, Option<String>)>>,
+    dividend_cache: Mutex<DividendCache>,
 }
 
 impl Indexer {
@@ -1605,7 +1610,7 @@ mod tests {
                     .collect(),
                 dividends: ids.iter().map(|&id| (id, Vec::new())).collect(),
                 stats: Stats {
-                    total_assets: ids.len() as u64,
+                    total_assets: ids.len(),
                     last_indexed_ledger: ledger,
                     ..Stats::default()
                 },
@@ -1622,11 +1627,7 @@ mod tests {
         std::thread::scope(|scope| {
             let writer = scope.spawn(|| {
                 for i in 0..2_000 {
-                    state.replace(if i % 2 == 0 {
-                        new.clone()
-                    } else {
-                        old.clone()
-                    });
+                    state.replace(if i % 2 == 0 { new.clone() } else { old.clone() });
                 }
                 stop.store(true, Ordering::Release);
             });
@@ -1647,11 +1648,13 @@ mod tests {
                             let expected: HashSet<u64> = match ledger {
                                 100 => HashSet::from([1, 2, 3]),
                                 200 => HashSet::from([10, 11, 12, 13, 14]),
-                                other => panic!("observed a ledger from neither generation: {other}"),
+                                other => {
+                                    panic!("observed a ledger from neither generation: {other}")
+                                }
                             };
                             assert_eq!(ids, expected, "assets do not match stats ledger {ledger}");
                             assert_eq!(
-                                snapshot.stats.total_assets as usize,
+                                snapshot.stats.total_assets,
                                 snapshot.assets.len(),
                                 "stats count does not match the assets in the same snapshot"
                             );
@@ -1747,8 +1750,7 @@ mod tests {
         );
 
         // LiquidityPool — a pool id with a zeroed hash.
-        let liquidity_pool =
-            xdr::ScAddress::LiquidityPool(xdr::PoolId(xdr::Hash([0u8; 32])));
+        let liquidity_pool = xdr::ScAddress::LiquidityPool(xdr::PoolId(xdr::Hash([0u8; 32])));
         let result = address_to_string(&liquidity_pool);
         assert!(
             result.is_ok(),
