@@ -61,6 +61,44 @@ An asset with no distributions returns an empty array `[]`.
 
 Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown.
 
+## Get a single distribution
+
+<ApiEndpoint method="GET" path="/assets/:id/distributions/:did" description="A single distribution for an asset, by distribution id." />
+
+**Path parameters**
+
+| Name | Type | Notes |
+|------|------|-------|
+| `id` | number | Registry id |
+| `did` | number | Distribution id |
+
+**Response schema**
+
+Same shape as a single item from the list above.
+
+**Example**
+
+```bash
+curl $API_BASE_URL/assets/1/distributions/1
+```
+
+```json
+{
+  "id": 1,
+  "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  "total_amount": "100000000000",
+  "distributed": "25000000000",
+  "claimed_percent": 25.0,
+  "completed": false,
+  "created_at_ledger": 3510000
+}
+```
+
+**Errors**
+
+Returns `404` with `{ "error": "not_found", … }` when the asset id or the distribution id is unknown.
+
 <CalloutBox variant="note">
 `total_amount` and `distributed` are in the **payment token's** base units, not the
 asset token's. Classic Stellar assets (SACs) use 7 decimals, so `100000000000`

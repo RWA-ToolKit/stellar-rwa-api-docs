@@ -8,6 +8,11 @@ on:
   pull_request:
     paths:
       - "api/**"
+  schedule:
+    # Daily, opt-in check against the live testnet RPC endpoint — separate
+    # from the push/PR job so a flaky or down testnet never blocks merges.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
 
 jobs:
   build-and-test:
@@ -35,3 +40,25 @@ jobs:
         run: cargo fmt --check
       - name: Build (release)
         run: cargo build --release
+      - name: Build with locked lockfile
+        run: cargo build --locked
+
+  testnet-integration:
+    # Opt-in only: never runs on push/PR, only on the daily schedule or a
+    # manual dispatch. Hits the real Soroban testnet RPC, so it's expected
+    # to be flakier than the fixture-backed suite above.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: api
+      - name: Testnet integration tests
+        env:
+          RUN_TESTNET_TESTS: "1"
+        run: cargo test --test testnet_integration -- --ignored
