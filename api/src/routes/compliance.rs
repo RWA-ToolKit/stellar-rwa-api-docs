@@ -23,7 +23,14 @@ pub async fn summary(
 
 #[cfg(test)]
 mod tests {
-    use axum::extract::{Path, State};
+    use axum::{
+        body::Body,
+        extract::{Path, State},
+        http::{Request, StatusCode},
+        routing::get,
+        Router,
+    };
+    use tower::ServiceExt as _;
 
     use super::summary;
     use crate::indexer::Snapshot;
@@ -57,5 +64,40 @@ mod tests {
         assert_eq!(body.pending, 0);
         assert_eq!(body.with_expiry, 0);
         assert!(body.jurisdictions.is_empty());
+    }
+
+    // #204 – non-numeric asset id returns 400, not 404
+    #[tokio::test]
+    async fn non_numeric_asset_id_returns_400_with_message() {
+        let state = state_with(Snapshot::default());
+        let app = Router::new()
+            .route("/assets/:id/compliance", get(summary))
+            .with_state(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/abc/compliance")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "non-numeric id 'abc' should return 400, not {}",
+            response.status()
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            text.contains("id") || text.contains("abc"),
+            "400 body should name the offending parameter; got: {text}"
+        );
     }
 }
