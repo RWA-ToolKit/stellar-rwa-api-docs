@@ -699,9 +699,17 @@ impl Indexer {
         }
     }
 
-    /// Poll forever, refreshing the snapshot every [`POLL_INTERVAL`].
-    pub async fn run(self) {
+    /// Poll forever, refreshing the snapshot every [`POLL_INTERVAL`], until
+    /// `shutdown` is flipped to `true` (see [`crate::shutdown_signal`] in
+    /// `main.rs`), at which point the loop halts rather than starting
+    /// another refresh cycle.
+    pub async fn run(self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         loop {
+            if *shutdown.borrow() {
+                tracing::info!("shutdown signal received; stopping indexer poll loop");
+                return;
+            }
+
             let backoff = match self.refresh().await {
                 Ok(count) => {
                     tracing::info!(assets = count, "index refreshed");
@@ -716,7 +724,16 @@ impl Indexer {
                     }
                 }
             };
-            tokio::time::sleep(backoff).await;
+
+            tokio::select! {
+                _ = tokio::time::sleep(backoff) => {}
+                _ = shutdown.changed() => {
+                    if *shutdown.borrow() {
+                        tracing::info!("shutdown signal received; stopping indexer poll loop");
+                        return;
+                    }
+                }
+            }
         }
     }
 
