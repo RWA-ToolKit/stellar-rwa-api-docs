@@ -273,6 +273,53 @@ export const ALL_CONTRACTS = [
 ];
 
 /**
+ * Canonical `#[contracterror]` discriminants for each contract, mirrored from
+ * the Soroban contract source (the source of truth lives in the contracts
+ * repo). `ErrorCodeTable` is generated from this map instead of hand-written
+ * per-page markdown tables, so the docs can't drift from the enum without a
+ * deliberate edit here.
+ */
+export interface ContractErrorCode {
+  code: number;
+  name: string;
+  description: string;
+}
+
+export const CONTRACT_ERROR_CODES: Record<string, ContractErrorCode[]> = {
+  "asset-token": [
+    { code: 1, name: "AlreadyInitialized", description: "Contract already initialized. Callable only once." },
+    { code: 3, name: "Unauthorized", description: "Caller is not the admin." },
+    { code: 4, name: "InsufficientBalance", description: "Caller does not hold enough balance to transfer or burn." },
+    { code: 5, name: "InvalidAmount", description: "Amount is invalid (≤ 0, exceeds bounds, or negative valuation)." },
+    { code: 6, name: "Paused", description: "Token transfers and mints are paused." },
+    { code: 7, name: "SenderNotCompliant", description: "Sender failed the compliance gate." },
+    { code: 8, name: "RecipientNotCompliant", description: "Recipient failed the compliance gate." },
+    { code: 9, name: "Overflow", description: "Minting would exceed maximum supply." },
+  ],
+  registry: [
+    { code: 1, name: "AlreadyInitialized", description: "Contract already initialized. Callable only once." },
+    { code: 2, name: "NotInitialized", description: "Contract has not been initialized." },
+    { code: 3, name: "Unauthorized", description: "Caller is not the admin." },
+    { code: 4, name: "AssetNotFound", description: "Asset does not exist in the registry." },
+    { code: 5, name: "InvalidValuation", description: "Valuation is negative or invalid." },
+  ],
+  dividend: [
+    { code: 1, name: "AlreadyInitialized", description: "Contract already initialized. Callable only once." },
+    { code: 3, name: "Unauthorized", description: "Caller is not the admin." },
+    { code: 4, name: "DistributionNotFound", description: "Distribution does not exist." },
+    { code: 5, name: "InvalidAmount", description: "Amount is invalid (≤ 0)." },
+    { code: 6, name: "NothingToClaim", description: "Holder has no claimable amount in this distribution." },
+    { code: 7, name: "AlreadyClaimed", description: "Holder has already claimed from this distribution." },
+  ],
+  compliance: [
+    { code: 1, name: "AlreadyInitialized", description: "Contract already initialized. Callable only once." },
+    { code: 3, name: "RecordNotFound", description: "Address record does not exist on the allowlist." },
+    { code: 4, name: "InvalidExpiry", description: "Expiry ledger is in the past or invalid." },
+    { code: 5, name: "Unauthorized", description: "Caller is not the admin." },
+  ],
+};
+
+/**
  * Validate that documented methods match the contract spec.
  * This function can be used in tests to ensure documentation doesn't drift.
  */

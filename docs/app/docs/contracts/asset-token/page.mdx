@@ -170,16 +170,7 @@ const op = token.call(
 
 ## Error codes
 
-| Code | Error Name | Description |
-|------|------------|-------------|
-| 1 | `AlreadyInitialized` | Contract already initialized. Callable only once. |
-| 3 | `Unauthorized` | Caller is not the admin. |
-| 4 | `InsufficientBalance` | Caller does not hold enough balance to transfer or burn. |
-| 5 | `InvalidAmount` | Amount is invalid (≤ 0, exceeds bounds, or negative valuation). |
-| 6 | `Paused` | Token transfers and mints are paused. |
-| 7 | `SenderNotCompliant` | Sender failed the compliance gate. |
-| 8 | `RecipientNotCompliant` | Recipient failed the compliance gate. |
-| 9 | `Overflow` | Minting would exceed maximum supply. |
+<ErrorCodeTable contract="asset-token" />
 
 ## Security considerations
 

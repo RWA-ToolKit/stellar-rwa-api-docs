@@ -1,15 +1,18 @@
-interface ErrorCode {
-  code: number;
-  name: string;
-  description: string;
-}
+import { CONTRACT_ERROR_CODES, type ContractErrorCode } from "@/lib/contracts";
 
 interface ErrorCodeTableProps {
+  /** Contract slug, e.g. "asset-token", "registry", "dividend", "compliance". */
   contract: string;
-  codes: ErrorCode[];
+  /**
+   * Optional override. When omitted, codes are looked up from
+   * `CONTRACT_ERROR_CODES` (the canonical `#[contracterror]` discriminants),
+   * so the table is generated rather than hand-maintained per page.
+   */
+  codes?: ContractErrorCode[];
 }
 
 export function ErrorCodeTable({ contract, codes }: ErrorCodeTableProps) {
+  const resolvedCodes = codes ?? CONTRACT_ERROR_CODES[contract] ?? [];
   return (
     <div className="my-6">
       <CalloutBox variant="warning" title={`${contract} Error Codes`}>
@@ -28,7 +31,7 @@ export function ErrorCodeTable({ contract, codes }: ErrorCodeTableProps) {
             </tr>
           </thead>
           <tbody>
-            {codes.map((error) => (
+            {resolvedCodes.map((error) => (
               <tr key={error.code} className="border-b border-white/5">
                 <td className="px-4 py-3 text-brand-300 font-mono">{error.code}</td>
                 <td className="px-4 py-3 font-mono text-base-200">{error.name}</td>

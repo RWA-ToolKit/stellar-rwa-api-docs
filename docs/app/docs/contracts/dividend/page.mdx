@@ -122,14 +122,7 @@ const claim = dividend.call(
 
 ## Error codes
 
-| Code | Error Name | Description |
-|------|------------|-------------|
-| 1 | `AlreadyInitialized` | Contract already initialized. Callable only once. |
-| 3 | `Unauthorized` | Caller is not the admin. |
-| 4 | `DistributionNotFound` | Distribution does not exist. |
-| 5 | `InvalidAmount` | Amount is invalid (≤ 0). |
-| 6 | `NothingToClaim` | Holder has no claimable amount in this distribution. |
-| 7 | `AlreadyClaimed` | Holder has already claimed from this distribution. |
+<ErrorCodeTable contract="dividend" />
 
 ## Security considerations
 

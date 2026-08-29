@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CalloutBox } from "@/components/CalloutBox";
 import { CodeBlock } from "@/components/CodeBlock";
 import { ApiEndpoint } from "@/components/ApiEndpoint";
+import { ErrorCodeTable } from "@/components/ErrorCodeTable";
 
 /**
  * Global MDX component map. Custom components (CalloutBox, ApiEndpoint,
@@ -29,6 +30,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     CalloutBox,
     CodeBlock,
     ApiEndpoint,
+    ErrorCodeTable,
     ...components,
   };
 }
