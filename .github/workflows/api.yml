@@ -35,3 +35,16 @@ jobs:
         run: cargo fmt --check
       - name: Build (release)
         run: cargo build --release
+
+  cargo-deny:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo-deny check (advisories + licenses)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: api/Cargo.toml
+          command: check advisories licenses
