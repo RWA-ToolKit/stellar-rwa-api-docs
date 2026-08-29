@@ -43,7 +43,13 @@ strkey (format `C...`).
 
 **Default:** `GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA` (testnet)
 
-Stellar public key used as the source account for simulated reads.
+Stellar public key used as the source account for simulated reads. **This account
+does not need a key — the API never signs or submits transactions.**
+
+The account must be funded on the target network (testnet or mainnet) so that Soroban
+RPC can validate the simulated envelope's sequence number. Its balance is not checked
+and does not change; it exists only as a valid source identity for read-only
+`simulateTransaction` calls.
 
 **Validation:** Must be a valid Stellar public key (format `G...`).
 
