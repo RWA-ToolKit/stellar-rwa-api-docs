@@ -710,13 +710,31 @@ impl Indexer {
                 return;
             }
 
-            let backoff = match self.refresh().await {
+            let started = Instant::now();
+            let result = self.refresh().await;
+            let elapsed = started.elapsed();
+            metrics::histogram!("rwa_indexer_refresh_duration_seconds")
+                .record(elapsed.as_secs_f64());
+
+            let backoff = match result {
                 Ok(count) => {
-                    tracing::info!(assets = count, "index refreshed");
+                    metrics::counter!("rwa_indexer_refresh_total", "outcome" => "success")
+                        .increment(1);
+                    tracing::info!(
+                        assets = count,
+                        elapsed_ms = elapsed.as_millis() as u64,
+                        "index refreshed"
+                    );
                     POLL_INTERVAL
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "index refresh failed; keeping last snapshot");
+                    metrics::counter!("rwa_indexer_refresh_total", "outcome" => "failure")
+                        .increment(1);
+                    tracing::warn!(
+                        error = %e,
+                        elapsed_ms = elapsed.as_millis() as u64,
+                        "index refresh failed; keeping last snapshot"
+                    );
                     if let IndexError::RateLimited { retry_after, .. } = &e {
                         retry_after.unwrap_or(POLL_INTERVAL)
                     } else {
