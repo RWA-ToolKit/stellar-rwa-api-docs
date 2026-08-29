@@ -30,9 +30,10 @@ creation ledger (newest first).
 | `payment_token` | string | Token used to pay |
 | `total_amount` | string | Pool size, base units (`i128`) |
 | `distributed` | string | Claimed so far, base units (`i128`) |
-| `claimed_percent` | number | 0–100 (2 dp) |
+| `claimed_percent` | number | 0–100 (2 dp), unless `overflow_detected` is `true` |
 | `completed` | boolean | `true` once fully claimed |
 | `created_at_ledger` | number | |
+| `overflow_detected` | boolean | On-chain anomaly indicator (see below) |
 
 **Example**
 
@@ -56,6 +57,27 @@ curl $API_BASE_URL/assets/1/dividends
 ```
 
 An asset with no distributions returns an empty array `[]`.
+
+### Understanding `overflow_detected`
+
+The `overflow_detected` field signals an **on-chain anomaly**, not an API bug.
+
+Under normal conditions, `distributed ≤ total_amount` and `claimed_percent` stays in
+the range 0–100. If `overflow_detected` is `true`, it means `distributed` exceeds
+`total_amount` — the pool has been over-claimed.
+
+This can occur if the on-chain dividend contract has a double-claim vector (a
+vulnerability in the contract logic that allows an account to claim multiple times).
+It is **not** an API indexing error; the API is faithfully reflecting what the
+blockchain shows.
+
+**What integrators should do:**
+
+- When `overflow_detected` is `true`, treat it as a **data integrity warning**.
+- Check `claimed_percent` directly (it will exceed 100) rather than clamping it.
+- Contact the asset issuer to investigate and remediate the underlying contract issue.
+- The anomaly is immutable on-chain; responses will continue showing `overflow_detected: true`
+  until the contract is fixed or migrated.
 
 **Errors**
 
