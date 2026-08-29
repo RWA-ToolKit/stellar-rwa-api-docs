@@ -1,0 +1,92 @@
+export const metadata = {
+  title: "API · Environment Variables",
+  description: "Configuration for the Stellar RWA indexer and HTTP server.",
+  canonical: "/docs/api/environment",
+};
+
+# Environment Variables
+
+The API server and indexer are configured via environment variables. All have defaults
+suitable for testnet; production deployments must override contract IDs.
+
+## Indexer configuration
+
+### `RWA_RPC_URL`
+
+**Default:** `https://soroban-testnet.stellar.org`
+
+Soroban RPC endpoint to poll for state updates. The indexer queries this every 10
+seconds via `simulateTransaction` (a read-only, non-signing operation).
+
+**Validation:** Must be a valid HTTPS URL.
+
+### `RWA_REGISTRY_ID`
+
+**Default:** `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` (testnet)
+
+**Required** when using a non-testnet RPC.
+
+Stellar contract ID of the asset registry. Must be a valid contract strkey (format
+`C...`). The indexer uses this to discover all tokenized assets and fetch their
+metadata.
+
+### `RWA_DIVIDEND_ID`
+
+**Default:** `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX` (testnet)
+
+**Required** when using a non-testnet RPC.
+
+Stellar contract ID of the dividend distribution contract. Must be a valid contract
+strkey (format `C...`).
+
+### `RWA_READ_SOURCE`
+
+**Default:** `GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA` (testnet)
+
+Stellar public key used as the source account for simulated reads.
+
+**Validation:** Must be a valid Stellar public key (format `G...`).
+
+## HTTP server configuration
+
+### `RWA_CORS_ALLOWED_ORIGINS`
+
+**Default:** All origins allowed (`*`)
+
+Comma-separated list of CORS origins to allow. If set, overrides the default
+permissive policy.
+
+Example: `https://app.example.com,https://docs.example.com`
+
+### `RWA_RATE_LIMIT_PER_SECOND`
+
+**Default:** `100`
+
+Requests per second per IP address.
+
+### `RWA_RATE_LIMIT_BURST`
+
+**Default:** `10`
+
+Burst capacity (allows up to this many requests in a single instant before rate
+limiting kicks in).
+
+### `RWA_REQUEST_TIMEOUT_SECS`
+
+**Default:** `30`
+
+Timeout for individual HTTP requests.
+
+### `RWA_MAX_BODY_BYTES`
+
+**Default:** `10485760` (10 MiB)
+
+Maximum request body size.
+
+### `RWA_METRICS_TOKEN`
+
+**Default:** Not set (metrics endpoint disabled)
+
+If set, enables the `/metrics` Prometheus endpoint, protected by this bearer token.
+
+Example: `Authorization: Bearer $RWA_METRICS_TOKEN`
