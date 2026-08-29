@@ -699,16 +699,42 @@ impl Indexer {
         }
     }
 
-    /// Poll forever, refreshing the snapshot every [`POLL_INTERVAL`].
-    pub async fn run(self) {
+    /// Poll forever, refreshing the snapshot every [`POLL_INTERVAL`], until
+    /// `shutdown` is flipped to `true` (see [`crate::shutdown_signal`] in
+    /// `main.rs`), at which point the loop halts rather than starting
+    /// another refresh cycle.
+    pub async fn run(self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         loop {
-            let backoff = match self.refresh().await {
+            if *shutdown.borrow() {
+                tracing::info!("shutdown signal received; stopping indexer poll loop");
+                return;
+            }
+
+            let started = Instant::now();
+            let result = self.refresh().await;
+            let elapsed = started.elapsed();
+            metrics::histogram!("rwa_indexer_refresh_duration_seconds")
+                .record(elapsed.as_secs_f64());
+
+            let backoff = match result {
                 Ok(count) => {
-                    tracing::info!(assets = count, "index refreshed");
+                    metrics::counter!("rwa_indexer_refresh_total", "outcome" => "success")
+                        .increment(1);
+                    tracing::info!(
+                        assets = count,
+                        elapsed_ms = elapsed.as_millis() as u64,
+                        "index refreshed"
+                    );
                     POLL_INTERVAL
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "index refresh failed; keeping last snapshot");
+                    metrics::counter!("rwa_indexer_refresh_total", "outcome" => "failure")
+                        .increment(1);
+                    tracing::warn!(
+                        error = %e,
+                        elapsed_ms = elapsed.as_millis() as u64,
+                        "index refresh failed; keeping last snapshot"
+                    );
                     if let IndexError::RateLimited { retry_after, .. } = &e {
                         retry_after.unwrap_or(POLL_INTERVAL)
                     } else {
@@ -716,7 +742,16 @@ impl Indexer {
                     }
                 }
             };
-            tokio::time::sleep(backoff).await;
+
+            tokio::select! {
+                _ = tokio::time::sleep(backoff) => {}
+                _ = shutdown.changed() => {
+                    if *shutdown.borrow() {
+                        tracing::info!("shutdown signal received; stopping indexer poll loop");
+                        return;
+                    }
+                }
+            }
         }
     }
 
