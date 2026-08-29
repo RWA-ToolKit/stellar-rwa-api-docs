@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint && eslint . --ext .tsx,.ts --plugin jsx-a11y",
-    "lint:a11y": "eslint . --ext .tsx,.ts --plugin jsx-a11y"
+    "lint:a11y": "eslint . --ext .tsx,.ts --plugin jsx-a11y",
+    "check:mdx-samples": "node scripts/check-mdx-code-samples.mjs"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.0",

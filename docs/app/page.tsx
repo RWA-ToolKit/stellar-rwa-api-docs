@@ -35,7 +35,7 @@ const CARDS = [
 
 export default function DocsHome() {
   return (
-    <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6 sm:py-24">
+    <main id="main-content" className="mx-auto max-w-4xl px-4 py-16 sm:px-6 sm:py-24">
       <span className="chip border border-brand-500/25 bg-brand-500/10 text-brand-300">
         <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
         Stellar RWA Toolkit
@@ -71,6 +71,6 @@ export default function DocsHome() {
           </Link>
         ))}
       </div>
-    </div>
+    </main>
   );
 }
