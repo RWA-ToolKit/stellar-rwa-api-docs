@@ -28,6 +28,16 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 | `with_expiry` | number | Records with a non-zero `expires_at` |
 | `jurisdictions` | array | `{ jurisdiction, count }` breakdown |
 
+<CalloutBox variant="note" title="approved + suspended + rejected + pending ≠ total_records">
+`total_records` counts every address ever added to the allowlist. The status
+fields only count addresses whose KYC record was **successfully read this
+indexing cycle** — a record that fails to read or fails to parse contributes
+to `total_records` but to none of `approved`/`suspended`/`rejected`/`pending`.
+Don't assume the status fields sum to `total_records`; a gap between them
+means some records didn't read cleanly this cycle, not that they're
+unaccounted for on-chain.
+</CalloutBox>
+
 **Example**
 
 ```bash
