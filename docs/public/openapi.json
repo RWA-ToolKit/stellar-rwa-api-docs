@@ -81,6 +81,37 @@
                   "$ref": "#/components/schemas/Stats"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Strong ETag derived from the latest snapshot ledger.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "Client cache guidance for the current snapshot.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The snapshot has not changed since the supplied If-None-Match value.",
+            "headers": {
+              "ETag": {
+                "description": "The current ETag for this snapshot.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "The cache policy for the route.",
+                "schema": {
+                  "type": "string"
+                }
+              }
             }
           }
         }
@@ -158,6 +189,37 @@
                   }
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Strong ETag derived from the latest snapshot ledger.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "Client cache guidance for the current snapshot.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The snapshot has not changed since the supplied If-None-Match value.",
+            "headers": {
+              "ETag": {
+                "description": "The current ETag for this snapshot.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "The cache policy for the route.",
+                "schema": {
+                  "type": "string"
+                }
+              }
             }
           }
         }
@@ -200,6 +262,20 @@
                   "$ref": "#/components/schemas/Asset"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Strong ETag derived from the latest snapshot ledger.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "Client cache guidance for the current snapshot.",
+                "schema": {
+                  "type": "string"
+                }
+              }
             }
           },
           "404": {
@@ -208,6 +284,23 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The snapshot has not changed since the supplied If-None-Match value.",
+            "headers": {
+              "ETag": {
+                "description": "The current ETag for this snapshot.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "The cache policy for the route.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
