@@ -284,4 +284,86 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
+
+    fn router_with_ledger(ledger: u32) -> Router {
+        let state = state_with(Snapshot {
+            stats: crate::models::Stats {
+                last_indexed_ledger: ledger,
+                ..crate::models::Stats::default()
+            },
+            ..Snapshot::default()
+        });
+        Router::new()
+            .route("/probe", get(|| async { "ok" }))
+            .layer(middleware::from_fn_with_state(state.clone(), cache_headers))
+            .with_state(state)
+    }
+
+    /// The core correctness property of the whole caching layer: once the
+    /// indexer advances `last_indexed_ledger`, a client presenting the old
+    /// ETag must get a fresh 200 with the new ETag, not an incorrect 304
+    /// that would leave it stuck on stale data.
+    #[tokio::test]
+    async fn cache_headers_returns_fresh_200_after_ledger_advances() {
+        use axum::http::Request;
+        use tower::ServiceExt as _;
+
+        let first = router_with_ledger(100)
+            .oneshot(
+                Request::builder()
+                    .uri("/probe")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first.status(), StatusCode::OK);
+        let old_etag = first
+            .headers()
+            .get(header::ETAG)
+            .expect("first response must carry an ETag")
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(old_etag, "\"ledger-100\"");
+
+        // Sanity check: presenting the current ETag against the same ledger
+        // is a 304, so the assertions below are actually exercising the
+        // freshness comparison and not always returning 200 regardless.
+        let cached = router_with_ledger(100)
+            .oneshot(
+                Request::builder()
+                    .uri("/probe")
+                    .header(header::IF_NONE_MATCH, &old_etag)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cached.status(), StatusCode::NOT_MODIFIED);
+
+        // The indexer advances the ledger: the client's old ETag is now stale.
+        let fresh = router_with_ledger(200)
+            .oneshot(
+                Request::builder()
+                    .uri("/probe")
+                    .header(header::IF_NONE_MATCH, &old_etag)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            fresh.status(),
+            StatusCode::OK,
+            "an ETag from a prior ledger must not produce a 304 once the ledger has advanced"
+        );
+        let new_etag = fresh
+            .headers()
+            .get(header::ETAG)
+            .expect("fresh response must carry the updated ETag")
+            .to_str()
+            .unwrap();
+        assert_eq!(new_etag, "\"ledger-200\"");
+    }
 }
