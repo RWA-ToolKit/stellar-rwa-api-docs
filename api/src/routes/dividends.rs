@@ -106,4 +106,36 @@ mod tests {
         let ledgers: Vec<u32> = dists.iter().map(|d| d.created_at_ledger).collect();
         assert_eq!(ledgers, vec![300, 200, 100]);
     }
+
+    // #210 – boundary ids (0 and u64::MAX) return 404 cleanly without
+    // trapping or overflowing, and the body names the offending id.
+    #[tokio::test]
+    async fn boundary_asset_ids_return_404_cleanly() {
+        use axum::{http::StatusCode, response::IntoResponse};
+
+        for id in [0u64, u64::MAX] {
+            let state = state_with(Snapshot::default());
+
+            let response = match list(State(state), Path(id)).await {
+                Ok(_) => panic!("boundary asset id {id} must not resolve to assets"),
+                Err(err) => err.into_response(),
+            };
+
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_FOUND,
+                "asset id {id} should return 404, not {}",
+                response.status()
+            );
+
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let text = String::from_utf8_lossy(&body);
+            assert!(
+                text.contains(&id.to_string()),
+                "404 body should name the offending id; got: {text}"
+            );
+        }
+    }
 }
