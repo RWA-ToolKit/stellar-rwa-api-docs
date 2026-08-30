@@ -99,4 +99,48 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"], "not_found");
     }
+
+    /// Distribution ids come from on-chain state, so a malicious or malformed
+    /// id must 404 cleanly rather than panic or wrap around — cover both ends
+    /// of the u64 range, mirroring the asset-id boundary coverage (#194/#210).
+    #[tokio::test]
+    async fn get_one_404s_cleanly_at_distribution_id_boundaries() {
+        let app = router(crate::routes::test_support::test_state_with_asset(1));
+        for did in [0u64, u64::MAX] {
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/assets/1/dividends/{did}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::NOT_FOUND, "did={did}");
+            let body = resp.into_body().collect().await.unwrap().to_bytes();
+            let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(json["error"], "not_found", "did={did}");
+        }
+    }
+
+    /// Same boundary values, but against an asset that doesn't exist either —
+    /// the asset-not-found branch must still win cleanly, not panic.
+    #[tokio::test]
+    async fn get_one_404s_cleanly_at_distribution_id_boundaries_unknown_asset() {
+        let app = router(test_state());
+        for did in [0u64, u64::MAX] {
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/assets/999/dividends/{did}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::NOT_FOUND, "did={did}");
+        }
+    }
 }
