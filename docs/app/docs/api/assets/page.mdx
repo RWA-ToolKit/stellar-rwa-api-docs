@@ -22,6 +22,7 @@ Returns an array of asset objects.
 |------|------|-------|
 | `asset_type` | string | Filter by class: `real_estate`, `invoice`, `commodity` |
 | `active` | boolean | Filter by active status |
+| `fields` | string | Sparse fieldset: comma-separated list such as `id,name,active`. |
 | `offset` | integer | Skip the first N matching assets. Default: `0`. |
 | `limit` | integer | Page size. Default: `50`; maximum: `100`. |
 
@@ -51,6 +52,8 @@ curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 | `paused` | boolean | |
 | `compliance_contract` | string | Gate for this asset |
 | `created_at_ledger` | number | |
+| `indexed_at_ledger` | number | Most recent ledger successfully indexed for this asset |
+| `index_error` | string or null | Per-asset index error, if the latest refresh failed |
 
 **Example**
 
@@ -76,7 +79,9 @@ curl $API_BASE_URL/assets
     "active": true,
     "paused": false,
     "compliance_contract": "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU",
-    "created_at_ledger": 3502885
+    "created_at_ledger": 3502885,
+    "indexed_at_ledger": 3502885,
+    "index_error": null
   }
 ]
 ```
@@ -98,6 +103,12 @@ curl $API_BASE_URL/assets/1
 ```
 
 Returns a single asset object with the schema above.
+
+You can also request a sparse fieldset with `?fields=`; for example:
+
+```bash
+curl "$API_BASE_URL/assets/1?fields=id,name,active,indexed_at_ledger"
+```
 
 **Errors**
 
