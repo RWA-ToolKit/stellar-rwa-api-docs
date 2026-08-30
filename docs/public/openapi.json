@@ -1,0 +1,279 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Stellar RWA API",
+    "version": "0.1.0",
+    "description": "Read-only REST index of tokenized real-world asset activity on Stellar."
+  },
+  "servers": [
+    { "url": "http://localhost:8080/v1", "description": "Local" }
+  ],
+  "paths": {
+    "/v1/stats": {
+      "get": {
+        "summary": "Platform-wide statistics",
+        "operationId": "getStats",
+        "responses": {
+          "200": {
+            "description": "Platform-wide statistics",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Stats" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/assets": {
+      "get": {
+        "summary": "All tokenized assets",
+        "operationId": "listAssets",
+        "parameters": [
+          {
+            "name": "asset_type",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Filter by asset class, e.g. real_estate"
+          },
+          {
+            "name": "active",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean" },
+            "description": "Filter by active status"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of assets",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Asset" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/assets/{id}": {
+      "get": {
+        "summary": "Full detail for a single asset by registry id",
+        "operationId": "getAsset",
+        "parameters": [{ "$ref": "#/components/parameters/AssetId" }],
+        "responses": {
+          "200": {
+            "description": "The asset",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Asset" } }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/assets/{id}/holders": {
+      "get": {
+        "summary": "Holder list with balances, sorted by balance descending",
+        "operationId": "listHolders",
+        "parameters": [{ "$ref": "#/components/parameters/AssetId" }],
+        "responses": {
+          "200": {
+            "description": "Array of holders",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Holder" } }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/assets/{id}/compliance": {
+      "get": {
+        "summary": "Aggregate compliance summary — counts only, no addresses",
+        "operationId": "getCompliance",
+        "parameters": [{ "$ref": "#/components/parameters/AssetId" }],
+        "responses": {
+          "200": {
+            "description": "Compliance summary",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ComplianceSummary" } }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/assets/{id}/dividends": {
+      "get": {
+        "summary": "Distribution history for an asset, newest ledger first",
+        "operationId": "listDividends",
+        "parameters": [{ "$ref": "#/components/parameters/AssetId" }],
+        "responses": {
+          "200": {
+            "description": "Array of distributions",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Distribution" } }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/assets/{id}/dividends/{did}": {
+      "get": {
+        "summary": "A single distribution by id within an asset's dividend history",
+        "operationId": "getDividend",
+        "parameters": [
+          { "$ref": "#/components/parameters/AssetId" },
+          {
+            "name": "did",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "format": "uint64", "minimum": 0 },
+            "description": "Distribution id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The distribution",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Distribution" } }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "AssetId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer", "format": "uint64", "minimum": 0 },
+        "description": "Registry id"
+      }
+    },
+    "responses": {
+      "NotFound": {
+        "description": "No resource with the given id",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } }
+        }
+      }
+    },
+    "schemas": {
+      "Asset": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "uint64" },
+          "token_contract": { "type": "string" },
+          "issuer": { "type": "string" },
+          "name": { "type": "string" },
+          "symbol": { "type": "string" },
+          "asset_type": { "type": "string" },
+          "description": { "type": "string" },
+          "valuation_cents": { "type": "string", "description": "i128, USD cents" },
+          "valuation_usd": { "type": "number" },
+          "decimals": { "type": "integer" },
+          "total_supply": { "type": "string", "description": "i128, base units" },
+          "holders": { "type": "integer" },
+          "active": { "type": "boolean" },
+          "paused": { "type": "boolean" },
+          "compliance_contract": { "type": "string" },
+          "created_at_ledger": { "type": "integer" }
+        },
+        "required": [
+          "id", "token_contract", "issuer", "name", "symbol", "asset_type",
+          "description", "valuation_cents", "valuation_usd", "decimals",
+          "total_supply", "holders", "active", "paused", "compliance_contract",
+          "created_at_ledger"
+        ]
+      },
+      "Holder": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string" },
+          "balance": { "type": "string", "description": "i128, base units" },
+          "share_percent": { "type": "number" }
+        },
+        "required": ["address", "balance", "share_percent"]
+      },
+      "ComplianceSummary": {
+        "type": "object",
+        "properties": {
+          "total_records": { "type": "integer" },
+          "approved": { "type": "integer" },
+          "suspended": { "type": "integer" },
+          "rejected": { "type": "integer" },
+          "pending": { "type": "integer" },
+          "with_expiry": { "type": "integer" },
+          "jurisdictions": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/JurisdictionCount" }
+          }
+        },
+        "required": [
+          "total_records", "approved", "suspended", "rejected", "pending",
+          "with_expiry", "jurisdictions"
+        ]
+      },
+      "JurisdictionCount": {
+        "type": "object",
+        "properties": {
+          "jurisdiction": { "type": "string" },
+          "count": { "type": "integer" }
+        },
+        "required": ["jurisdiction", "count"]
+      },
+      "Distribution": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "uint64" },
+          "asset_token": { "type": "string" },
+          "payment_token": { "type": "string" },
+          "total_amount": { "type": "string", "description": "i128, base units" },
+          "distributed": { "type": "string", "description": "i128, base units" },
+          "claimed_percent": { "type": "number" },
+          "completed": { "type": "boolean" },
+          "snapshot_ledger": { "type": "integer" },
+          "created_at_ledger": { "type": "integer" }
+        },
+        "required": [
+          "id", "asset_token", "payment_token", "total_amount", "distributed",
+          "claimed_percent", "completed", "snapshot_ledger", "created_at_ledger"
+        ]
+      },
+      "Stats": {
+        "type": "object",
+        "properties": {
+          "total_assets": { "type": "integer" },
+          "active_assets": { "type": "integer" },
+          "tvl_cents": { "type": "string", "description": "i128, USD cents" },
+          "tvl_usd": { "type": "number" },
+          "total_holders": { "type": "integer" },
+          "total_distributions": { "type": "integer" },
+          "last_indexed_ledger": { "type": "integer" },
+          "last_updated": { "type": "string", "format": "date-time", "nullable": true }
+        },
+        "required": [
+          "total_assets", "active_assets", "tvl_cents", "tvl_usd",
+          "total_holders", "total_distributions", "last_indexed_ledger"
+        ]
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "required": ["error", "message"]
+      }
+    }
+  }
+}

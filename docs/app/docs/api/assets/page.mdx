@@ -7,7 +7,7 @@ export const metadata = {
 
 ## List assets
 
-<ApiEndpoint method="GET" path="/assets" description="All tokenized assets with valuation, supply and holder counts." />
+<ApiEndpoint method="GET" path="/v1/assets" description="All tokenized assets with valuation, supply and holder counts." />
 
 Returns an array of asset objects.
 
@@ -19,7 +19,7 @@ Returns an array of asset objects.
 | `active` | boolean | Filter by active status |
 
 ```bash
-curl "http://localhost:8080/assets?asset_type=real_estate&active=true"
+curl "http://localhost:8080/v1/assets?asset_type=real_estate&active=true"
 ```
 
 **Response schema** (per asset):
@@ -46,7 +46,7 @@ curl "http://localhost:8080/assets?asset_type=real_estate&active=true"
 **Example**
 
 ```bash
-curl http://localhost:8080/assets
+curl http://localhost:8080/v1/assets
 ```
 
 ```json
@@ -74,7 +74,7 @@ curl http://localhost:8080/assets
 
 ## Get an asset
 
-<ApiEndpoint method="GET" path="/assets/:id" description="Full detail for a single asset by registry id." />
+<ApiEndpoint method="GET" path="/v1/assets/:id" description="Full detail for a single asset by registry id." />
 
 **Path parameters**
 
@@ -85,7 +85,7 @@ curl http://localhost:8080/assets
 **Example**
 
 ```bash
-curl http://localhost:8080/assets/1
+curl http://localhost:8080/v1/assets/1
 ```
 
 Returns a single asset object with the schema above.
@@ -97,7 +97,7 @@ Returns a single asset object with the schema above.
 ```
 
 Returned with status `404` when no asset has the given id. A non-numeric id
-(`/assets/abc`) is rejected with `400` by the router.
+(`/v1/assets/abc`) is rejected with `400` by the router.
 
 <CalloutBox variant="tip">
 `total_supply` and `valuation_cents` are strings. In JavaScript, parse them with

@@ -5,7 +5,9 @@ export const metadata = {
 
 # Dividends
 
-<ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history for an asset, newest ledger first." />
+## List distributions
+
+<ApiEndpoint method="GET" path="/v1/assets/:id/dividends" description="Distribution history for an asset, newest ledger first." />
 
 Returns every dividend distribution created for the asset's token, ordered by
 creation ledger (newest first).
@@ -33,7 +35,7 @@ creation ledger (newest first).
 **Example**
 
 ```bash
-curl http://localhost:8080/assets/1/dividends
+curl http://localhost:8080/v1/assets/1/dividends
 ```
 
 ```json
@@ -63,3 +65,28 @@ Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown.
 asset token's. Classic Stellar assets (SACs) use 7 decimals, so `100000000000`
 above is `10,000.0` units of the payment token.
 </CalloutBox>
+
+## Get a distribution
+
+<ApiEndpoint method="GET" path="/v1/assets/:id/dividends/:did" description="A single distribution by id within an asset's dividend history." />
+
+**Path parameters**
+
+| Name | Type | Notes |
+|------|------|-------|
+| `id` | number | Registry id |
+| `did` | number | Distribution id |
+
+**Example**
+
+```bash
+curl http://localhost:8080/v1/assets/1/dividends/1
+```
+
+Returns a single distribution object with the schema above.
+
+**Errors**
+
+Returns `404` with `{ "error": "not_found", … }` when the asset id or the
+distribution id is unknown. A non-numeric `id` or `did`
+(`/v1/assets/1/dividends/abc`) is rejected with `400` by the router.

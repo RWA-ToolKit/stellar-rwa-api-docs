@@ -28,6 +28,23 @@ use crate::models::ApiErrorBody;
 const RATE_LIMIT_PER_SECOND: u64 = 5;
 const RATE_LIMIT_BURST: u32 = 20;
 
+/// Snapshot-backed data routes, mounted under [`API_VERSION_PREFIX`]. Single
+/// source of truth for the router, the root index, and the
+/// docs/public/openapi.json-vs-router test — keep in sync with the
+/// `.route(...)` calls in [`router`] and with the spec.
+const DATA_ROUTE_PATHS: &[&str] = &[
+    "/stats",
+    "/assets",
+    "/assets/:id",
+    "/assets/:id/holders",
+    "/assets/:id/compliance",
+    "/assets/:id/dividends",
+    "/assets/:id/dividends/:did",
+];
+
+/// Path prefix all data routes are nested under.
+const API_VERSION_PREFIX: &str = "/v1";
+
 /// Errors surfaced to API clients as a JSON body with an appropriate status.
 #[derive(Debug)]
 pub enum ApiError {
@@ -87,7 +104,7 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(index))
         .route("/health", get(health))
         .route("/metrics", get(metrics))
-        .merge(data_routes)
+        .nest(API_VERSION_PREFIX, data_routes)
         .with_state(state)
         .layer(cors)
 }
@@ -134,21 +151,16 @@ fn insert_cache_headers(headers: &mut HeaderMap, etag: &str) {
 
 /// Root — a small self-describing index of the available endpoints.
 async fn index() -> Json<serde_json::Value> {
+    let endpoints: Vec<String> = DATA_ROUTE_PATHS
+        .iter()
+        .map(|path| format!("GET {API_VERSION_PREFIX}{path}"))
+        .chain(["GET /health".to_string(), "GET /metrics".to_string()])
+        .collect();
     Json(json!({
         "name": "Stellar RWA API",
         "version": env!("CARGO_PKG_VERSION"),
         "description": "Read-only index of tokenized real-world asset activity on Stellar.",
-        "endpoints": [
-            "GET /stats",
-            "GET /assets",
-            "GET /assets/:id",
-            "GET /assets/:id/holders",
-            "GET /assets/:id/compliance",
-            "GET /assets/:id/dividends",
-            "GET /assets/:id/dividends/:did",
-            "GET /health",
-            "GET /metrics"
-        ],
+        "endpoints": endpoints,
         "docs": "https://github.com/your-org/stellar-rwa-api-docs"
     }))
 }
@@ -221,5 +233,73 @@ pub(crate) mod test_support {
             ..Snapshot::default()
         });
         state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use axum::body::Body;
+    use axum::http::Request;
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    /// docs/public/openapi.json must document exactly the paths the router
+    /// mounts under /v1 (see #262: a spec/router mismatch 404s anyone who
+    /// follows the docs or generates a client from the spec), and every
+    /// documented path must actually resolve on the live router.
+    #[tokio::test]
+    async fn openapi_paths_match_router() {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let spec_path = format!("{manifest_dir}/../docs/public/openapi.json");
+        let raw = std::fs::read_to_string(&spec_path)
+            .unwrap_or_else(|e| panic!("failed to read {spec_path}: {e}"));
+        let spec: serde_json::Value =
+            serde_json::from_str(&raw).expect("docs/public/openapi.json should be valid JSON");
+
+        let spec_paths: BTreeSet<String> = spec["paths"]
+            .as_object()
+            .expect("openapi.json should have a top-level \"paths\" object")
+            .keys()
+            .cloned()
+            .collect();
+
+        let router_paths: BTreeSet<String> = DATA_ROUTE_PATHS
+            .iter()
+            .map(|path| {
+                format!(
+                    "{API_VERSION_PREFIX}{}",
+                    path.replace(":id", "{id}").replace(":did", "{did}")
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            spec_paths, router_paths,
+            "docs/public/openapi.json \"paths\" keys must match the router's mounted /v1 routes"
+        );
+
+        let app = router(test_support::test_state());
+        for path in &router_paths {
+            let concrete = path.replace("{id}", "1").replace("{did}", "1");
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(concrete.clone())
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let body = resp.into_body().collect().await.unwrap().to_bytes();
+            assert!(
+                serde_json::from_slice::<serde_json::Value>(&body).is_ok(),
+                "documented path {path} (requested as {concrete}) has no live route on the router"
+            );
+        }
     }
 }

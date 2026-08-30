@@ -9,7 +9,7 @@ The Stellar RWA API is a **read-only** REST service that indexes all tokenized
 asset activity on Stellar and serves it as JSON. It is written in Rust (Axum +
 tokio) and holds no keys — it never signs or submits transactions.
 
-Base URL (local): `http://localhost:8080`
+Base URL (local): `http://localhost:8080/v1`
 
 ## How indexing works
 
@@ -37,14 +37,16 @@ retries on the next tick. The API never panics on a transient failure.
 
 ## Endpoints
 
-<ApiEndpoint method="GET" path="/stats" description="Platform-wide statistics." />
-<ApiEndpoint method="GET" path="/assets" description="All tokenized assets." />
-<ApiEndpoint method="GET" path="/assets/:id" description="A single asset by registry id." />
-<ApiEndpoint method="GET" path="/assets/:id/holders" description="Holder list with balances." />
-<ApiEndpoint method="GET" path="/assets/:id/compliance" description="Non-PII compliance summary." />
-<ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history." />
+<ApiEndpoint method="GET" path="/v1/stats" description="Platform-wide statistics." />
+<ApiEndpoint method="GET" path="/v1/assets" description="All tokenized assets." />
+<ApiEndpoint method="GET" path="/v1/assets/:id" description="A single asset by registry id." />
+<ApiEndpoint method="GET" path="/v1/assets/:id/holders" description="Holder list with balances." />
+<ApiEndpoint method="GET" path="/v1/assets/:id/compliance" description="Non-PII compliance summary." />
+<ApiEndpoint method="GET" path="/v1/assets/:id/dividends" description="Distribution history." />
+<ApiEndpoint method="GET" path="/v1/assets/:id/dividends/:did" description="A single distribution by id." />
 
-Plus `GET /` (self-describing index) and `GET /health` (liveness).
+Plus `GET /` (self-describing index, unversioned), `GET /health` (liveness) and
+`GET /metrics` (Prometheus scrape), none of which carry the `/v1` prefix.
 
 ## Errors
 

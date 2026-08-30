@@ -18,12 +18,12 @@ read-only and returns plain JSON.
 
 ```bash
 # platform stats
-curl http://localhost:8080/stats
+curl http://localhost:8080/v1/stats
 
 # all assets, then one asset's holders and dividends
-curl http://localhost:8080/assets
-curl http://localhost:8080/assets/1/holders
-curl http://localhost:8080/assets/1/dividends
+curl http://localhost:8080/v1/assets
+curl http://localhost:8080/v1/assets/1/holders
+curl http://localhost:8080/v1/assets/1/dividends
 ```
 
 ### TypeScript client
@@ -48,7 +48,7 @@ export interface Asset {
 }
 
 export async function getAssets(): Promise<Asset[]> {
-  const res = await fetch(`${API}/assets`, { cache: "no-store" });
+  const res = await fetch(`${API}/v1/assets`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
@@ -165,4 +165,4 @@ error up front.
 
 All Testnet contract ids are listed in [Getting Started](/docs/getting-started#deployed-contract-addresses-testnet).
 Asset-token contract ids are discovered from the registry's `get_all_assets` (or
-the API's `/assets`).
+the API's `/v1/assets`).
