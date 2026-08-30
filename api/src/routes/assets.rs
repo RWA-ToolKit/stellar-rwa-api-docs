@@ -24,7 +24,9 @@ pub struct AssetQuery {
     /// Skip the first `offset` matching assets.
     #[serde(default)]
     pub offset: Option<usize>,
-    /// Limit the number of matching assets returned. Defaults to 50 and is capped at 100.
+    /// Limit the number of matching assets returned. Defaults to 50 and is
+    /// capped at 100. `0` is treated the same as "unset" and falls back to
+    /// the default, rather than returning an empty page.
     #[serde(default)]
     pub limit: Option<usize>,
 }
@@ -41,7 +43,11 @@ pub async fn list(
 ) -> (HeaderMap, Json<Vec<Asset>>) {
     let snap = state.snapshot();
     let offset = query.offset.unwrap_or(0);
-    let limit = query.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
+    let limit = query
+        .limit
+        .filter(|&l| l != 0)
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .min(MAX_PAGE_SIZE);
     let matching: Vec<Asset> = snap
         .assets
         .into_iter()
@@ -251,6 +257,19 @@ mod tests {
             .unwrap();
         let page: Vec<Asset> = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(page.len(), 5, "the page itself is still limited to 5");
+    }
+
+    #[tokio::test]
+    async fn limit_of_zero_falls_back_to_default_page_size() {
+        let assets = (1..=60)
+            .map(|id| stub_asset(id, "real_estate", true))
+            .collect();
+        let result = get_assets(list_router(assets), "/assets?limit=0").await;
+        assert_eq!(
+            result.len(),
+            50,
+            "?limit=0 must fall back to DEFAULT_PAGE_SIZE (50), not return an empty page"
+        );
     }
 
     #[tokio::test]

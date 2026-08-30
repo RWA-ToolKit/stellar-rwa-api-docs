@@ -19,7 +19,9 @@ pub struct HolderQuery {
     /// Skip the first `offset` holders.
     #[serde(default)]
     pub offset: Option<usize>,
-    /// Limit the number of holders returned. Defaults to 50 and is capped at 100.
+    /// Limit the number of holders returned. Defaults to 50 and is capped
+    /// at 100. `0` is treated the same as "unset" and falls back to the
+    /// default, rather than returning an empty page.
     #[serde(default)]
     pub limit: Option<usize>,
 }
@@ -39,7 +41,11 @@ pub async fn list(
         return Err(ApiError::NotFound(format!("no asset with id {id}")));
     }
     let offset = query.offset.unwrap_or(0);
-    let limit = query.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
+    let limit = query
+        .limit
+        .filter(|&l| l != 0)
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .min(MAX_PAGE_SIZE);
     let all_holders = snap.holders.get(&id).cloned().unwrap_or_default();
     let total = all_holders.len();
     let holders = all_holders.into_iter().skip(offset).take(limit).collect();
@@ -158,6 +164,40 @@ mod tests {
     // holders::list reused assets::list's DEFAULT_PAGE_SIZE/MAX_PAGE_SIZE
     // clamping without an equivalent test to `limit_is_clamped_to_max_page_size`
     // in assets.rs. Pin the same behavior here.
+    #[tokio::test]
+    async fn limit_of_zero_falls_back_to_default_page_size() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        let holders = (1..=60)
+            .map(|n| crate::models::Holder {
+                address: format!("HOLDER{n}"),
+                balance: n.to_string(),
+                share_percent: 0.0,
+            })
+            .collect();
+        snap.holders.insert(1, holders);
+        let state = state_with(snap);
+
+        let result = list(
+            State(state),
+            Path(1),
+            Query(HolderQuery {
+                offset: None,
+                limit: Some(0),
+            }),
+        )
+        .await
+        .expect("asset exists")
+        .1
+        .0;
+
+        assert_eq!(
+            result.len(),
+            50,
+            "?limit=0 must fall back to DEFAULT_PAGE_SIZE (50), not return an empty page"
+        );
+    }
+
     #[tokio::test]
     async fn limit_is_clamped_to_max_page_size() {
         let mut snap = Snapshot::default();

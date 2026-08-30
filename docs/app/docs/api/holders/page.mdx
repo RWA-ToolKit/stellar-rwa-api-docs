@@ -27,7 +27,7 @@ the indexer derives this from the allowlist intersected with balances.
 | Name | Type | Notes |
 |------|------|-------|
 | `offset` | integer | Skip the first N holders. Default: `0`. |
-| `limit` | integer | Page size. Default: `50`; maximum: `100`. |
+| `limit` | integer | Page size. Default: `50`; maximum: `100`. `0` is treated as unset and falls back to the default. |
 
 **Response headers**
 

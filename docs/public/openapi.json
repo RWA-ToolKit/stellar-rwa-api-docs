@@ -129,7 +129,7 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum number of assets to return. Defaults to 50 and is capped at 100.",
+            "description": "Maximum number of assets to return. Defaults to 50 (also used when limit=0) and is capped at 100.",
             "schema": {
               "type": "integer",
               "minimum": 0,
@@ -240,7 +240,7 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum number of holders to return. Defaults to 50 and is capped at 100.",
+            "description": "Maximum number of holders to return. Defaults to 50 (also used when limit=0) and is capped at 100.",
             "schema": {
               "type": "integer",
               "minimum": 0,
