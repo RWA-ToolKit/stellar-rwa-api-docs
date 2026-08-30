@@ -252,3 +252,36 @@ async fn metrics(headers: HeaderMap, State(state): State<AppState>) -> Response 
     )
         .into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::indexer::Snapshot;
+    use crate::routes::test_support::state_with;
+
+    /// Serialises tests that mutate `RWA_METRICS_TOKEN`, which is
+    /// process-global and otherwise races other tests in this binary.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A present, non-empty, but incorrect bearer token must be rejected
+    /// just like a missing one — distinct from the missing/unset cases,
+    /// which don't exercise the actual token comparison.
+    #[tokio::test]
+    async fn metrics_rejects_present_but_wrong_bearer_token() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("RWA_METRICS_TOKEN", "the-correct-token");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer the-wrong-token"),
+        );
+        let state = state_with(Snapshot::default());
+
+        let response = metrics(headers, State(state)).await;
+
+        std::env::remove_var("RWA_METRICS_TOKEN");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+}
