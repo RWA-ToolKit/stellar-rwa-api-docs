@@ -320,6 +320,22 @@ mod tests {
         assert_eq!(result[0].id, 1);
     }
 
+    #[tokio::test]
+    async fn post_to_get_only_endpoint_returns_405() {
+        let app = list_router(vec![stub_asset(1, "real_estate", true)]);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/assets")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
     // #194 – non-numeric asset id returns 400, not 404
     #[tokio::test]
     async fn get_asset_by_non_numeric_id_returns_400() {
