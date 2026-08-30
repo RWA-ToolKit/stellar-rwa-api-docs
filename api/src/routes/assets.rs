@@ -168,6 +168,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn filter_by_asset_type_is_exact_match_and_case_sensitive() {
+        let assets = vec![
+            stub_asset(1, "real_estate", true),
+            stub_asset(2, "Real_Estate", true),
+            stub_asset(3, "bond", true),
+        ];
+        let result = get_assets(list_router(assets), "/assets?asset_type=real_estate").await;
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 1);
+    }
+
+    #[tokio::test]
     async fn filter_by_active_returns_only_active_assets() {
         let assets = vec![
             stub_asset(1, "real_estate", true),
