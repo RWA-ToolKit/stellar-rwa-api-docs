@@ -29,6 +29,27 @@ unreachable, the indexer logs the error, keeps serving the last good snapshot, a
 retries on the next tick. The API never panics on a transient failure.
 </CalloutBox>
 
+## API versioning
+
+Endpoints fall into two groups, distinguished by their path:
+
+- **Versioned data routes** live under `/v1` — `/v1/stats`, `/v1/assets`,
+  `/v1/assets/:id`, `/v1/assets/:id/holders`, `/v1/assets/:id/compliance`,
+  `/v1/assets/:id/dividends` and `/v1/assets/:id/distributions/:did`. These
+  are the snapshot-backed endpoints that serve indexed chain data, and their
+  response shape is covered by the stability guarantees of the `v1` prefix.
+- **Unversioned operational routes** — `GET /`, `GET /version`, `GET /health`
+  and `GET /metrics` — describe the service itself rather than chain data.
+  They stay at the root regardless of data-route version, since infra
+  (load balancers, uptime checks, Prometheus scrapers) that depends on them
+  shouldn't need to change when data endpoints move to a new version.
+
+If a breaking change to the data routes is ever needed, it will be introduced
+as a new `/v2` prefix, and `/v1` will continue to be served alongside it for
+existing integrators. The unversioned operational routes are not expected to
+change shape in a breaking way; if they ever did, it would be announced
+separately from a `/v2` data release.
+
 ## Operational details
 
 ### Authentication and rate limiting
