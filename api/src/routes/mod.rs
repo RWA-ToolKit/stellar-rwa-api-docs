@@ -252,3 +252,55 @@ async fn metrics(headers: HeaderMap, State(state): State<AppState>) -> Response 
     )
         .into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::indexer::Snapshot;
+    use crate::models::Stats;
+    use crate::routes::test_support::state_with;
+
+    fn snapshot_updated_at(last_updated: chrono::DateTime<chrono::Utc>) -> Snapshot {
+        Snapshot {
+            stats: Stats {
+                last_updated: Some(last_updated.to_rfc3339()),
+                ..Stats::default()
+            },
+            ..Snapshot::default()
+        }
+    }
+
+    async fn health_body(response: Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).expect("health body must be valid JSON")
+    }
+
+    #[tokio::test]
+    async fn health_is_ok_when_snapshot_is_within_the_freshness_window() {
+        let state = state_with(snapshot_updated_at(chrono::Utc::now()));
+
+        let response = health(State(state)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = health_body(response).await;
+        assert_eq!(body["status"], "ok");
+    }
+
+    // The health handler flips to 503/"degraded" once the snapshot is older
+    // than POLL_INTERVAL * 3 — nothing previously constructed a stale
+    // snapshot to verify that threshold actually trips.
+    #[tokio::test]
+    async fn health_is_degraded_when_snapshot_is_older_than_the_freshness_window() {
+        let max_age = POLL_INTERVAL * 3;
+        let stale = chrono::Utc::now() - chrono::Duration::seconds(max_age.as_secs() as i64 + 1);
+        let state = state_with(snapshot_updated_at(stale));
+
+        let response = health(State(state)).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let body = health_body(response).await;
+        assert_eq!(body["status"], "degraded");
+    }
+}
