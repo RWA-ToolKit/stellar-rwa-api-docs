@@ -13,7 +13,10 @@ export interface NavSection {
 export const NAV: NavSection[] = [
   {
     title: "Introduction",
-    items: [{ title: "Getting Started", href: "/docs/getting-started" }],
+    items: [
+      { title: "Getting Started", href: "/docs/getting-started" },
+      { title: "Architecture Overview", href: "/docs/architecture" },
+    ],
   },
   {
     title: "Contract Reference",
@@ -32,12 +35,14 @@ export const NAV: NavSection[] = [
       { title: "Holders", href: "/docs/api/holders" },
       { title: "Compliance", href: "/docs/api/compliance" },
       { title: "Dividends", href: "/docs/api/dividends" },
+      { title: "Rate Limits & Caching", href: "/docs/api/rate-limits" },
     ],
   },
   {
     title: "Guides",
     items: [
       { title: "Compliance Guide", href: "/docs/compliance-guide" },
+      { title: "Time & Ledgers", href: "/docs/time-and-ledgers" },
       { title: "Web App Guide", href: "/docs/web-app" },
       { title: "Integration", href: "/docs/integration" },
     ],

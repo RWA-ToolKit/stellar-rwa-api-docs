@@ -1,6 +1,7 @@
 export const metadata = {
   title: "API Overview",
   description: "How the read-only Stellar RWA indexing API works, and its conventions.",
+  canonical: "/docs/api/overview",
 };
 
 # API Overview
@@ -10,6 +11,11 @@ asset activity on Stellar and serves it as JSON. It is written in Rust (Axum +
 tokio) and holds no keys — it never signs or submits transactions.
 
 Base URL (local): `http://localhost:8080/v1`
+**Base URL:** Set via environment variable `NEXT_PUBLIC_API_BASE_URL` (defaults to `http://localhost:8080` for development). Readers should replace examples with their configured URL.
+
+<CalloutBox variant="tip">
+An OpenAPI 3.0 specification is available at <code>/openapi.json</code> — use it with Swagger UI, Postman, or to generate SDK clients. See <a href="/docs/integration">Integration Guide</a> for examples.
+</CalloutBox>
 
 ## How indexing works
 
@@ -23,6 +29,35 @@ State is kept **in memory** (no database in v1). If the RPC is briefly
 unreachable, the indexer logs the error, keeps serving the last good snapshot, and
 retries on the next tick. The API never panics on a transient failure.
 </CalloutBox>
+
+## Operational details
+
+### Authentication and rate limiting
+
+There is currently **no authentication** required to call the API. All endpoints
+are open to the public.
+
+**Rate limits and HTTP caching (ETag) are being introduced.** See the dedicated
+reference for the full specification:
+
+<CalloutBox variant="tip">
+See <a href="/docs/api/rate-limits">Rate Limits &amp; Caching</a> for the
+planned <code>X-RateLimit-*</code> headers, <code>429</code> behaviour, ETag
+conditional-request flow, and polling recommendations.
+</CalloutBox>
+
+### Data freshness and caching
+
+The API refreshes its in-memory state approximately **every 10 seconds** by polling
+Soroban RPC. This means:
+
+- Data lags the ledger by ~10 seconds on average.
+- Two requests made within the same 10-second window will return identical data.
+- If Soroban RPC is temporarily unreachable, the API continues serving the last
+  successful snapshot (no error, just stale data).
+
+For integrations where you need real-time data, consider reading contracts directly
+via Soroban RPC.
 
 ## Conventions
 
@@ -48,18 +83,29 @@ retries on the next tick. The API never panics on a transient failure.
 Plus `GET /` (self-describing index, unversioned), `GET /health` (liveness) and
 `GET /metrics` (Prometheus scrape), none of which carry the `/v1` prefix.
 
-## Errors
+## Error responses
 
-Errors return an appropriate HTTP status and a JSON body:
+All errors return an appropriate HTTP status code and a JSON body with a consistent
+format:
 
 ```json
-{ "error": "not_found", "message": "no asset with id 999" }
+{
+  "error": "not_found",
+  "message": "no asset with id 999"
+}
 ```
 
-| Status | `error` | When |
-|--------|---------|------|
-| `404` | `not_found` | Unknown asset id |
-| `400` | — | Non-numeric `:id` path (rejected by the router) |
+**Error body fields:**
+- `error` (string): A machine-readable error code (e.g., `not_found`, `bad_request`).
+- `message` (string): A human-readable description of what went wrong.
+
+**Common errors:**
+
+| HTTP Status | `error` | When |
+|-------------|---------|------|
+| `404` | `not_found` | Unknown asset id or endpoint does not exist |
+| `400` | `bad_request` | Non-numeric `:id` path parameter or malformed query |
+| `500` | `internal_server_error` | Unexpected server error (rare; please report if seen) |
 
 ## CORS
 

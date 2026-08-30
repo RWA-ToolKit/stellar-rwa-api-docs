@@ -1,6 +1,7 @@
 export const metadata = {
   title: "API · Dividends",
   description: "Distribution history for a tokenized asset.",
+  canonical: "/docs/api/dividends",
 };
 
 # Dividends
@@ -8,6 +9,11 @@ export const metadata = {
 ## List distributions
 
 <ApiEndpoint method="GET" path="/v1/assets/:id/dividends" description="Distribution history for an asset, newest ledger first." />
+<CalloutBox variant="note">
+Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
+</CalloutBox>
+
+<ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history for an asset, newest ledger first." />
 
 Returns every dividend distribution created for the asset's token, ordered by
 creation ledger (newest first).
@@ -28,14 +34,15 @@ creation ledger (newest first).
 | `total_amount` | string | Pool size, base units (`i128`) |
 | `distributed` | string | Claimed so far, base units (`i128`) |
 | `claimed_percent` | number | 0–100 (2 dp) |
+| `overflow_detected` | boolean | `true` when `distributed` exceeds `total_amount` (on-chain anomaly, not an API bug) |
 | `completed` | boolean | `true` once fully claimed |
-| `snapshot_ledger` | number | Ledger at creation |
 | `created_at_ledger` | number | |
 
 **Example**
 
 ```bash
 curl http://localhost:8080/v1/assets/1/dividends
+curl $API_BASE_URL/assets/1/dividends
 ```
 
 ```json
@@ -47,8 +54,8 @@ curl http://localhost:8080/v1/assets/1/dividends
     "total_amount": "100000000000",
     "distributed": "25000000000",
     "claimed_percent": 25.0,
+    "overflow_detected": false,
     "completed": false,
-    "snapshot_ledger": 3510000,
     "created_at_ledger": 3510000
   }
 ]
@@ -59,6 +66,44 @@ An asset with no distributions returns an empty array `[]`.
 **Errors**
 
 Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown.
+
+## Get a single distribution
+
+<ApiEndpoint method="GET" path="/assets/:id/distributions/:did" description="A single distribution for an asset, by distribution id." />
+
+**Path parameters**
+
+| Name | Type | Notes |
+|------|------|-------|
+| `id` | number | Registry id |
+| `did` | number | Distribution id |
+
+**Response schema**
+
+Same shape as a single item from the list above.
+
+**Example**
+
+```bash
+curl $API_BASE_URL/assets/1/distributions/1
+```
+
+```json
+{
+  "id": 1,
+  "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  "total_amount": "100000000000",
+  "distributed": "25000000000",
+  "claimed_percent": 25.0,
+  "completed": false,
+  "created_at_ledger": 3510000
+}
+```
+
+**Errors**
+
+Returns `404` with `{ "error": "not_found", … }` when the asset id or the distribution id is unknown.
 
 <CalloutBox variant="note">
 `total_amount` and `distributed` are in the **payment token's** base units, not the

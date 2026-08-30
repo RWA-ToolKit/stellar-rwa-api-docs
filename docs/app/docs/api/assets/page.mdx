@@ -1,9 +1,14 @@
 export const metadata = {
   title: "API · Assets",
   description: "List all tokenized assets, or fetch one by id.",
+  canonical: "/docs/api/assets",
 };
 
 # Assets
+
+<CalloutBox variant="note">
+Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
+</CalloutBox>
 
 ## List assets
 
@@ -17,9 +22,14 @@ Returns an array of asset objects.
 |------|------|-------|
 | `asset_type` | string | Filter by class: `real_estate`, `invoice`, `commodity` |
 | `active` | boolean | Filter by active status |
+| `offset` | integer | Skip the first N matching assets. Default: `0`. |
+| `limit` | integer | Page size. Default: `50`; maximum: `100`. |
+
+Results are paginated to keep large collections bounded. Use `offset` and `limit` together to walk the list in chunks.
 
 ```bash
 curl "http://localhost:8080/v1/assets?asset_type=real_estate&active=true"
+curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 ```
 
 **Response schema** (per asset):
@@ -47,6 +57,7 @@ curl "http://localhost:8080/v1/assets?asset_type=real_estate&active=true"
 
 ```bash
 curl http://localhost:8080/v1/assets
+curl $API_BASE_URL/assets
 ```
 
 ```json
@@ -86,6 +97,7 @@ curl http://localhost:8080/v1/assets
 
 ```bash
 curl http://localhost:8080/v1/assets/1
+curl $API_BASE_URL/assets/1
 ```
 
 Returns a single asset object with the schema above.

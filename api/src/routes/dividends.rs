@@ -24,6 +24,7 @@ pub async fn list(
 }
 
 /// A single distribution by id within an asset's dividend history.
+/// `GET /assets/:id/distributions/:did` — a single distribution by id.
 pub async fn get_one(
     State(state): State<AppState>,
     Path((id, did)): Path<(u64, u64)>,
@@ -38,6 +39,15 @@ pub async fn get_one(
         .cloned()
         .map(Json)
         .ok_or_else(|| ApiError::NotFound(format!("no distribution {did} for asset {id}")))
+    let dist = snap
+        .dividends
+        .get(&id)
+        .and_then(|dists| dists.iter().find(|d| d.id == did))
+        .cloned()
+        .ok_or_else(|| {
+            ApiError::NotFound(format!("no distribution with id {did} for asset {id}"))
+        })?;
+    Ok(Json(dist))
 }
 
 #[cfg(test)]
@@ -141,6 +151,100 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(resp.status(), StatusCode::NOT_FOUND, "did={did}");
+    use axum::extract::{Path, State};
+
+    use super::{get_one, list};
+    use crate::indexer::Snapshot;
+    use crate::routes::test_support::{asset, distribution, state_with};
+
+    #[tokio::test]
+    async fn single_distribution_returned_by_id() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        snap.dividends
+            .insert(1, vec![distribution(10, 100), distribution(11, 300)]);
+        let state = state_with(snap);
+
+        let dist = get_one(State(state), Path((1, 11)))
+            .await
+            .expect("distribution exists")
+            .0;
+
+        assert_eq!(dist.id, 11);
+    }
+
+    #[tokio::test]
+    async fn single_distribution_404_when_unknown_id() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        snap.dividends.insert(1, vec![distribution(10, 100)]);
+        let state = state_with(snap);
+
+        let result = get_one(State(state), Path((1, 999))).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn single_distribution_404_when_asset_unknown() {
+        let state = state_with(Snapshot::default());
+
+        let result = get_one(State(state), Path((1, 10))).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn distributions_sorted_by_created_at_ledger_descending() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        // Deliberately out of order, so a passing assertion proves the
+        // handler sorts rather than preserving insertion order.
+        snap.dividends.insert(
+            1,
+            vec![
+                distribution(10, 100),
+                distribution(11, 300),
+                distribution(12, 200),
+            ],
+        );
+        let state = state_with(snap);
+
+        let dists = list(State(state), Path(1)).await.expect("asset exists").0;
+
+        let ledgers: Vec<u32> = dists.iter().map(|d| d.created_at_ledger).collect();
+        assert_eq!(ledgers, vec![300, 200, 100]);
+    }
+
+    // #210 – boundary ids (0 and u64::MAX) return 404 cleanly without
+    // trapping or overflowing, and the body names the offending id.
+    #[tokio::test]
+    async fn boundary_asset_ids_return_404_cleanly() {
+        use axum::{http::StatusCode, response::IntoResponse};
+
+        for id in [0u64, u64::MAX] {
+            let state = state_with(Snapshot::default());
+
+            let response = match list(State(state), Path(id)).await {
+                Ok(_) => panic!("boundary asset id {id} must not resolve to assets"),
+                Err(err) => err.into_response(),
+            };
+
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_FOUND,
+                "asset id {id} should return 404, not {}",
+                response.status()
+            );
+
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let text = String::from_utf8_lossy(&body);
+            assert!(
+                text.contains(&id.to_string()),
+                "404 body should name the offending id; got: {text}"
+            );
         }
     }
 }

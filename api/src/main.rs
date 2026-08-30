@@ -13,6 +13,9 @@ use std::net::SocketAddr;
 
 use indexer::{AppState, Config, ConfigError, Indexer};
 use metrics_exporter_prometheus::PrometheusBuilder;
+use indexer::{AppState, Config, Indexer};
+use metrics_exporter_prometheus::PrometheusBuilder;
+use tokio::sync::watch;
 
 #[tokio::main]
 async fn main() {
@@ -37,9 +40,14 @@ async fn main() {
 
     let state = AppState::new(config, metrics_handle);
 
+    // Shared shutdown flag: flipped once by `shutdown_signal` and observed
+    // by the indexer's poll loop so it stops issuing new refresh cycles
+    // once the process is terminating, rather than racing shutdown.
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
     // Spawn the indexer; it owns its own clone of the shared state.
     let indexer = Indexer::new(state.clone());
-    tokio::spawn(async move { indexer.run().await });
+    tokio::spawn(async move { indexer.run(shutdown_rx).await });
 
     let app = routes::router(state).layer(tower_http::trace::TraceLayer::new_for_http());
 
@@ -62,7 +70,7 @@ async fn main() {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(shutdown_signal(shutdown_tx))
     .await
     {
         tracing::error!(error = %e, "server error");
@@ -71,12 +79,37 @@ async fn main() {
     tracing::info!("shut down cleanly");
 }
 
-/// Resolve when the process receives Ctrl-C, for graceful shutdown.
-async fn shutdown_signal() {
-    if let Err(e) = tokio::signal::ctrl_c().await {
-        tracing::error!(error = %e, "failed to install Ctrl-C handler");
+/// Resolve when the process receives Ctrl-C (SIGINT) or SIGTERM, for
+/// graceful shutdown. Axum stops accepting new connections and lets
+/// in-flight requests finish once this future resolves; we also flip
+/// `shutdown_tx` so the indexer's poll loop halts rather than starting
+/// another refresh cycle mid-shutdown.
+async fn shutdown_signal(shutdown_tx: watch::Sender<bool>) {
+    let ctrl_c = async {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::error!(error = %e, "failed to install Ctrl-C handler");
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(e) => tracing::error!(error = %e, "failed to install SIGTERM handler"),
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
     }
-    tracing::info!("shutdown signal received");
+
+    tracing::info!("shutdown signal received; finishing in-flight requests");
+    let _ = shutdown_tx.send(true);
 }
 
 fn init_tracing() {

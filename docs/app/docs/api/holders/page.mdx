@@ -1,11 +1,17 @@
 export const metadata = {
   title: "API · Holders",
   description: "Holder list with balances for a tokenized asset.",
+  canonical: "/docs/api/holders",
 };
 
 # Holders
 
 <ApiEndpoint method="GET" path="/v1/assets/:id/holders" description="Holder list with balances, sorted by balance descending." />
+<CalloutBox variant="note">
+Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
+</CalloutBox>
+
+<ApiEndpoint method="GET" path="/assets/:id/holders" description="Holder list with balances, sorted by balance descending." />
 
 Returns every address that is on the asset's compliance allowlist **and** holds a
 positive balance. The asset-token contract does not enumerate holders directly, so
@@ -16,6 +22,13 @@ the indexer derives this from the allowlist intersected with balances.
 | Name | Type | Notes |
 |------|------|-------|
 | `id` | number | Registry id |
+
+**Query parameters** (all optional)
+
+| Name | Type | Notes |
+|------|------|-------|
+| `offset` | integer | Skip the first N holders. Default: `0`. |
+| `limit` | integer | Page size. Default: `50`; maximum: `100`. |
 
 **Response schema** (per holder):
 
@@ -29,6 +42,7 @@ the indexer derives this from the allowlist intersected with balances.
 
 ```bash
 curl http://localhost:8080/v1/assets/1/holders
+curl $API_BASE_URL/assets/1/holders
 ```
 
 ```json
