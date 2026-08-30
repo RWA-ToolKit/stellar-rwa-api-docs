@@ -8,7 +8,6 @@ use serde::Deserialize;
 
 use super::ApiError;
 use crate::indexer::AppState;
-use crate::models::Asset;
 
 const DEFAULT_PAGE_SIZE: usize = 50;
 const MAX_PAGE_SIZE: usize = 100;
@@ -26,15 +25,44 @@ pub struct AssetQuery {
     /// Limit the number of matching assets returned. Defaults to 50 and is capped at 100.
     #[serde(default)]
     pub limit: Option<usize>,
+    /// Restrict each asset object to a comma-separated set of fields.
+    #[serde(default)]
+    pub fields: Option<String>,
+}
+
+fn apply_fieldset(value: &serde_json::Value, requested: Option<&str>) -> serde_json::Value {
+    let Some(fields) = requested.map(|raw| {
+        raw.split(',')
+            .map(str::trim)
+            .filter(|field| !field.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    }) else {
+        return value.clone();
+    };
+
+    if fields.is_empty() {
+        return value.clone();
+    }
+
+    let object = value.as_object().expect("asset payload should be an object");
+    let mut selected = serde_json::Map::new();
+    for field in fields {
+        if let Some(value) = object.get(&field) {
+            selected.insert(field, value.clone());
+        }
+    }
+    serde_json::Value::Object(selected)
 }
 
 /// All tokenized assets with valuation, supply and holder counts.
 ///
-/// Supports optional `?asset_type=`, `?active=`, `?offset=` and `?limit=` query filters.
+/// Supports optional `?asset_type=`, `?active=`, `?offset=`, `?limit=` and
+/// `?fields=` query filters.
 pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<AssetQuery>,
-) -> Json<Vec<Asset>> {
+) -> Json<serde_json::Value> {
     let snap = state.snapshot();
     let offset = query.offset.unwrap_or(0);
     let limit = query.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
@@ -50,20 +78,34 @@ pub async fn list(
         .filter(|a| query.active.is_none_or(|active| a.active == active))
         .skip(offset)
         .take(limit)
-        .collect();
-    Json(assets)
+        .collect::<Vec<_>>();
+
+    let payload = if query.fields.is_some() {
+        serde_json::Value::Array(
+            assets
+                .iter()
+                .map(|asset| apply_fieldset(&serde_json::to_value(asset).expect("asset serializes"), query.fields.as_deref()))
+                .collect(),
+        )
+    } else {
+        serde_json::to_value(assets).expect("asset list serializes")
+    };
+
+    Json(payload)
 }
 
 /// Full detail for a single asset by its registry id.
 pub async fn detail(
     State(state): State<AppState>,
     Path(id): Path<u64>,
-) -> Result<Json<Asset>, ApiError> {
+    Query(query): Query<AssetQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let snap = state.snapshot();
-    snap.asset(id)
-        .cloned()
-        .map(Json)
-        .ok_or_else(|| ApiError::NotFound(format!("no asset with id {id}")))
+    let asset = snap.asset(id).cloned().ok_or_else(|| {
+        ApiError::NotFound(format!("no asset with id {id}"))
+    })?;
+    let payload = apply_fieldset(&serde_json::to_value(&asset).expect("asset serializes"), query.fields.as_deref());
+    Ok(Json(payload))
 }
 
 #[cfg(test)]
@@ -207,6 +249,62 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].id, 2);
         assert_eq!(result[1].id, 3);
+    }
+
+    #[tokio::test]
+    async fn sparse_fieldset_restricts_asset_fields() {
+        let assets = vec![stub_asset(1, "real_estate", true)];
+        let app = list_router(assets);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets?fields=id,name,active")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        let keys: Vec<_> = value[0].as_object().unwrap().keys().cloned().collect();
+        assert!(keys.contains(&"id".to_string()));
+        assert!(keys.contains(&"name".to_string()));
+        assert!(keys.contains(&"active".to_string()));
+        assert!(!keys.contains(&"issuer".to_string()));
+    }
+
+    #[tokio::test]
+    async fn sparse_fieldset_restricts_single_asset_detail() {
+        let asset = stub_asset(1, "real_estate", true);
+        let state = AppState::with_assets(vec![asset]);
+        let app = Router::new()
+            .route("/assets/:id", get(super::detail))
+            .with_state(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/1?fields=id,name,token_contract")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let keys: Vec<_> = value.as_object().unwrap().keys().cloned().collect();
+        assert!(keys.contains(&"id".to_string()));
+        assert!(keys.contains(&"name".to_string()));
+        assert!(keys.contains(&"token_contract".to_string()));
+        assert!(!keys.contains(&"description".to_string()));
     }
 
     #[tokio::test]
