@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn filter_by_asset_type_and_active_combined() {
+    async fn filter_by_asset_type_and_active_combined_applies_both_filters() {
         let assets = vec![
             stub_asset(1, "real_estate", true),
             stub_asset(2, "real_estate", false),
@@ -205,6 +205,8 @@ mod tests {
         .await;
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, 1);
+        assert!(result.iter().all(|asset| asset.asset_type == "real_estate"));
+        assert!(result.iter().all(|asset| asset.active));
     }
 
     #[tokio::test]
