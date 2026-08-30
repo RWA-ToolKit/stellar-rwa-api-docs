@@ -137,4 +137,36 @@ mod tests {
         assert_eq!(holders[0].address, "b");
         assert_eq!(holders[1].address, "c");
     }
+
+    // holders::list reused assets::list's DEFAULT_PAGE_SIZE/MAX_PAGE_SIZE
+    // clamping without an equivalent test to `limit_is_clamped_to_max_page_size`
+    // in assets.rs. Pin the same behavior here.
+    #[tokio::test]
+    async fn limit_is_clamped_to_max_page_size() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        let holders = (1..=150)
+            .map(|n| crate::models::Holder {
+                address: format!("HOLDER{n}"),
+                balance: n.to_string(),
+                share_percent: 0.0,
+            })
+            .collect();
+        snap.holders.insert(1, holders);
+        let state = state_with(snap);
+
+        let result = list(
+            State(state),
+            Path(1),
+            Query(HolderQuery {
+                offset: None,
+                limit: Some(1000),
+            }),
+        )
+        .await
+        .expect("asset exists")
+        .0;
+
+        assert_eq!(result.len(), 100);
+    }
 }
