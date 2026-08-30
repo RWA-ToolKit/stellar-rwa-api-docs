@@ -252,3 +252,49 @@ async fn metrics(headers: HeaderMap, State(state): State<AppState>) -> Response 
     )
         .into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::{
+        body::Body,
+        http::{header, Request, StatusCode},
+        Router,
+    };
+    use tower::ServiceExt as _;
+
+    use crate::indexer::AppState;
+
+    use super::router;
+
+    async fn assert_json_content_type(app: Router, uri: &str, status: StatusCode) {
+        let response = app
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), status, "unexpected status for {uri}");
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .expect("JSON responses should set a content type");
+        assert!(
+            content_type
+                .to_str()
+                .expect("content type is UTF-8")
+                .starts_with("application/json"),
+            "expected application/json for {uri}, got {content_type:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn json_responses_set_application_json_content_type() {
+        let app = router(AppState::for_test_empty());
+
+        assert_json_content_type(app.clone(), "/", StatusCode::OK).await;
+        assert_json_content_type(app.clone(), "/health", StatusCode::SERVICE_UNAVAILABLE).await;
+        assert_json_content_type(app.clone(), "/version", StatusCode::OK).await;
+        assert_json_content_type(app.clone(), "/v1/stats", StatusCode::OK).await;
+        assert_json_content_type(app.clone(), "/v1/assets", StatusCode::OK).await;
+        assert_json_content_type(app, "/v1/assets/99999", StatusCode::NOT_FOUND).await;
+    }
+}
