@@ -63,6 +63,7 @@ mod tests {
         assert_eq!(body.rejected, 0);
         assert_eq!(body.pending, 0);
         assert_eq!(body.with_expiry, 0);
+        assert_eq!(body.unread, 0);
         assert!(body.jurisdictions.is_empty());
     }
 

@@ -68,6 +68,13 @@ pub struct ComplianceSummary {
     pub pending: usize,
     /// Count of records with an expiry set (non-zero `expires_at`).
     pub with_expiry: usize,
+    /// Allowlisted addresses whose current record could not be read this
+    /// cycle (the per-address `get_record` RPC call failed). These are
+    /// counted in `total_records` but not in any of the status buckets
+    /// above, so `approved + suspended + rejected + pending + unread` may
+    /// be less than `total_records` when a record was read but had no
+    /// recognized status.
+    pub unread: usize,
     /// Distribution of records across ISO jurisdiction codes.
     pub jurisdictions: Vec<JurisdictionCount>,
 }

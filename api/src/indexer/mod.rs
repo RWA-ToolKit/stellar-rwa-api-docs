@@ -994,8 +994,10 @@ impl Indexer {
         for address in &addresses {
             summary.total_records += 1;
 
-            // Record status → summary counts.
-            if let Ok(rec) = self
+            // Record status → summary counts. A failed read leaves this
+            // address out of every status bucket below, so it's tracked in
+            // `unread` rather than silently disappearing from the totals.
+            match self
                 .rpc
                 .read(
                     compliance_contract,
@@ -1004,24 +1006,27 @@ impl Indexer {
                 )
                 .await
             {
-                if !rec.value.is_null() {
-                    if let Ok(kyc) = serde_json::from_value::<RawKyc>(rec.value) {
-                        match normalize_status(&kyc.status).as_str() {
-                            "Approved" => {
-                                summary.approved += 1;
-                                approved_addresses.push(address.clone());
+                Ok(rec) => {
+                    if !rec.value.is_null() {
+                        if let Ok(kyc) = serde_json::from_value::<RawKyc>(rec.value) {
+                            match normalize_status(&kyc.status).as_str() {
+                                "Approved" => {
+                                    summary.approved += 1;
+                                    approved_addresses.push(address.clone());
+                                }
+                                "Suspended" => summary.suspended += 1,
+                                "Rejected" => summary.rejected += 1,
+                                "Pending" => summary.pending += 1,
+                                _ => {}
                             }
-                            "Suspended" => summary.suspended += 1,
-                            "Rejected" => summary.rejected += 1,
-                            "Pending" => summary.pending += 1,
-                            _ => {}
+                            if kyc.expires_at != 0 {
+                                summary.with_expiry += 1;
+                            }
+                            *jurisdictions.entry(kyc.jurisdiction).or_insert(0) += 1;
                         }
-                        if kyc.expires_at != 0 {
-                            summary.with_expiry += 1;
-                        }
-                        *jurisdictions.entry(kyc.jurisdiction).or_insert(0) += 1;
                     }
                 }
+                Err(_) => summary.unread += 1,
             }
 
             // Balance → holder list.
@@ -1870,6 +1875,7 @@ mod tests {
             rejected: 10,
             pending: 15,
             with_expiry: 25,
+            unread: 0,
             jurisdictions: vec![
                 JurisdictionCount {
                     jurisdiction: "US".to_string(),
@@ -1902,6 +1908,34 @@ mod tests {
         assert_eq!(
             summary.approved + summary.suspended + summary.rejected + summary.pending,
             summary.total_records
+        );
+    }
+
+    // #267 – a failed per-address `get_record` read must not vanish from the
+    // summary silently: it's counted in `unread` rather than being dropped
+    // from every status bucket while still counting toward `total_records`.
+    #[test]
+    fn compliance_summary_unread_accounts_for_failed_reads() {
+        let summary = ComplianceSummary {
+            total_records: 10,
+            approved: 6,
+            suspended: 1,
+            rejected: 1,
+            pending: 1,
+            with_expiry: 2,
+            unread: 1,
+            jurisdictions: vec![],
+        };
+
+        assert_eq!(
+            summary.approved
+                + summary.suspended
+                + summary.rejected
+                + summary.pending
+                + summary.unread,
+            summary.total_records,
+            "status buckets plus unread must account for every record, even \
+             when some per-address reads failed"
         );
     }
 

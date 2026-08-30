@@ -600,6 +600,7 @@
           "rejected",
           "pending",
           "with_expiry",
+          "unread",
           "jurisdictions"
         ],
         "properties": {
@@ -632,6 +633,11 @@
             "type": "integer",
             "format": "int32",
             "description": "Records with a non-zero expires_at timestamp"
+          },
+          "unread": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Allowlisted addresses whose current record could not be read this cycle (RPC read failure). Counted in total_records but not in any status bucket."
           },
           "jurisdictions": {
             "type": "array",

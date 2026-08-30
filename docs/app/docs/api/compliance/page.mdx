@@ -31,6 +31,7 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 | `rejected` | number | |
 | `pending` | number | |
 | `with_expiry` | number | Records with a non-zero `expires_at` |
+| `unread` | number | Allowlisted addresses whose record couldn't be read this cycle (RPC failure). Counted in `total_records`, but not in any status bucket above |
 | `jurisdictions` | array | `{ jurisdiction, count }` breakdown |
 
 **Example**
@@ -47,6 +48,7 @@ curl $API_BASE_URL/assets/1/compliance
   "rejected": 0,
   "pending": 0,
   "with_expiry": 0,
+  "unread": 0,
   "jurisdictions": [
     { "jurisdiction": "US", "count": 1 }
   ]
