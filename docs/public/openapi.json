@@ -669,6 +669,7 @@
           "total_amount",
           "distributed",
           "claimed_percent",
+          "overflow_detected",
           "completed",
           "created_at_ledger"
         ],
@@ -700,6 +701,10 @@
             "minimum": 0,
             "maximum": 100,
             "description": "Percentage claimed (0\u2013100 with 2 decimal places)"
+          },
+          "overflow_detected": {
+            "type": "boolean",
+            "description": "true when distributed exceeds total_amount; the indexer surfaces the raw on-chain anomaly rather than clamping it"
           },
           "completed": {
             "type": "boolean",

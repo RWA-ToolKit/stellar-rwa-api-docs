@@ -8,6 +8,7 @@ interface Distribution {
   total_amount: string;
   distributed: string;
   claimed_percent: number;
+  overflow_detected: boolean;
   completed: boolean;
   created_at_ledger: number;
 }
@@ -22,6 +23,7 @@ describe("Dividend API Examples", () => {
         total_amount: "100000000000",
         distributed: "25000000000",
         claimed_percent: 25.0,
+        overflow_detected: false,
         completed: false,
         created_at_ledger: 3510000,
       },
@@ -35,6 +37,7 @@ describe("Dividend API Examples", () => {
         expect(dist).toHaveProperty("total_amount");
         expect(dist).toHaveProperty("distributed");
         expect(dist).toHaveProperty("claimed_percent");
+        expect(dist).toHaveProperty("overflow_detected");
         expect(dist).toHaveProperty("completed");
         expect(dist).toHaveProperty("created_at_ledger");
       });
@@ -48,6 +51,7 @@ describe("Dividend API Examples", () => {
       expect(typeof dist.total_amount).toBe("string");
       expect(typeof dist.distributed).toBe("string");
       expect(typeof dist.claimed_percent).toBe("number");
+      expect(typeof dist.overflow_detected).toBe("boolean");
       expect(typeof dist.completed).toBe("boolean");
       expect(typeof dist.created_at_ledger).toBe("number");
     });
@@ -100,6 +104,7 @@ describe("Dividend API Examples", () => {
         total_amount: "100000000000",
         distributed: "0",
         claimed_percent: 0.0,
+        overflow_detected: false,
         completed: false,
         created_at_ledger: 3510000,
       };
@@ -117,6 +122,7 @@ describe("Dividend API Examples", () => {
         total_amount: "100000000000",
         distributed: "0",
         claimed_percent: 0.0,
+        overflow_detected: false,
         completed: false,
         created_at_ledger: 3510000,
       };
@@ -133,6 +139,7 @@ describe("Dividend API Examples", () => {
         total_amount: "100000000000",
         distributed: "100000000000",
         claimed_percent: 100.0,
+        overflow_detected: false,
         completed: true,
         created_at_ledger: 3510001,
       };

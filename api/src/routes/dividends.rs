@@ -37,7 +37,9 @@ pub async fn get_one(
         .get(&id)
         .and_then(|dists| dists.iter().find(|d| d.id == did))
         .cloned()
-        .ok_or_else(|| ApiError::NotFound(format!("no distribution with id {did} for asset {id}")))?;
+        .ok_or_else(|| {
+            ApiError::NotFound(format!("no distribution with id {did} for asset {id}"))
+        })?;
     Ok(Json(dist))
 }
 
@@ -53,7 +55,8 @@ mod tests {
     async fn single_distribution_returned_by_id() {
         let mut snap = Snapshot::default();
         snap.assets.push(asset(1));
-        snap.dividends.insert(1, vec![distribution(10, 100), distribution(11, 300)]);
+        snap.dividends
+            .insert(1, vec![distribution(10, 100), distribution(11, 300)]);
         let state = state_with(snap);
 
         let dist = get_one(State(state), Path((1, 11)))

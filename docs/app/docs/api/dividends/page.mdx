@@ -31,6 +31,7 @@ creation ledger (newest first).
 | `total_amount` | string | Pool size, base units (`i128`) |
 | `distributed` | string | Claimed so far, base units (`i128`) |
 | `claimed_percent` | number | 0–100 (2 dp) |
+| `overflow_detected` | boolean | `true` when `distributed` exceeds `total_amount` (on-chain anomaly, not an API bug) |
 | `completed` | boolean | `true` once fully claimed |
 | `created_at_ledger` | number | |
 
@@ -49,6 +50,7 @@ curl $API_BASE_URL/assets/1/dividends
     "total_amount": "100000000000",
     "distributed": "25000000000",
     "claimed_percent": 25.0,
+    "overflow_detected": false,
     "completed": false,
     "created_at_ledger": 3510000
   }

@@ -33,9 +33,7 @@ fn testnet_rpc_url() -> Option<String> {
 #[ignore = "opt-in: hits a live testnet RPC endpoint; set RUN_TESTNET_TESTS=1"]
 async fn testnet_rpc_reports_healthy() {
     let Some(rpc_url) = testnet_rpc_url() else {
-        eprintln!(
-            "skipping testnet_rpc_reports_healthy: RUN_TESTNET_TESTS not set to \"1\""
-        );
+        eprintln!("skipping testnet_rpc_reports_healthy: RUN_TESTNET_TESTS not set to \"1\"");
         return;
     };
 
@@ -78,9 +76,7 @@ async fn testnet_rpc_reports_healthy() {
 #[ignore = "opt-in: hits a live testnet RPC endpoint; set RUN_TESTNET_TESTS=1"]
 async fn testnet_rpc_reports_recent_ledger() {
     let Some(rpc_url) = testnet_rpc_url() else {
-        eprintln!(
-            "skipping testnet_rpc_reports_recent_ledger: RUN_TESTNET_TESTS not set to \"1\""
-        );
+        eprintln!("skipping testnet_rpc_reports_recent_ledger: RUN_TESTNET_TESTS not set to \"1\"");
         return;
     };
 
