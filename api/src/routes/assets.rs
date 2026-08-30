@@ -209,6 +209,24 @@ mod tests {
         assert_eq!(result[1].id, 3);
     }
 
+    // Iterator::skip handles an offset larger than the collection size
+    // gracefully today (empty array, still 200 OK), but nothing pinned that
+    // behavior — a future refactor of the pagination logic could silently
+    // regress it into an error or a panic.
+    #[tokio::test]
+    async fn offset_beyond_collection_size_returns_empty_array() {
+        let assets = vec![
+            stub_asset(1, "real_estate", true),
+            stub_asset(2, "real_estate", true),
+            stub_asset(3, "real_estate", true),
+        ];
+        let result = get_assets(list_router(assets), "/assets?offset=1000").await;
+        assert!(
+            result.is_empty(),
+            "offset past the end of the collection should return an empty array, not an error"
+        );
+    }
+
     #[tokio::test]
     async fn limit_is_clamped_to_max_page_size() {
         let assets = (1..=150)

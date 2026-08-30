@@ -137,4 +137,39 @@ mod tests {
         assert_eq!(holders[0].address, "b");
         assert_eq!(holders[1].address, "c");
     }
+
+    // Iterator::skip handles an offset larger than the holder list gracefully
+    // today (empty array, still 200 OK), but nothing pinned that behavior —
+    // a future refactor of the pagination logic could silently regress it.
+    #[tokio::test]
+    async fn offset_beyond_holder_count_returns_empty_array() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        snap.holders.insert(
+            1,
+            vec![crate::models::Holder {
+                address: "a".to_string(),
+                balance: "1".to_string(),
+                share_percent: 100.0,
+            }],
+        );
+        let state = state_with(snap);
+
+        let holders = list(
+            State(state),
+            Path(1),
+            Query(HolderQuery {
+                offset: Some(1000),
+                limit: None,
+            }),
+        )
+        .await
+        .expect("asset exists")
+        .0;
+
+        assert!(
+            holders.is_empty(),
+            "offset past the end of the holder list should return an empty array, not an error"
+        );
+    }
 }
