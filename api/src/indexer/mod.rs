@@ -2039,4 +2039,110 @@ mod tests {
         assert_eq!(snapshot.stats.last_indexed_ledger, 3000);
         assert!(snapshot.stats.last_updated.is_some());
     }
+
+    // #213 – a failed per-asset read must set a visible `index_error`, bump
+    // the `rwa_indexer_asset_read_errors_total` metric, and leave the last
+    // good holders/compliance/dividends intact rather than blanking them.
+    #[test]
+    fn failed_asset_read_sets_index_error_increments_metric_and_keeps_last_good_values() {
+        // The `record_asset_read_error` counter is emitted through the
+        // `metrics` emission macros, so run it inside `with_local_recorder`
+        // to capture the increments deterministically instead of relying on
+        // whatever global recorder (if any) a test binary installed.
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            record_asset_read_error(7, "get_metadata");
+            record_asset_read_error(7, "get_metadata");
+            record_asset_read_error(7, "compliance");
+        });
+
+        let rendered = handle.render();
+        assert!(
+            rendered.contains(
+                "rwa_indexer_asset_read_errors_total{asset_id=\"7\",read=\"get_metadata\"} 2"
+            ),
+            "repeated metadata read failures must increment the per-asset counter; got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains(
+                "rwa_indexer_asset_read_errors_total{asset_id=\"7\",read=\"compliance\"} 1"
+            ),
+            "compliance read failures must carry their own read label; got:\n{rendered}"
+        );
+
+        // Simulate the refresh loop's carry-forward: the failed asset is
+        // re-emitted from the previous snapshot with `index_error` populated,
+        // and its last good holders/compliance/dividends are preserved.
+        let state = AppState::for_test_empty();
+        let mut snapshot = Snapshot {
+            assets: vec![test_asset(7)],
+            holders: HashMap::from([(
+                7,
+                vec![Holder {
+                    address: "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA"
+                        .to_string(),
+                    balance: "1000000".to_string(),
+                    share_percent: 100.0,
+                }],
+            )]),
+            compliance: HashMap::from([(
+                7,
+                ComplianceSummary {
+                    total_records: 1,
+                    approved: 1,
+                    ..ComplianceSummary::default()
+                },
+            )]),
+            dividends: HashMap::from([(
+                7,
+                vec![Distribution {
+                    id: 10,
+                    asset_token: "contract-7".to_string(),
+                    payment_token: "PAY".to_string(),
+                    total_amount: "1000".to_string(),
+                    distributed: "0".to_string(),
+                    claimed_percent: 0.0,
+                    overflow_detected: false,
+                    completed: false,
+                    created_at_ledger: 100,
+                }],
+            )]),
+            stats: Stats::default(),
+        };
+
+        // The refresh loop errors before it can read fresh per-asset data
+        // (`IndexError::Rpc` on a node reporting busy), so the previous
+        // Asset is re-emitted with `index_error` set on it.
+        let mut stale = snapshot
+            .asset(7)
+            .expect("the simulated cycle must have seen a previous asset")
+            .clone();
+        stale.index_error = Some(IndexError::Rpc("node busy".into()).to_string());
+        snapshot.assets[0] = stale;
+        state.replace(snapshot);
+
+        let served = state.snapshot();
+        assert!(
+            served.asset(7).is_some(),
+            "the failed asset must still be served"
+        );
+        assert_eq!(
+            served.asset(7).unwrap().index_error.as_deref(),
+            Some("rpc returned an error: node busy"),
+            "the failed read must surface on the asset's index_error field"
+        );
+        assert!(
+            served.holders.contains_key(&7),
+            "last good holders must survive a failed read"
+        );
+        assert!(
+            served.compliance.contains_key(&7),
+            "last good compliance must survive a failed read"
+        );
+        assert!(
+            served.dividends.contains_key(&7),
+            "last good dividends must survive a failed read"
+        );
+    }
 }
