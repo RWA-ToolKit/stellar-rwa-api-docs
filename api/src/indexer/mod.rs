@@ -1024,11 +1024,26 @@ impl Indexer {
                 }
             }
 
-            // Balance → holder list.
-            let bal = self
+            // Balance → holder list. Best-effort like the KYC record read
+            // above: a failed balance read for one address must not abort
+            // the whole allowlist scan via `?` (#213's per-asset isolation
+            // pattern applies just as much within a single asset's holder
+            // list as it does across assets).
+            let bal = match self
                 .rpc
                 .read(token_contract, "balance", vec![address_scval(address)?])
-                .await?;
+                .await
+            {
+                Ok(bal) => bal,
+                Err(e) => {
+                    tracing::warn!(
+                        address = %address,
+                        error = %e,
+                        "balance read failed; skipping this address for the current refresh"
+                    );
+                    continue;
+                }
+            };
             let balance = match bal.value {
                 serde_json::Value::String(s) => parse_i128(&s),
                 serde_json::Value::Number(n) => n.as_i64().unwrap_or(0) as i128,
@@ -1612,6 +1627,107 @@ mod tests {
             3,
             "a rate-limit response is not transient and must not be retried in place"
         );
+    }
+
+    /// #213's per-asset isolation must also apply *within* a single asset's
+    /// holder scan: one address whose `balance` read never succeeds must be
+    /// skipped, not bubble an error out of `index_compliance_and_holders`
+    /// via `?` and discard every other address's holder/compliance data.
+    #[tokio::test]
+    async fn index_compliance_and_holders_skips_address_with_failing_balance_read() {
+        const ADDR_OK: &str = "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA";
+        const ADDR_BAD: &str = "GBTG2AKEJQNJZLRKXM3ILXWUBCKGK7PHLEGETYTHS2Y3HIE7CGJFMNKK";
+        const TOKEN_CONTRACT: &str = "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX";
+
+        fn ok_body(scval: xdr::ScVal) -> serde_json::Value {
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "results": [{ "xdr": scval.to_xdr_base64(Limits::none()).unwrap() }],
+                    "latestLedger": 42,
+                }
+            })
+        }
+
+        let router = axum::Router::new().route(
+            "/",
+            axum::routing::post(
+                |axum::Json(body): axum::Json<serde_json::Value>| async move {
+                    let tx_b64 = body["params"]["transaction"].as_str().unwrap();
+                    let env =
+                        xdr::TransactionEnvelope::from_xdr_base64(tx_b64, Limits::none()).unwrap();
+                    let xdr::TransactionEnvelope::Tx(xdr::TransactionV1Envelope { tx, .. }) = env
+                    else {
+                        panic!("expected Tx envelope");
+                    };
+                    let op = tx.operations.first().expect("one operation");
+                    let xdr::OperationBody::InvokeHostFunction(invoke_op) = &op.body else {
+                        panic!("expected InvokeHostFunction");
+                    };
+                    let xdr::HostFunction::InvokeContract(invoke_args) = &invoke_op.host_function
+                    else {
+                        panic!("expected InvokeContract");
+                    };
+                    let method = invoke_args.function_name.to_string();
+
+                    axum::Json(match method.as_str() {
+                        "get_allowlist" => ok_body(xdr::ScVal::Vec(Some(xdr::ScVec(
+                            vec![
+                                xdr::ScVal::String(xdr::ScString(ADDR_OK.try_into().unwrap())),
+                                xdr::ScVal::String(xdr::ScString(ADDR_BAD.try_into().unwrap())),
+                            ]
+                            .try_into()
+                            .unwrap(),
+                        )))),
+                        "get_record" => ok_body(xdr::ScVal::Void),
+                        "balance" => {
+                            let xdr::ScVal::Address(addr) =
+                                invoke_args.args.first().expect("balance takes one arg")
+                            else {
+                                panic!("expected address arg");
+                            };
+                            let addr_str = address_to_string(addr).unwrap();
+                            if addr_str == ADDR_OK {
+                                ok_body(xdr::ScVal::String(xdr::ScString(
+                                    "100".try_into().unwrap(),
+                                )))
+                            } else {
+                                json!({
+                                    "jsonrpc": "2.0",
+                                    "id": 1,
+                                    "error": { "message": "balance read failed" }
+                                })
+                            }
+                        }
+                        other => panic!("unexpected method: {other}"),
+                    })
+                },
+            ),
+        );
+        let url = spawn_rpc_stub(router).await;
+
+        let indexer = Indexer {
+            rpc: Rpc::new(url, STUB_SOURCE.to_string()),
+            state: AppState::for_test_empty(),
+            dividend_cache: Mutex::new(HashMap::new()),
+        };
+
+        let (holders, summary, _approved) = indexer
+            .index_compliance_and_holders(STUB_CONTRACT, TOKEN_CONTRACT, 1_000)
+            .await
+            .expect("a single address's failing balance read must not fail the whole scan");
+
+        assert_eq!(
+            summary.total_records, 2,
+            "both addresses are counted in the summary regardless of balance outcome"
+        );
+        assert_eq!(
+            holders.len(),
+            1,
+            "the address whose balance read failed must be skipped, not abort the scan"
+        );
+        assert_eq!(holders[0].address, ADDR_OK);
     }
 
     #[test]
