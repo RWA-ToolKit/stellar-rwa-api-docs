@@ -4,7 +4,10 @@
   "private": true,
   "description": "Documentation site for the Stellar RWA platform — contracts, API and web app.",
   "scripts": {
+    "generate:api-client": "node scripts/generate-openapi-client.mjs",
+    "predev": "npm run generate:api-client",
     "dev": "next dev",
+    "prebuild": "npm run generate:api-client",
     "build": "next build",
     "start": "next start",
     "lint": "next lint && eslint . --ext .tsx,.ts --plugin jsx-a11y",

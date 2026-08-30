@@ -34,23 +34,9 @@ curl $API_BASE_URL/assets/1/dividends
 ### TypeScript client
 
 ```ts
-const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+import type { Asset } from "@/lib/api-client";
 
-export interface Asset {
-  id: number;
-  token_contract: string;
-  name: string;
-  symbol: string;
-  asset_type: string;
-  valuation_cents: string;
-  valuation_usd: number;
-  decimals: number;
-  total_supply: string;
-  holders: number;
-  active: boolean;
-  paused: boolean;
-  compliance_contract: string;
-}
+const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
 export async function getAssets(): Promise<Asset[]> {
   const res = await fetch(`${API}/assets`, { cache: "no-store" });
