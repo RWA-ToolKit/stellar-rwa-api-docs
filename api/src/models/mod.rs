@@ -7,6 +7,17 @@
 
 use serde::Serialize;
 
+/// A recent contract event emitted by the indexer.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct Event {
+    pub id: u64,
+    pub contract: String,
+    pub event_type: String,
+    pub ledger: u32,
+    pub timestamp: Option<String>,
+    pub data: serde_json::Value,
+}
+
 /// A tokenized real-world asset, joined from the registry entry and the token
 /// contract metadata.
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]

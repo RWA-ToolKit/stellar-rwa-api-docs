@@ -3,6 +3,7 @@
 pub mod assets;
 pub mod compliance;
 pub mod dividends;
+pub mod events;
 pub mod holders;
 pub mod stats;
 
@@ -97,6 +98,7 @@ pub fn router(state: AppState) -> Router {
     // be introduced as `/v2` without disturbing existing clients.
     let data_routes = Router::new()
         .route("/stats", get(stats::get))
+        .route("/events", get(events::list))
         .route("/assets", get(assets::list))
         .route("/assets/:id", get(assets::detail))
         .route("/assets/:id/holders", get(holders::list))
@@ -175,6 +177,7 @@ async fn index() -> Json<serde_json::Value> {
         "endpoints": [
             "GET /version",
             "GET /v1/stats",
+            "GET /v1/events",
             "GET /v1/assets",
             "GET /v1/assets/:id",
             "GET /v1/assets/:id/holders",
