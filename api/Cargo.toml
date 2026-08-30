@@ -21,6 +21,12 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 url = "2"
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
+
+[dev-dependencies]
+tower = { version = "0.4", features = ["util"] }
+http-body-util = "0.1"
 
 [[bin]]
 name = "stellar-rwa-api"

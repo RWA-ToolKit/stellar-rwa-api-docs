@@ -77,6 +77,7 @@ pub fn router(state: AppState) -> Router {
         .route("/assets/:id/holders", get(holders::list))
         .route("/assets/:id/compliance", get(compliance::summary))
         .route("/assets/:id/dividends", get(dividends::list))
+        .route("/assets/:id/dividends/:did", get(dividends::get_one))
         .layer(middleware::from_fn_with_state(state.clone(), cache_headers))
         .layer(GovernorLayer {
             config: governor_conf,
@@ -144,6 +145,7 @@ async fn index() -> Json<serde_json::Value> {
             "GET /assets/:id/holders",
             "GET /assets/:id/compliance",
             "GET /assets/:id/dividends",
+            "GET /assets/:id/dividends/:did",
             "GET /health",
             "GET /metrics"
         ],
@@ -163,4 +165,61 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
         state.metrics.render(),
     )
+}
+
+/// Shared helpers for building an [`AppState`] in router-level tests, without
+/// a live Soroban RPC or the process-global Prometheus recorder.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use metrics_exporter_prometheus::PrometheusBuilder;
+
+    use crate::indexer::{AppState, Config, Snapshot};
+    use crate::models::Asset;
+
+    fn test_config() -> Config {
+        Config {
+            rpc_url: "https://example.invalid".to_string(),
+            registry_id: "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3".to_string(),
+            dividend_id: "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX".to_string(),
+            read_source: "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA".to_string(),
+        }
+    }
+
+    /// An `AppState` with an empty snapshot — no assets, no data.
+    pub(crate) fn test_state() -> AppState {
+        // `build_recorder` (as opposed to `install_recorder`) does not touch
+        // the process-global recorder, so it's safe to call from many tests.
+        let handle = PrometheusBuilder::new().build_recorder().handle();
+        AppState::new(test_config(), handle)
+    }
+
+    /// An `AppState` seeded with a single bare-minimum asset at `id`, and no
+    /// holders/compliance/dividends data.
+    pub(crate) fn test_state_with_asset(id: u64) -> AppState {
+        let state = test_state();
+        state.seed_for_test(Snapshot {
+            assets: vec![Asset {
+                id,
+                token_contract: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ"
+                    .to_string(),
+                issuer: "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA".to_string(),
+                name: "Test Asset".to_string(),
+                symbol: "TEST".to_string(),
+                asset_type: "real_estate".to_string(),
+                description: String::new(),
+                valuation_cents: "100".to_string(),
+                valuation_usd: 1.0,
+                decimals: 2,
+                total_supply: "100".to_string(),
+                holders: 0,
+                active: true,
+                paused: false,
+                compliance_contract: "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU"
+                    .to_string(),
+                created_at_ledger: 1,
+            }],
+            ..Snapshot::default()
+        });
+        state
+    }
 }

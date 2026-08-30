@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use metrics_exporter_prometheus::PrometheusHandle;
 use reqwest::header::RETRY_AFTER;
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -139,6 +140,14 @@ impl AppState {
 
     fn replace(&self, next: Snapshot) {
         self.inner.store(Arc::new(next));
+    }
+
+    /// Seed the shared snapshot directly, bypassing the indexer. Route tests
+    /// use this to exercise "asset known, nested resource unknown" branches
+    /// without a live Soroban RPC.
+    #[cfg(test)]
+    pub(crate) fn seed_for_test(&self, snapshot: Snapshot) {
+        self.replace(snapshot);
     }
 }
 
