@@ -24,11 +24,13 @@ Returns an array of asset objects.
 | `active` | boolean | Filter by active status |
 | `offset` | integer | Skip the first N matching assets. Default: `0`. |
 | `limit` | integer | Page size. Default: `50`; maximum: `100`. |
+| `sort` | string | Sort the filtered list by `valuation`, `holders`, or `created_at`. Default: `valuation` when passed; otherwise preserves the server ordering. |
+| `order` | string | Optional sort direction: `asc` or `desc`. Default: `desc`. |
 
 Results are paginated to keep large collections bounded. Use `offset` and `limit` together to walk the list in chunks.
 
 ```bash
-curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
+curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&sort=valuation&order=desc&offset=0&limit=50"
 ```
 
 **Response schema** (per asset):

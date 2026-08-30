@@ -13,6 +13,21 @@ use crate::models::Asset;
 const DEFAULT_PAGE_SIZE: usize = 50;
 const MAX_PAGE_SIZE: usize = 100;
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssetSort {
+    Valuation,
+    Holders,
+    CreatedAt,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
 /// Optional filters and pagination for the asset list.
 #[derive(Debug, Deserialize)]
 pub struct AssetQuery {
@@ -26,11 +41,37 @@ pub struct AssetQuery {
     /// Limit the number of matching assets returned. Defaults to 50 and is capped at 100.
     #[serde(default)]
     pub limit: Option<usize>,
+    /// Sort by the provided field before pagination. Accepted values: `valuation`, `holders`, `created_at`.
+    #[serde(default, alias = "sort_by")]
+    pub sort: Option<AssetSort>,
+    /// Sort order. Defaults to `desc`.
+    #[serde(default, alias = "direction")]
+    pub order: Option<SortDirection>,
+}
+
+fn sort_key_value(asset: &Asset, sort: AssetSort) -> i128 {
+    match sort {
+        AssetSort::Valuation => asset.valuation_cents.parse().unwrap_or(0),
+        AssetSort::Holders => asset.holders as i128,
+        AssetSort::CreatedAt => asset.created_at_ledger as i128,
+    }
+}
+
+fn sort_assets(assets: &mut [Asset], sort: AssetSort, order: SortDirection) {
+    assets.sort_by(|left, right| {
+        let left_value = sort_key_value(left, sort);
+        let right_value = sort_key_value(right, sort);
+        let ordering = left_value.cmp(&right_value);
+        match order {
+            SortDirection::Asc => ordering,
+            SortDirection::Desc => ordering.reverse(),
+        }
+    });
 }
 
 /// All tokenized assets with valuation, supply and holder counts.
 ///
-/// Supports optional `?asset_type=`, `?active=`, `?offset=` and `?limit=` query filters.
+/// Supports optional `?asset_type=`, `?active=`, `?offset=`, `?limit=`, `?sort=` and `?order=` query filters.
 pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<AssetQuery>,
@@ -38,7 +79,7 @@ pub async fn list(
     let snap = state.snapshot();
     let offset = query.offset.unwrap_or(0);
     let limit = query.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
-    let assets = snap
+    let mut assets: Vec<_> = snap
         .assets
         .into_iter()
         .filter(|a| {
@@ -48,9 +89,14 @@ pub async fn list(
                 .is_none_or(|t| a.asset_type == t)
         })
         .filter(|a| query.active.is_none_or(|active| a.active == active))
-        .skip(offset)
-        .take(limit)
         .collect();
+
+    if let Some(sort) = query.sort {
+        let order = query.order.unwrap_or(SortDirection::Desc);
+        sort_assets(&mut assets, sort, order);
+    }
+
+    let assets = assets.into_iter().skip(offset).take(limit).collect();
     Json(assets)
 }
 
@@ -216,6 +262,78 @@ mod tests {
             .collect();
         let result = get_assets(list_router(assets), "/assets?limit=1000").await;
         assert_eq!(result.len(), 100);
+    }
+
+    #[tokio::test]
+    async fn sort_by_valuation_holders_and_created_at() {
+        let mut asset_a = stub_asset(1, "real_estate", true);
+        asset_a.valuation_cents = "100".to_string();
+        asset_a.holders = 4;
+        asset_a.created_at_ledger = 200;
+
+        let mut asset_b = stub_asset(2, "real_estate", true);
+        asset_b.valuation_cents = "300".to_string();
+        asset_b.holders = 2;
+        asset_b.created_at_ledger = 400;
+
+        let mut asset_c = stub_asset(3, "real_estate", true);
+        asset_c.valuation_cents = "200".to_string();
+        asset_c.holders = 6;
+        asset_c.created_at_ledger = 100;
+
+        let by_valuation = get_assets(
+            list_router(vec![asset_a.clone(), asset_b.clone(), asset_c.clone()]),
+            "/assets?sort=valuation",
+        )
+        .await;
+        assert_eq!(by_valuation.iter().map(|a| a.id).collect::<Vec<_>>(), vec![2, 3, 1]);
+
+        let by_holders = get_assets(
+            list_router(vec![asset_a.clone(), asset_b.clone(), asset_c.clone()]),
+            "/assets?sort=holders",
+        )
+        .await;
+        assert_eq!(by_holders.iter().map(|a| a.id).collect::<Vec<_>>(), vec![3, 1, 2]);
+
+        let by_created_at = get_assets(
+            list_router(vec![asset_a.clone(), asset_b.clone(), asset_c.clone()]),
+            "/assets?sort=created_at",
+        )
+        .await;
+        assert_eq!(by_created_at.iter().map(|a| a.id).collect::<Vec<_>>(), vec![2, 1, 3]);
+    }
+
+    #[tokio::test]
+    async fn unknown_query_parameter_is_ignored() {
+        let assets = vec![
+            stub_asset(1, "real_estate", true),
+            stub_asset(2, "real_estate", false),
+            stub_asset(3, "bond", true),
+        ];
+
+        let result = get_assets(
+            list_router(assets),
+            "/assets?asset_type=real_estate&active=true&unexpected=ignored",
+        )
+        .await;
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 1);
+    }
+
+    #[tokio::test]
+    async fn post_to_get_only_endpoint_returns_405() {
+        let app = list_router(vec![stub_asset(1, "real_estate", true)]);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/assets")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
     // #194 – non-numeric asset id returns 400, not 404

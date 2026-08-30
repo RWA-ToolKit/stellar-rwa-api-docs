@@ -136,6 +136,33 @@
               "maximum": 100,
               "default": 50
             }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sort results by valuation, holder count, or creation ledger.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "valuation",
+                "holders",
+                "created_at"
+              ],
+              "default": "valuation"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "description": "Sort direction applied to the selected sort field.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
           }
         ],
         "responses": {
