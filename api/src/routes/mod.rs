@@ -366,4 +366,30 @@ mod tests {
             .unwrap();
         assert_eq!(new_etag, "\"ledger-200\"");
     }
+
+    /// `last_updated` ultimately originates from indexer-derived data, so an
+    /// absent or unparsable value must degrade the health check cleanly
+    /// (503 + a null `snapshot_age_seconds`) rather than erroring out.
+    #[tokio::test]
+    async fn health_degrades_gracefully_on_missing_or_unparsable_last_updated() {
+        for last_updated in [None, Some("not-a-valid-rfc3339-timestamp".to_string())] {
+            let state = state_with(Snapshot {
+                stats: crate::models::Stats {
+                    last_updated,
+                    ..crate::models::Stats::default()
+                },
+                ..Snapshot::default()
+            });
+
+            let response = health(State(state)).await;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(value["status"], "degraded");
+            assert!(value["snapshot_age_seconds"].is_null());
+        }
+    }
 }
