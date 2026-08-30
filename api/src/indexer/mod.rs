@@ -1306,6 +1306,26 @@ mod tests {
         );
     }
 
+    // #217 – a zero or negative denominator cannot produce a meaningful
+    // percentage and must return 0.0 rather than trapping or overflowing,
+    // while ordinary ratios round to two decimals.
+    #[test]
+    fn ratio_percent_handles_non_positive_denominator_and_rounds() {
+        // whole == 0 and whole < 0 both short-circuit to 0.0.
+        assert_eq!(ratio_percent(50, 0), 0.0);
+        assert_eq!(ratio_percent(50, -1), 0.0);
+        // A bare zero part is a valid 0.0 even with a healthy denominator.
+        assert_eq!(ratio_percent(0, 100), 0.0);
+        // A negative part clamps to 0 before scaling.
+        assert_eq!(ratio_percent(-50, 100), 0.0);
+
+        // Ordinary ratios round to two decimals.
+        assert_eq!(ratio_percent(1, 3), 33.33);
+        assert_eq!(ratio_percent(2, 3), 66.67);
+        assert_eq!(ratio_percent(1, 6), 16.67);
+        assert_eq!(ratio_percent(1, 8), 12.5);
+    }
+
     #[test]
     fn distribution_decodes_current_contract_shape() {
         let raw = json!({
