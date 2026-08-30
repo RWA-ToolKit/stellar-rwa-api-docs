@@ -141,6 +141,15 @@
         "responses": {
           "200": {
             "description": "Array of asset objects",
+            "headers": {
+              "X-Total-Count": {
+                "description": "Total number of assets matching `asset_type`/`active`, before `offset`/`limit` are applied. Use it to detect the last page.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -243,6 +252,15 @@
         "responses": {
           "200": {
             "description": "Array of holder objects",
+            "headers": {
+              "X-Total-Count": {
+                "description": "Total number of holders for this asset, before `offset`/`limit` are applied. Use it to detect the last page.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {

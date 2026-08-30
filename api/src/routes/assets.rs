@@ -2,6 +2,7 @@
 
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
     Json,
 };
 use serde::Deserialize;
@@ -31,14 +32,17 @@ pub struct AssetQuery {
 /// All tokenized assets with valuation, supply and holder counts.
 ///
 /// Supports optional `?asset_type=`, `?active=`, `?offset=` and `?limit=` query filters.
+/// The response carries an `X-Total-Count` header with the number of assets
+/// that matched `asset_type`/`active` before `offset`/`limit` were applied,
+/// so clients can tell when they've reached the last page.
 pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<AssetQuery>,
-) -> Json<Vec<Asset>> {
+) -> (HeaderMap, Json<Vec<Asset>>) {
     let snap = state.snapshot();
     let offset = query.offset.unwrap_or(0);
     let limit = query.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
-    let assets = snap
+    let matching: Vec<Asset> = snap
         .assets
         .into_iter()
         .filter(|a| {
@@ -48,10 +52,19 @@ pub async fn list(
                 .is_none_or(|t| a.asset_type == t)
         })
         .filter(|a| query.active.is_none_or(|active| a.active == active))
-        .skip(offset)
-        .take(limit)
         .collect();
-    Json(assets)
+    let total = matching.len();
+    let assets = matching.into_iter().skip(offset).take(limit).collect();
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-total-count",
+        total
+            .to_string()
+            .parse()
+            .expect("a usize renders as a valid header value"),
+    );
+    (headers, Json(assets))
 }
 
 /// Full detail for a single asset by its registry id.
@@ -207,6 +220,37 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].id, 2);
         assert_eq!(result[1].id, 3);
+    }
+
+    #[tokio::test]
+    async fn total_count_header_reflects_pre_pagination_match_count() {
+        let assets = (1..=150)
+            .map(|id| stub_asset(id, "real_estate", true))
+            .collect();
+        let app = list_router(assets);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets?offset=10&limit=5")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let total_count = response
+            .headers()
+            .get("x-total-count")
+            .expect("X-Total-Count header must be present")
+            .to_str()
+            .unwrap();
+        assert_eq!(total_count, "150");
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let page: Vec<Asset> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(page.len(), 5, "the page itself is still limited to 5");
     }
 
     #[tokio::test]

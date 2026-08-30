@@ -29,6 +29,12 @@ the indexer derives this from the allowlist intersected with balances.
 | `offset` | integer | Skip the first N holders. Default: `0`. |
 | `limit` | integer | Page size. Default: `50`; maximum: `100`. |
 
+**Response headers**
+
+| Name | Notes |
+|------|-------|
+| `X-Total-Count` | Total number of holders for this asset, before `offset`/`limit` are applied. Compare it against `offset + limit` to know when you've reached the last page, without fetching an extra empty one. |
+
 **Response schema** (per holder):
 
 | Field | Type | Notes |

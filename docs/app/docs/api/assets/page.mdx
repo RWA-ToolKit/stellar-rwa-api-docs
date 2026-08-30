@@ -31,6 +31,12 @@ Results are paginated to keep large collections bounded. Use `offset` and `limit
 curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 ```
 
+**Response headers**
+
+| Name | Notes |
+|------|-------|
+| `X-Total-Count` | Total number of assets matching `asset_type`/`active`, before `offset`/`limit` are applied. Compare it against `offset + limit` to know when you've reached the last page, without fetching an extra empty one. |
+
 **Response schema** (per asset):
 
 | Field | Type | Notes |

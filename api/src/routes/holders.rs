@@ -2,6 +2,7 @@
 
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
     Json,
 };
 use serde::Deserialize;
@@ -24,32 +25,46 @@ pub struct HolderQuery {
 }
 
 /// Holder list for an asset, sorted by balance descending.
+///
+/// The response carries an `X-Total-Count` header with the number of
+/// holders for this asset before `offset`/`limit` were applied, so clients
+/// can tell when they've reached the last page.
 pub async fn list(
     State(state): State<AppState>,
     Path(id): Path<u64>,
     Query(query): Query<HolderQuery>,
-) -> Result<Json<Vec<Holder>>, ApiError> {
+) -> Result<(HeaderMap, Json<Vec<Holder>>), ApiError> {
     let snap = state.snapshot();
     if snap.asset(id).is_none() {
         return Err(ApiError::NotFound(format!("no asset with id {id}")));
     }
     let offset = query.offset.unwrap_or(0);
     let limit = query.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
-    let holders = snap
-        .holders
-        .get(&id)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .collect();
-    Ok(Json(holders))
+    let all_holders = snap.holders.get(&id).cloned().unwrap_or_default();
+    let total = all_holders.len();
+    let holders = all_holders.into_iter().skip(offset).take(limit).collect();
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-total-count",
+        total
+            .to_string()
+            .parse()
+            .expect("a usize renders as a valid header value"),
+    );
+    Ok((headers, Json(holders)))
 }
 
 #[cfg(test)]
 mod tests {
-    use axum::extract::{Path, Query, State};
+    use axum::{
+        body::Body,
+        extract::{Path, Query, State},
+        http::{Request, StatusCode},
+        routing::get,
+        Router,
+    };
+    use tower::ServiceExt as _;
 
     use super::{list, HolderQuery};
     use crate::indexer::Snapshot;
@@ -90,6 +105,7 @@ mod tests {
         )
         .await
         .expect("asset exists")
+        .1
         .0;
 
         assert!(holders.is_empty());
@@ -131,6 +147,7 @@ mod tests {
         )
         .await
         .expect("asset exists")
+        .1
         .0;
 
         assert_eq!(holders.len(), 2);
@@ -165,8 +182,55 @@ mod tests {
         )
         .await
         .expect("asset exists")
+        .1
         .0;
 
         assert_eq!(result.len(), 100);
+    }
+
+    #[tokio::test]
+    async fn total_count_header_reflects_pre_pagination_match_count() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        let holders = (1..=30)
+            .map(|n| crate::models::Holder {
+                address: format!("HOLDER{n}"),
+                balance: n.to_string(),
+                share_percent: 0.0,
+            })
+            .collect();
+        snap.holders.insert(1, holders);
+        let state = state_with(snap);
+        let app = Router::new()
+            .route("/assets/:id/holders", get(list))
+            .with_state(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/1/holders?offset=0&limit=10")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let total_count = response
+            .headers()
+            .get("x-total-count")
+            .expect("X-Total-Count header must be present")
+            .to_str()
+            .unwrap();
+        assert_eq!(total_count, "30");
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            page.as_array().unwrap().len(),
+            10,
+            "the page itself is still limited to 10"
+        );
     }
 }
