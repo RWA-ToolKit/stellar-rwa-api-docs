@@ -49,6 +49,29 @@ pub struct Holder {
     pub share_percent: f64,
 }
 
+/// A single asset holding by an address across all assets.
+#[derive(Debug, Clone, Serialize)]
+pub struct AddressHolding {
+    pub address: String,
+    pub asset_id: u64,
+    pub asset_name: String,
+    pub symbol: String,
+    pub balance: String,
+    pub share_percent: f64,
+}
+
+/// Compliance status for a single address within an asset.
+#[derive(Debug, Clone, Serialize)]
+pub struct AddressCompliance {
+    pub address: String,
+    pub asset_id: u64,
+    pub asset_name: String,
+    pub symbol: String,
+    pub balance: String,
+    pub status: String,
+    pub allowed: bool,
+}
+
 /// Aggregate, non-PII summary of an asset's compliance allowlist.
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct ComplianceSummary {

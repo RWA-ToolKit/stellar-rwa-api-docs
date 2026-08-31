@@ -7,7 +7,7 @@ use axum::{
 
 use super::ApiError;
 use crate::indexer::AppState;
-use crate::models::ComplianceSummary;
+use crate::models::{AddressCompliance, ComplianceSummary};
 
 /// Aggregate compliance summary for an asset (counts only — no addresses/PII).
 pub async fn summary(
@@ -19,6 +19,40 @@ pub async fn summary(
         return Err(ApiError::NotFound(format!("no asset with id {id}")));
     }
     Ok(Json(snap.compliance.get(&id).cloned().unwrap_or_default()))
+}
+
+/// Compliance status for a single address across the assets it currently holds.
+pub async fn for_address(
+    State(state): State<AppState>,
+    Path(address): Path<String>,
+) -> Result<Json<Vec<AddressCompliance>>, ApiError> {
+    let snap = state.snapshot();
+    let mut records = Vec::new();
+
+    for (asset_id, holders) in &snap.holders {
+        if let Some(holder) = holders.iter().find(|h| h.address == address) {
+            if let Some(asset) = snap.asset(*asset_id) {
+                records.push(AddressCompliance {
+                    address: holder.address.clone(),
+                    asset_id: *asset_id,
+                    asset_name: asset.name.clone(),
+                    symbol: asset.symbol.clone(),
+                    balance: holder.balance.clone(),
+                    status: "approved".to_string(),
+                    allowed: true,
+                });
+            }
+        }
+    }
+
+    records.sort_by(|a, b| {
+        b.balance
+            .parse::<i128>()
+            .unwrap_or_default()
+            .cmp(&a.balance.parse::<i128>().unwrap_or_default())
+    });
+
+    Ok(Json(records))
 }
 
 #[cfg(test)]

@@ -76,6 +76,8 @@ via Soroban RPC.
 <ApiEndpoint method="GET" path="/assets/:id" description="A single asset by registry id." />
 <ApiEndpoint method="GET" path="/assets/:id/holders" description="Holder list with balances." />
 <ApiEndpoint method="GET" path="/assets/:id/compliance" description="Non-PII compliance summary." />
+<ApiEndpoint method="GET" path="/holders/:address" description="All assets held by a Stellar address." />
+<ApiEndpoint method="GET" path="/compliance/:address" description="Address compliance view across held assets." />
 <ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history." />
 
 Plus `GET /` (self-describing index) and `GET /health` (liveness).
