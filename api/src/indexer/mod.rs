@@ -25,7 +25,9 @@ use serde::Deserialize;
 use stellar_xdr::curr as xdr;
 use stellar_xdr::curr::{Limits, ReadXdr, WriteXdr};
 
-use crate::models::{Asset, ComplianceSummary, Distribution, Holder, JurisdictionCount, Stats};
+use crate::models::{
+    Asset, ComplianceSummary, Distribution, Event, Holder, JurisdictionCount, Stats,
+};
 
 /// How often the indexer refreshes its snapshot.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(10);
@@ -149,6 +151,7 @@ pub struct Snapshot {
     pub holders: HashMap<u64, Vec<Holder>>,
     pub compliance: HashMap<u64, ComplianceSummary>,
     pub dividends: HashMap<u64, Vec<Distribution>>,
+    pub events: Vec<Event>,
     pub stats: Stats,
 }
 
@@ -967,6 +970,7 @@ impl Indexer {
             holders: holders_map,
             compliance: compliance_map,
             dividends: dividends_map,
+            events: Vec::new(),
             stats,
         });
         Ok(count)
@@ -1188,6 +1192,7 @@ mod tests {
                 (99, ComplianceSummary::default()),
             ]),
             dividends: HashMap::from([(1, Vec::new()), (2, Vec::new()), (99, Vec::new())]),
+            events: Vec::new(),
             stats: Stats::default(),
         };
 
@@ -1214,6 +1219,7 @@ mod tests {
             holders: HashMap::from([(7, Vec::new())]),
             compliance: HashMap::from([(7, ComplianceSummary::default())]),
             dividends: HashMap::from([(7, Vec::new())]),
+            events: Vec::new(),
             stats: Stats::default(),
         };
 
@@ -1629,6 +1635,7 @@ mod tests {
                     .map(|&id| (id, ComplianceSummary::default()))
                     .collect(),
                 dividends: ids.iter().map(|&id| (id, Vec::new())).collect(),
+                events: Vec::new(),
                 stats: Stats {
                     total_assets: ids.len(),
                     last_indexed_ledger: ledger,
@@ -2110,6 +2117,7 @@ mod tests {
                     created_at_ledger: 100,
                 }],
             )]),
+            events: Vec::new(),
             stats: Stats::default(),
         };
 
