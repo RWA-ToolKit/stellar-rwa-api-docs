@@ -311,6 +311,78 @@
         }
       }
     },
+    "/holders/{address}": {
+      "get": {
+        "summary": "Get holdings for an address",
+        "description": "Returns the list of assets and balances for a single Stellar address across the entire platform.",
+        "operationId": "getAddressHoldings",
+        "tags": [
+          "Holders"
+        ],
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "description": "Stellar account address",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of address holdings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AddressHolding"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/compliance/{address}": {
+      "get": {
+        "summary": "Get compliance status for an address",
+        "description": "Returns the assets that a single address currently holds and marks them as approved for compliance.",
+        "operationId": "getAddressCompliance",
+        "tags": [
+          "Compliance"
+        ],
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "description": "Stellar account address",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of compliance checks for the address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AddressCompliance"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/assets/{id}/dividends": {
       "get": {
         "summary": "Get asset dividends",
@@ -588,6 +660,90 @@
             "minimum": 0,
             "maximum": 100,
             "description": "Percentage of total supply (0\u2013100 with 2 decimal places)"
+          }
+        }
+      },
+      "AddressHolding": {
+        "type": "object",
+        "required": [
+          "address",
+          "asset_id",
+          "asset_name",
+          "symbol",
+          "balance",
+          "share_percent"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Stellar account address"
+          },
+          "asset_id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Registry asset ID"
+          },
+          "asset_name": {
+            "type": "string",
+            "description": "Asset name"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Ticker symbol"
+          },
+          "balance": {
+            "type": "string",
+            "description": "Raw balance in base units (i128 as string)"
+          },
+          "share_percent": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Percentage of the asset's total supply owned by the address"
+          }
+        }
+      },
+      "AddressCompliance": {
+        "type": "object",
+        "required": [
+          "address",
+          "asset_id",
+          "asset_name",
+          "symbol",
+          "balance",
+          "status",
+          "allowed"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Stellar account address"
+          },
+          "asset_id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Registry asset ID"
+          },
+          "asset_name": {
+            "type": "string",
+            "description": "Asset name"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Ticker symbol"
+          },
+          "balance": {
+            "type": "string",
+            "description": "Raw balance in base units (i128 as string)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Compliance status for this asset"
+          },
+          "allowed": {
+            "type": "boolean",
+            "description": "Whether the address is currently allowed to hold the asset"
           }
         }
       },
