@@ -106,8 +106,43 @@ format:
 
 ## CORS
 
-All origins, methods and headers are allowed, so the docs site and the web app
-can call the API directly from the browser.
+The API is designed to be called directly from browsers, so it sends CORS
+headers on every response. By default only one origin is allowed:
+
+- **Default origin:** `http://localhost:3000`
+
+To allow other origins, set the comma-separated `RWA_CORS_ALLOWED_ORIGINS`
+environment variable (see the [environment variable reference](/docs/getting-started#environment-variables)):
+
+```bash
+RWA_CORS_ALLOWED_ORIGINS="https://app.example.com,https://admin.example.com" \
+  cargo run --bin stellar-rwa-api
+```
+
+**Enforcement details:**
+
+- Origins are matched **exactly** — include the scheme and port, and no
+  trailing slashes (`https://app.example.com`, not `https://app.example.com/`).
+- Only `GET` requests are permitted by the API, so preflights require only
+  `GET` and the `Content-Type` header.
+- A request from an origin not on the list is still served, but without an
+  `Access-Control-Allow-Origin` header, so the browser blocks reading the
+  response — you won't see a server-side error, only a console CORS error.
+- If your frontend lives on a different origin than `localhost:3000`, configure
+  `RWA_CORS_ALLOWED_ORIGINS` **before** a browser integration starts failing
+  silently.
+
+### Worked example
+
+```bash
+# Allow the staging and admin UIs
+RWA_CORS_ALLOWED_ORIGINS="https://staging.example.com,https://admin.example.com"
+
+# Preflight / simple GET from the staging origin
+curl -i -H "Origin: https://staging.example.com" $API_BASE_URL/version
+# HTTP/1.1 200 OK
+# access-control-allow-origin: https://staging.example.com
+```
 
 ## `/stats` response
 

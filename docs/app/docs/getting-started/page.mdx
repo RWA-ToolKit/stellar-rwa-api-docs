@@ -210,7 +210,7 @@ The API reads the following environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RWA_RPC_URL` | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint the indexer polls |
-| `RWA_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated browser origin allowlist |
+| `RWA_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated browser origin allowlist, matched exactly (scheme + host + port, no trailing slash) |
 | `RWA_RATE_LIMIT_PER_SECOND` | `5` | Sustained requests allowed per client IP each second |
 | `RWA_RATE_LIMIT_BURST` | `20` | Maximum per-client request burst |
 | `RWA_REQUEST_TIMEOUT_SECS` | `30` | Maximum request duration in seconds |
@@ -223,6 +223,13 @@ The API reads the following environment variables:
 | `RUST_LOG` | `stellar_rwa_api=info,tower_http=warn` | Log filter (tracing-subscriber format) |
 
 The `.env.example` file includes Testnet defaults. Copy it and adjust as needed for your network.
+
+**CORS note:** the API answers browser requests with CORS headers only for
+origins in `RWA_CORS_ALLOWED_ORIGINS` (default `http://localhost:3000`). If you
+deploy the API behind a frontend on another origin, set this variable before
+going live — otherwise the browser blocks responses (console CORS errors) with
+no server-side failure to signal the cause. See the
+[API overview → CORS](/docs/api/overview#cors) section for examples.
 
 ### Running with Docker
 

@@ -252,3 +252,267 @@ async fn metrics(headers: HeaderMap, State(state): State<AppState>) -> Response 
     )
         .into_response()
 }
+
+#[cfg(test)]
+mod router_tests {
+    //! Router-level tests for the defensive layers (issue #321, #320, #319):
+    //! the request-body limit, the governor rate limiter (env overrides), and
+    //! the CORS default/override.
+
+    use std::net::SocketAddr;
+
+    use axum::{
+        body::Body,
+        extract::ConnectInfo,
+        http::{header, Method, Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    use super::router;
+    use crate::indexer::Snapshot;
+    use crate::routes::test_support::state_with;
+
+    fn version_request(client_ip: SocketAddr) -> Request<Body> {
+        Request::builder()
+            .method(Method::GET)
+            .uri("/version")
+            .extension(ConnectInfo(client_ip))
+            .body(Body::empty())
+            .expect("version request is well-formed")
+    }
+
+    /// Tests that mutate process-global env vars read by `router()` must not
+    /// run concurrently — the vars are fixed (e.g. `RWA_RATE_LIMIT_*`), so a
+    /// parallel test could observe another test's setting. All env-mutating
+    /// tests hold this lock for their full duration.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Restore an env var to its prior value (or remove it) after the test.
+    struct EnvGuard(
+        &'static str,
+        std::result::Result<String, std::env::VarError>,
+    );
+    impl EnvGuard {
+        fn set(name: &'static str, value: &str) -> Self {
+            let previous = std::env::var(name);
+            std::env::set_var(name, value);
+            EnvGuard(name, previous)
+        }
+    }
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.1 {
+                Ok(v) => std::env::set_var(self.0, v),
+                Err(_) => std::env::remove_var(self.0),
+            }
+        }
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// #321 — `RWA_MAX_BODY_BYTES` (default 1 MiB) is enforced: an oversized
+    /// request body is rejected with 413 Payload Too Large before routing.
+    #[tokio::test]
+    async fn oversized_body_rejected_with_413() {
+        // The env vars are only read when the router is built, so the lock and
+        // the env guard live in a synchronous setup block (never across await).
+        let app = {
+            let _lock = env_lock();
+            let _guard = EnvGuard::set("RWA_MAX_BODY_BYTES", "128");
+            router(state_with(Snapshot::default()))
+        };
+
+        let oversized = vec![b'x'; 512];
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/version")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::CONTENT_LENGTH, oversized.len().to_string())
+                    .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 4100))))
+                    .body(Body::from(oversized))
+                    .expect("request is well-formed"),
+            )
+            .await
+            .expect("router responds");
+
+        assert_eq!(
+            response.status(),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "oversized request body must be rejected with 413"
+        );
+    }
+
+    /// Bodies under the limit still reach the handlers.
+    #[tokio::test]
+    async fn body_under_limit_served() {
+        let app = {
+            let _lock = env_lock();
+            let _guard = EnvGuard::set("RWA_MAX_BODY_BYTES", "128");
+            router(state_with(Snapshot::default()))
+        };
+
+        let response = app
+            .oneshot(version_request(SocketAddr::from(([127, 0, 0, 1], 4101))))
+            .await
+            .expect("router responds");
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    /// #320 — the `RWA_RATE_LIMIT_PER_SECOND` / `RWA_RATE_LIMIT_BURST` env
+    /// overrides actually change enforcement: with a burst of 1 the second
+    /// immediate request from the same client is throttled with 429.
+    #[tokio::test]
+    async fn rate_limit_env_override_burst_of_one_rejects_immediate_second_request() {
+        let app = {
+            let _lock = env_lock();
+            let _guard_per = EnvGuard::set("RWA_RATE_LIMIT_PER_SECOND", "1");
+            let _guard_burst = EnvGuard::set("RWA_RATE_LIMIT_BURST", "1");
+            router(state_with(Snapshot::default()))
+        };
+        let client = SocketAddr::from(([127, 0, 0, 1], 4001));
+
+        let first = app
+            .clone()
+            .oneshot(version_request(client))
+            .await
+            .expect("router responds");
+        assert_eq!(first.status(), StatusCode::OK, "first request passes");
+
+        let second = app
+            .oneshot(version_request(client))
+            .await
+            .expect("router responds");
+        assert_eq!(
+            second.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "second immediate request must be throttled with the burst-of-1 override"
+        );
+    }
+
+    /// The compile-time defaults still allow a small burst (sanity check that
+    /// the layer is active and the override test is testing the override).
+    #[tokio::test]
+    async fn default_rate_limit_allows_small_burst() {
+        let app = {
+            let _lock = env_lock();
+            let _guard_per = EnvGuard::set("RWA_RATE_LIMIT_PER_SECOND", "10");
+            let _guard_burst = EnvGuard::set("RWA_RATE_LIMIT_BURST", "5");
+            router(state_with(Snapshot::default()))
+        };
+        let client = SocketAddr::from(([127, 0, 0, 1], 4002));
+
+        for _ in 0..5 {
+            let response = app
+                .clone()
+                .oneshot(version_request(client))
+                .await
+                .expect("router responds");
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+    }
+
+    fn cors_request(origin: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::GET)
+            .uri("/version")
+            .header(header::ORIGIN, origin)
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 4200))))
+            .body(Body::empty())
+            .expect("cors request is well-formed")
+    }
+
+    /// #319 — CORS defaults to `http://localhost:3000` for a matching origin.
+    #[tokio::test]
+    async fn cors_defaults_to_localhost_3000_for_matching_origin() {
+        let app = router(state_with(Snapshot::default()));
+
+        let response = app
+            .oneshot(cors_request("http://localhost:3000"))
+            .await
+            .expect("router responds");
+
+        assert_eq!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .map(|v| v.to_str().unwrap_or_default()),
+            Some("http://localhost:3000")
+        );
+    }
+
+    #[tokio::test]
+    async fn cors_default_is_http_localhost_3000() {
+        // No env override set → the compile-time default applies.
+        let app = {
+            let _lock = env_lock();
+            std::env::remove_var("RWA_CORS_ALLOWED_ORIGINS");
+            router(state_with(Snapshot::default()))
+        };
+
+        let response = app
+            .oneshot(cors_request("http://localhost:3000"))
+            .await
+            .expect("router responds");
+        assert_eq!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .map(|v| v.to_str().unwrap_or_default()),
+            Some("http://localhost:3000")
+        );
+    }
+
+    #[tokio::test]
+    async fn cors_env_override_reflects_configured_origin() {
+        let app = {
+            let _lock = env_lock();
+            let _guard = EnvGuard::set(
+                "RWA_CORS_ALLOWED_ORIGINS",
+                "https://app.example.com,https://admin.example.com",
+            );
+            router(state_with(Snapshot::default()))
+        };
+
+        let response = app
+            .oneshot(cors_request("https://admin.example.com"))
+            .await
+            .expect("router responds");
+
+        assert_eq!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .map(|v| v.to_str().unwrap_or_default()),
+            Some("https://admin.example.com")
+        );
+    }
+
+    /// Non-allowlisted origins receive no `Access-Control-Allow-Origin` header.
+    #[tokio::test]
+    async fn cors_non_matching_origin_gets_no_allow_header() {
+        let app = {
+            let _lock = env_lock();
+            let _guard = EnvGuard::set("RWA_CORS_ALLOWED_ORIGINS", "http://localhost:3000");
+            router(state_with(Snapshot::default()))
+        };
+
+        let response = app
+            .oneshot(cors_request("https://evil.example.com"))
+            .await
+            .expect("router responds");
+
+        assert!(
+            !response
+                .headers()
+                .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            "non-allowlisted origin must not receive a CORS allow header"
+        );
+    }
+}
