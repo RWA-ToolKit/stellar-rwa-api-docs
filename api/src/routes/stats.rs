@@ -49,12 +49,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stats_empty_snapshot_returns_defaults() {
+    async fn stats_empty_snapshot_reports_zeroed_defaults() {
         let state = state_with(Snapshot::default());
 
         let body = get(State(state)).await.0;
         let value = serde_json::to_value(&body).expect("serialize stats");
 
+        assert!(value.is_object(), "empty snapshot should still serialize as JSON object");
         assert_eq!(value["total_assets"], 0);
         assert_eq!(value["active_assets"], 0);
         assert_eq!(value["tvl_cents"], "");
