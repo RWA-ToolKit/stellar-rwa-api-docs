@@ -475,6 +475,165 @@ mod tests {
         );
     }
 
+    // #190 – boundary ids (0 and u64::MAX) return 404 with the documented error body shape
+    #[tokio::test]
+    async fn boundary_id_zero_returns_404_with_error_body() {
+        use crate::indexer::Snapshot;
+        use crate::routes::test_support;
+
+        let state = test_support::state_with(Snapshot::default());
+        let app = Router::new()
+            .route("/assets/:id", get(super::detail))
+            .with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/assets/0").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "id=0 should return 404, not {}",
+            response.status()
+        );
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let error: ApiErrorBody = serde_json::from_slice(&bytes)
+            .expect("404 body must be a valid ApiErrorBody JSON object");
+        assert_eq!(
+            error.error, "not_found",
+            "error field must be 'not_found'; got '{}'",
+            error.error
+        );
+        assert!(
+            error.message.contains('0'),
+            "message must mention the requested id (0); got '{}'",
+            error.message
+        );
+    }
+
+    #[tokio::test]
+    async fn boundary_id_u64_max_returns_404_with_error_body() {
+        use crate::indexer::Snapshot;
+        use crate::routes::test_support;
+
+        let state = test_support::state_with(Snapshot::default());
+        let app = Router::new()
+            .route("/assets/:id", get(super::detail))
+            .with_state(state);
+
+        let uri = format!("/assets/{}", u64::MAX);
+        let response = app
+            .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "id=u64::MAX should return 404, not {}",
+            response.status()
+        );
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let error: ApiErrorBody = serde_json::from_slice(&bytes)
+            .expect("404 body must be a valid ApiErrorBody JSON object");
+        assert_eq!(
+            error.error, "not_found",
+            "error field must be 'not_found'; got '{}'",
+            error.error
+        );
+        assert!(
+            error.message.contains(&u64::MAX.to_string()),
+            "message must mention the requested id (u64::MAX = {}); got '{}'",
+            u64::MAX,
+            error.message
+        );
+    }
+
+    // #191 – GET /assets list response: each item's key set matches the OpenAPI Asset schema
+    #[tokio::test]
+    async fn list_assets_item_field_set_matches_openapi_schema() {
+        use crate::indexer::Snapshot;
+        use crate::routes::test_support;
+        use std::collections::BTreeSet;
+
+        let asset = stub_asset(1, "real_estate", true);
+        let state = test_support::state_with(Snapshot {
+            assets: vec![asset],
+            ..Snapshot::default()
+        });
+        let app = Router::new()
+            .route("/assets", get(super::list))
+            .with_state(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/assets").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("response must be valid JSON");
+
+        let items = value.as_array().expect("GET /assets must return a JSON array");
+        assert_eq!(items.len(), 1, "expected exactly one asset in the list");
+
+        let actual_keys: BTreeSet<String> = items[0]
+            .as_object()
+            .expect("each list item must be a JSON object")
+            .keys()
+            .cloned()
+            .collect();
+
+        // Required fields as declared in the OpenAPI schema for Asset.
+        // This test will fail in CI if a field is added to or removed from
+        // the serialized model without updating the schema (or vice-versa).
+        let expected_keys: BTreeSet<String> = [
+            "id",
+            "token_contract",
+            "issuer",
+            "name",
+            "symbol",
+            "asset_type",
+            "description",
+            "valuation_cents",
+            "valuation_usd",
+            "decimals",
+            "total_supply",
+            "holders",
+            "active",
+            "paused",
+            "compliance_contract",
+            "created_at_ledger",
+            "indexed_at_ledger",
+            "index_error",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        let missing: Vec<_> = expected_keys.difference(&actual_keys).collect();
+        let extra: Vec<_> = actual_keys.difference(&expected_keys).collect();
+        assert!(
+            missing.is_empty(),
+            "GET /assets item is missing required OpenAPI fields: {missing:?}"
+        );
+        assert!(
+            extra.is_empty(),
+            "GET /assets item has unexpected fields (schema drift): {extra:?}"
+        );
+    }
+
     // #197 – GET /assets returns [] (empty array) not null when no assets exist
     #[tokio::test]
     async fn list_assets_returns_empty_array_not_null_when_no_assets() {
