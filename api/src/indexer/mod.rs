@@ -15,6 +15,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 
 use arc_swap::ArcSwap;
 use metrics_exporter_prometheus::PrometheusHandle;
@@ -44,6 +45,11 @@ const RETRY_MAX_DELAY: Duration = Duration::from_secs(2);
 const EXPECTED_ABI_VERSION: u64 = 1;
 const DIVIDEND_CACHE_TTL: Duration = Duration::from_secs(60);
 const TESTNET_RPC: &str = "https://soroban-testnet.stellar.org";
+
+/// Maximum number of events kept in the in-memory ring buffer (newest first).
+const MAX_EVENTS: usize = 200;
+/// Page size for each `getEvents` RPC call.
+const EVENTS_PAGE_LIMIT: u32 = 100;
 
 /// Fee used for read-only `simulateTransaction` envelopes.
 ///
@@ -338,6 +344,33 @@ struct SimResultEntry {
     xdr: String,
 }
 
+/// Top-level envelope for a `getEvents` JSON-RPC response.
+#[derive(Deserialize)]
+struct GetEventsEnvelope {
+    result: Option<GetEventsResult>,
+    error: Option<RpcError>,
+}
+
+#[derive(Deserialize)]
+struct GetEventsResult {
+    events: Vec<RawRpcEvent>,
+    #[serde(rename = "latestLedger", default)]
+    latest_ledger: u32,
+}
+
+/// A single event entry from the `getEvents` RPC response.
+#[derive(Deserialize)]
+struct RawRpcEvent {
+    id: String,
+    #[serde(rename = "contractId", default)]
+    contract_id: String,
+    topic: Vec<String>,
+    value: Option<String>,
+    ledger: u32,
+    #[serde(rename = "ledgerClosedAt", default)]
+    ledger_closed_at: String,
+}
+
 /// Outcome of a single simulated read.
 #[derive(Debug)]
 struct ReadOutcome {
@@ -450,6 +483,126 @@ impl Rpc {
             value: scval_to_json(&scval)?,
             latest_ledger: result.latest_ledger,
         })
+    }
+
+    /// Fetch contract events via `getEvents`, filtering for specific contract IDs
+    /// starting from `start_ledger`. Returns all matching events and the latest
+    /// ledger seen by the RPC node.
+    async fn get_events(
+        &self,
+        contract_ids: &[&str],
+        start_ledger: u32,
+    ) -> Result<(Vec<crate::models::Event>, u32), IndexError> {
+        // Build a filter per contract id. The RPC `getEvents` method accepts
+        // an array of filters; each filter narrows to one contract.
+        let filters: Vec<serde_json::Value> = contract_ids
+            .iter()
+            .map(|id| serde_json::json!({ "type": "contract", "contractIds": [id] }))
+            .collect();
+
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getEvents",
+            "params": {
+                "startLedger": start_ledger,
+                "filters": filters,
+                "pagination": { "limit": EVENTS_PAGE_LIMIT }
+            }
+        });
+
+        let resp = self.http.post(&self.url).json(&body).send().await?;
+
+        let status = resp.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            || status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+        {
+            let headers = resp.headers().clone();
+            let body_text = resp.text().await.unwrap_or_default();
+            let retry_after = headers
+                .get(RETRY_AFTER)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(Duration::from_secs);
+            return Err(IndexError::RateLimited {
+                status: status.as_u16(),
+                retry_after,
+                body: body_text,
+            });
+        }
+
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            return Err(IndexError::HttpStatus {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+
+        let envelope: GetEventsEnvelope = resp.json().await?;
+        if let Some(err) = envelope.error {
+            return Err(IndexError::Rpc(err.message));
+        }
+        let result = envelope
+            .result
+            .ok_or_else(|| IndexError::Rpc("empty getEvents result".into()))?;
+
+        let mut events = Vec::new();
+        for raw in result.events {
+            // Derive event_type from the first topic symbol. Topics are XDR
+            // base64-encoded ScVal; we do a best-effort decode and fall back
+            // to the raw string if it can't be parsed.
+            let event_type = raw
+                .topic
+                .first()
+                .map(|t| {
+                    xdr::ScVal::from_xdr_base64(t, Limits::none())
+                        .ok()
+                        .and_then(|v| match v {
+                            xdr::ScVal::Symbol(s) => Some(s.to_string()),
+                            xdr::ScVal::String(s) => Some(s.to_string()),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| t.clone())
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+
+            // Decode the event value payload (may be absent on some events).
+            let data = raw
+                .value
+                .as_deref()
+                .and_then(|xdr_b64| {
+                    xdr::ScVal::from_xdr_base64(xdr_b64, Limits::none())
+                        .ok()
+                        .and_then(|v| scval_to_json(&v).ok())
+                })
+                .unwrap_or(serde_json::Value::Null);
+
+            // Parse the event id: Stellar event ids are "<ledger>-<index>".
+            let numeric_id: u64 = raw
+                .id
+                .split('-')
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(raw.ledger as u64);
+
+            let timestamp = if raw.ledger_closed_at.is_empty() {
+                None
+            } else {
+                Some(raw.ledger_closed_at.clone())
+            };
+
+            events.push(crate::models::Event {
+                id: numeric_id,
+                contract: raw.contract_id,
+                event_type,
+                ledger: raw.ledger,
+                timestamp,
+                data,
+            });
+        }
+
+        Ok((events, result.latest_ledger))
     }
 }
 
@@ -698,6 +851,10 @@ pub struct Indexer {
     rpc: Rpc,
     state: AppState,
     dividend_cache: Mutex<DividendCache>,
+    /// Ledger from which the next `getEvents` call should start. Atomically
+    /// updated after each successful event read so partial failures don't
+    /// re-fetch events from ledger 1 on every cycle.
+    events_cursor: AtomicU32,
 }
 
 impl Indexer {
@@ -707,6 +864,7 @@ impl Indexer {
             rpc: Rpc::new(cfg.rpc_url.clone(), cfg.read_source.clone()),
             state,
             dividend_cache: Mutex::new(HashMap::new()),
+            events_cursor: AtomicU32::new(0),
         }
     }
 
@@ -978,13 +1136,31 @@ impl Indexer {
             last_updated: Some(chrono::Utc::now().to_rfc3339()),
         };
 
+        // ── event ingestion ──────────────────────────────────────────────────
+        // Collect the unique set of contract IDs to monitor: the registry,
+        // the dividend contract, plus every discovered asset-token and
+        // compliance contract. On failure we carry forward the events from
+        // the previous snapshot rather than resetting to empty.
+        let mut contract_ids_to_watch: Vec<String> =
+            vec![cfg.registry_id.clone(), cfg.dividend_id.clone()];
+        for asset in &assets {
+            contract_ids_to_watch.push(asset.token_contract.clone());
+            contract_ids_to_watch.push(asset.compliance_contract.clone());
+        }
+        contract_ids_to_watch.sort();
+        contract_ids_to_watch.dedup();
+
+        let events = self
+            .index_events(prev.events.clone(), &contract_ids_to_watch)
+            .await;
+
         let count = assets.len();
         self.state.replace(Snapshot {
             assets,
             holders: holders_map,
             compliance: compliance_map,
             dividends: dividends_map,
-            events: Vec::new(),
+            events,
             stats,
         });
         Ok(count)
@@ -1152,6 +1328,59 @@ impl Indexer {
             (Instant::now(), result.clone(), error.clone()),
         );
         Ok((result, error))
+    }
+
+    /// Fetch recent contract events from Soroban RPC and merge them into a
+    /// bounded, newest-first ring buffer.
+    ///
+    /// - Uses a per-instance `events_cursor` (an atomically stored ledger
+    ///   number) so each poll only fetches events newer than the last
+    ///   successful read instead of re-scanning from ledger 1.
+    /// - The cursor is only advanced when the RPC call succeeds; a failed
+    ///   cycle carries the previous event list forward unchanged.
+    /// - The merged list is truncated to [`MAX_EVENTS`] newest entries.
+    async fn index_events(
+        &self,
+        prev_events: Vec<crate::models::Event>,
+        contract_ids: &[String],
+    ) -> Vec<crate::models::Event> {
+        let cursor = self.events_cursor.load(AtomicOrdering::Relaxed);
+        // Start from ledger 1 the very first time (cursor == 0).
+        let start_ledger = if cursor == 0 { 1 } else { cursor };
+
+        let refs: Vec<&str> = contract_ids.iter().map(|s| s.as_str()).collect();
+        match self.rpc.get_events(&refs, start_ledger).await {
+            Ok((new_events, latest_ledger)) => {
+                // Advance the cursor to latest_ledger + 1 so the next poll
+                // only asks for events we haven't seen yet. Guard against
+                // regressing the cursor if the node is lagging.
+                let next_cursor = latest_ledger.saturating_add(1).max(start_ledger);
+                self.events_cursor
+                    .fetch_max(next_cursor, AtomicOrdering::Relaxed);
+
+                // Merge: new events (already newest-first from the ledger
+                // sort the RPC returns) go on the front; then previous events
+                // not already present are appended. Deduplicate by `id`.
+                let new_ids: HashSet<u64> = new_events.iter().map(|e| e.id).collect();
+                let mut merged: Vec<crate::models::Event> = new_events;
+                for ev in prev_events {
+                    if !new_ids.contains(&ev.id) {
+                        merged.push(ev);
+                    }
+                }
+                // Sort newest-first by ledger then by id within the same ledger.
+                merged.sort_by(|a, b| b.ledger.cmp(&a.ledger).then(b.id.cmp(&a.id)));
+                merged.truncate(MAX_EVENTS);
+                merged
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "getEvents failed; carrying forward previous events"
+                );
+                prev_events
+            }
+        }
     }
 }
 

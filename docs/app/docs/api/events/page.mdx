@@ -6,12 +6,14 @@ export const metadata = {
 
 # Events
 
-The API exposes a compact event stream for clients that need to react to state changes without polling the full asset list. The payload is a JSON array ordered newest-first.
+The API exposes a compact event stream for clients that need to react to state
+changes without polling the full asset list. The payload is a JSON array ordered
+**newest-first**.
 
-<ApiEndpoint method="GET" path="/events" description="Most recent contract events captured by the indexer.">
+<ApiEndpoint method="GET" path="/v1/events" description="Most recent contract events captured by the indexer.">
 
 ```bash
-curl "$API_BASE_URL/events?limit=20"
+curl "$API_BASE_URL/v1/events?limit=20"
 ```
 
 ```json
@@ -33,4 +35,31 @@ curl "$API_BASE_URL/events?limit=20"
 
 </ApiEndpoint>
 
-Each event includes the contract address, event name, ledger, timestamp (when available), and the raw payload emitted by the contract.
+Each event includes the contract address, event name, ledger, timestamp (when
+available from the node), and the raw payload emitted by the contract.
+
+## Ingestion
+
+The indexer calls Soroban RPC `getEvents` every 10 seconds for all monitored
+contracts (registry, dividend, and every discovered asset-token and compliance
+contract). A ledger cursor is advanced after each successful call so only new
+events are fetched on the next cycle.
+
+## Retention and ordering
+
+- Events are kept in a **bounded in-memory ring buffer** of up to **200 events**.
+- The buffer is sorted **newest-first** by ledger (then by event id within the
+  same ledger).
+- On a failed RPC cycle the previous event list is carried forward unchanged —
+  the endpoint never resets to an empty array because of a transient failure.
+- The `limit` query parameter (default `50`, max `200`) controls how many
+  events are returned per request.
+
+## Covered contracts
+
+| Contract | Event types |
+|----------|-------------|
+| Registry | `register`, `deactivate` |
+| Asset-token | `transfer`, `mint`, `burn` |
+| Dividend | `created`, `claim`, `cancel` |
+| Compliance | `add_record`, `update_record` |

@@ -593,17 +593,30 @@
         }
       }
     },
-    "/events": {
+    "/v1/events": {
       "get": {
         "summary": "List recent events",
-        "description": "Returns the most recent contract events captured by the indexer.",
+        "description": "Returns the most recent contract events captured by the indexer, ordered newest-first. The indexer polls Soroban RPC getEvents every 10 seconds and retains up to 200 events in memory. A failed RPC cycle carries the previous event list forward unchanged.",
         "operationId": "getEvents",
         "tags": [
           "Events"
         ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of events to return. Defaults to 50 and is capped at 200.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Array of event objects",
+            "description": "Array of event objects, newest-first",
             "content": {
               "application/json": {
                 "schema": {
