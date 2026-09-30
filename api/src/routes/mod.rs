@@ -51,16 +51,19 @@ pub mod holders;
 pub mod stats;
 
 #[cfg(test)]
-mod test_support;
-#[cfg(test)]
 mod assets_query_tests;
 #[cfg(test)]
 mod field_select_tests;
 #[cfg(test)]
 mod holder_position_tests;
+#[cfg(test)]
+mod test_support;
 
 #[cfg(test)]
 mod cache_conditional_tests;
+
+#[cfg(test)]
+mod cors_headers_tests;
 
 #[cfg(test)]
 mod rate_limit_boundary_tests;
@@ -102,6 +105,25 @@ const ASSET_DETAIL_TIMEOUT_SECS: u64 = 15;
 const AGGREGATE_TIMEOUT_SECS: u64 = 60;
 const MAX_BODY_BYTES: usize = 1_048_576;
 const DEFAULT_CORS_ORIGIN: &str = "http://localhost:3000";
+
+/// Response headers exposed to browser clients via `Access-Control-Expose-Headers`
+/// (issue #466).
+///
+/// Only CORS-safelisted response headers (`Cache-Control`, `Content-Type`,
+/// `Expires`, `Last-Modified`, `Pragma`) are readable from a cross-origin
+/// `fetch`/`XHR` by default. `ETag` and `Retry-After` are not safelisted, so
+/// `res.headers.get("ETag")` returns `null` and the conditional-request helper
+/// documented in `docs/app/docs/api/rate-limits/page.mdx` could never store a
+/// tag from a browser client, nor could a `429` be inspected for `Retry-After`.
+const CORS_EXPOSED_HEADERS: [header::HeaderName; 3] =
+    [header::ETAG, header::RETRY_AFTER, header::CACHE_CONTROL];
+
+/// Request headers a browser client may send after a successful preflight.
+///
+/// `If-None-Match` is not safelisted, so setting it from a script triggers an
+/// `OPTIONS` preflight; the preflight failed while `allow_headers` only listed
+/// `Content-Type`.
+const CORS_ALLOWED_HEADERS: [header::HeaderName; 2] = [header::CONTENT_TYPE, header::IF_NONE_MATCH];
 
 fn env_value<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name)
@@ -182,7 +204,8 @@ pub(crate) fn router_with_rate_limit(state: AppState, per_second: u64, burst: u3
     let cors = CorsLayer::new()
         .allow_origin(origins)
         .allow_methods([Method::GET])
-        .allow_headers([header::CONTENT_TYPE]);
+        .allow_headers(CORS_ALLOWED_HEADERS)
+        .expose_headers(CORS_EXPOSED_HEADERS);
 
     // Each request clones the in-memory snapshot, so cap how fast a single
     // client can drive that cost. Checked before `cache_headers`, which
@@ -528,7 +551,11 @@ async fn poll_history(headers: HeaderMap, State(state): State<AppState>) -> Resp
         .zip(supplied)
         .is_some_and(|(expected, supplied)| expected == supplied);
     if !authorized {
-        return (StatusCode::UNAUTHORIZED, "poll-history authentication required").into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            "poll-history authentication required",
+        )
+            .into_response();
     }
     Json(state.poll_history_records()).into_response()
 }
@@ -551,10 +578,7 @@ mod tests {
 
     #[test]
     fn rate_limit_setting_is_requests_per_second() {
-        assert_eq!(
-            rate_limit_period(5),
-            std::time::Duration::from_millis(200)
-        );
+        assert_eq!(rate_limit_period(5), std::time::Duration::from_millis(200));
         assert_eq!(rate_limit_period(0), std::time::Duration::ZERO);
     }
 
@@ -590,7 +614,12 @@ mod tests {
 
         assert_json_content_type(app.clone(), "/", StatusCode::OK).await;
         assert_json_content_type(app.clone(), "/health/live", StatusCode::OK).await;
-        assert_json_content_type(app.clone(), "/health/ready", StatusCode::SERVICE_UNAVAILABLE).await;
+        assert_json_content_type(
+            app.clone(),
+            "/health/ready",
+            StatusCode::SERVICE_UNAVAILABLE,
+        )
+        .await;
         assert_json_content_type(app.clone(), "/health", StatusCode::SERVICE_UNAVAILABLE).await;
         assert_json_content_type(app.clone(), "/version", StatusCode::OK).await;
         assert_json_content_type(app.clone(), "/v1/stats", StatusCode::OK).await;
