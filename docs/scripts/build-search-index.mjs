@@ -18,43 +18,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const DOCS_APP_ROOT = join(__dirname, "..", "app", "docs");
+const NAV_FILE = join(__dirname, "..", "components", "nav-data.json");
 const OUTPUT_FILE = join(__dirname, "..", "lib", "search-index.json");
 
-/**
- * Known section mappings matching NAV in components/nav.ts.
- */
-const SECTION_MAP = {
-  "/docs/getting-started": "Introduction",
-  "/docs/architecture": "Introduction",
-  "/docs/compliance-guide": "Concepts",
-  "/docs/time-and-ledgers": "Concepts",
-  "/docs/integration": "Guides",
-  "/docs/web-app": "Guides",
-  "/docs/metrics": "Guides",
-  "/docs/contracts/asset-token": "Contract Reference",
-  "/docs/contracts/compliance": "Contract Reference",
-  "/docs/contracts/registry": "Contract Reference",
-  "/docs/contracts/dividend": "Contract Reference",
-  "/docs/api/overview": "API Reference",
-  "/docs/api/assets": "API Reference",
-  "/docs/api/assets-query": "API Reference",
-  "/docs/api/holders": "API Reference",
-  "/docs/api/holder-position": "API Reference",
-  "/docs/api/compliance": "API Reference",
-  "/docs/api/dividends": "API Reference",
-  "/docs/api/events": "API Reference",
-  "/docs/api/field-selection": "API Reference",
-  "/docs/api/rate-limits": "API Reference",
-  "/docs/api/request-ids": "API Reference",
-  "/docs/api/health": "API Reference",
-  "/docs/api/errors": "API Reference",
-  "/docs/api/openapi": "API Reference",
-  "/docs/changelog": "API Reference",
-  "/docs/snapshot-memory": "Architecture",
-};
+const NAV = JSON.parse(readFileSync(NAV_FILE, "utf-8"));
+const SECTION_MAP = new Map(
+  NAV.flatMap(({ title, items }) => items.map(({ href }) => [href, title])),
+);
 
 function getSectionForRoute(route) {
-  if (SECTION_MAP[route]) return SECTION_MAP[route];
+  if (SECTION_MAP.has(route)) return SECTION_MAP.get(route);
   if (route.startsWith("/docs/api/")) return "API Reference";
   if (route.startsWith("/docs/contracts/")) return "Contract Reference";
   if (route.startsWith("/docs/")) return "Documentation";
@@ -210,6 +183,18 @@ function processMdxFile(filePath) {
     }
   }
   flushSection();
+
+  if (!documents.some((document) => document.href === canonical)) {
+    documents.unshift({
+      id: canonical,
+      title,
+      pageTitle: title,
+      href: canonical,
+      section,
+      description: description || title,
+      content: "",
+    });
+  }
 
   // If no sections were extracted, index the entire file content
   if (documents.length === 0) {

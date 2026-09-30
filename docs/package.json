@@ -12,7 +12,8 @@
     "start": "next start",
     "lint": "next lint && eslint . --ext .tsx,.ts --plugin jsx-a11y",
     "lint:a11y": "eslint . --ext .tsx,.ts --plugin jsx-a11y",
-    "check:mdx-samples": "node scripts/check-mdx-code-samples.mjs"
+    "check:mdx-samples": "node scripts/check-mdx-code-samples.mjs",
+    "test:routes": "npm run build:search && jest __tests__/navigation.test.ts"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.0",
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@jest/globals": "^29.7.0",
     "@testing-library/react": "^14.1.2",
+    "@testing-library/jest-dom": "^6.4.2",
     "@types/jest": "^29.5.11",
     "@types/mdx": "^2.0.13",
     "@types/node": "^20.14.0",
@@ -35,6 +37,8 @@
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.5",
     "eslint-plugin-jsx-a11y": "^6.8.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.6",
     "typescript": "^5.5.3"
