@@ -2,9 +2,12 @@ export const metadata = {
   title: "Dividend Contract",
   description: "Proportional yield/dividend distribution to asset-token holders.",
   canonical: "/docs/contracts/dividend",
+  lastReviewed: "2026-09-26",
 };
 
 # Dividend Contract
+
+<LastReviewed date={metadata.lastReviewed} />
 
 Distributes yield/dividends to asset-token holders in proportion to their
 holdings. An issuer funds a distribution with a payment token; each holder then
@@ -12,6 +15,10 @@ claims `total_amount * balance / total_supply`, paid from the escrow this contra
 holds. Each holder can claim a given distribution once.
 
 Balances are read **at claim time** from the asset token.
+
+There is no claim deadline in the contract. A distribution remains claimable
+until a holder claims (or has a zero calculated share); integrations that need a
+commercial deadline must enforce it outside this contract.
 
 **Testnet:** `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX`
 
@@ -68,7 +75,10 @@ fn claimable(env: Env, distribution_id: u64, holder: Address) -> i128
 
 Returns the amount a holder can still claim: `0` if already claimed, if they hold
 nothing, or if the distribution is empty. Otherwise
-`total_amount * balance / total_supply` (floored by integer division).
+`total_amount * balance / total_supply` (floored by integer division), where
+`balance` and `total_supply` are read from the asset token at the time of the
+call. This is a view function: no authorization is required and it has no
+state change. **Errors:** `DistributionNotFound (4)` for an unknown id.
 
 ### `claim`
 
@@ -81,6 +91,10 @@ Pays the holder's proportional share from escrow and marks it claimed.
 - **Auth:** `holder`
 - **Errors:** `DistributionNotFound (4)`, `AlreadyClaimed (7)`, `NothingToClaim (6)`.
 
+The contract has no expiry or sweep operation. A holder may claim whenever they
+have a positive calculated share, including long after creation; applications
+that display a deadline must not present it as an on-chain enforcement rule.
+
 ### `get_distribution` / `get_distributions_for_asset` / `has_claimed`
 
 ```rust
@@ -90,7 +104,10 @@ fn has_claimed(env: Env, distribution_id: u64, holder: Address) -> bool
 ```
 
 View helpers. `get_distributions_for_asset` backs the API's `/assets/:id/dividends`
-endpoint.
+endpoint. None requires authorization. `get_distribution` reports
+`DistributionNotFound (4)` for an unknown id; `has_claimed` returns `false` when
+the holder has not claimed, and `get_distributions_for_asset` returns an empty
+list when the asset has no distributions.
 
 ## Code example
 
@@ -145,4 +162,12 @@ const claim = dividend.call(
 - **Escrow custody:** funds live in the dividend contract between creation and
   claim. The contract only pays out via `claim`; there is no admin withdrawal path.
 - **Payment-token decimals differ** from the asset token. Amounts here are in the
-  payment token's base units (7 for classic Stellar assets / SACs).
+  payment token's base units (7 for classic Stellar assets / SACs — Stellar Asset
+  Contracts, the Soroban-compatible wrappers for classic Stellar assets like USDC).
+
+## What to read next
+
+- [API · Dividends](/docs/api/dividends) — read distribution history over REST.
+- [Web App Guide](/docs/web-app) — create distributions and let holders claim through the UI.
+- [Asset Token Contract](/docs/contracts/asset-token) — balances the dividend contract reads at claim time.
+- [Integration Guide](/docs/integration) — call `claim` and `claimable` from TypeScript.

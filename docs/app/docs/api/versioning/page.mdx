@@ -1,0 +1,82 @@
+export const metadata = {
+  title: "API · Contract ABI Versions",
+  description: "Supported contract ABI versions for each RWA contract type.",
+  canonical: "/docs/api/versioning",
+};
+
+# Contract ABI Versions
+
+The indexer checks each contract's `version()` return value at the start of
+every refresh cycle. If a contract reports a version outside the supported
+range the refresh is aborted and the last good snapshot continues to be served.
+
+Each contract type is checked independently against its own range, so a
+backwards-compatible bump in one contract does not affect the others and a
+rolling upgrade window can accept both the old and new version simultaneously.
+
+## Supported version ranges
+
+| Contract | Supported versions | Notes |
+|---|---|---|
+| `registry` | `1..=1` | Stable; pinned to v1 |
+| `compliance` | `1..=1` | Stable; pinned to v1 |
+| `asset-token` | `1..=1` | Stable; pinned to v1 |
+| `dividend` | `1..=3` | v3 added snapshot-based claim/cancel |
+
+The ranges listed here match `stellar-rwa-contracts` `main` as of this release.
+Refer to
+[DEPLOYMENTS.md in the contracts repository](https://github.com/RWA-ToolKit/stellar-rwa-contracts/blob/main/DEPLOYMENTS.md)
+for the deployed contract IDs and their exact version constants.
+
+## What happens on a version mismatch
+
+When the indexer encounters a version outside its supported range it logs a
+structured error at the `WARN` level and returns early from the refresh cycle:
+
+```
+WARN rwa_api::indexer: ABI version check failed
+  contract="CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX"
+  label="dividend"
+  actual=4
+  supported_min=1
+  supported_max=3
+```
+
+The error message format is:
+
+```
+{contract} ABI version {actual} is not in supported range {min}..={max}
+```
+
+The `/health` endpoint will reflect `degraded` state once the number of
+consecutive failures reaches the stale-data threshold. The last successfully
+indexed snapshot continues to be served until a compatible version is deployed
+or the indexer is upgraded.
+
+<CalloutBox variant="warning" title="Upgrading contracts">
+If you deploy a contract with a new `VERSION` constant that falls outside the
+indexer's supported range, the indexer will stop refreshing. You must either:
+
+1. Upgrade the indexer to a version whose range includes the new contract version, **or**
+2. Keep the deployed contract version within the range the running indexer supports.
+
+Coordinate contract upgrades with indexer upgrades in production environments.
+</CalloutBox>
+
+## Overriding ranges in tests
+
+The `AbiExpectation` struct is public. Integration tests that need to test
+against a stub contract returning a specific version can construct a custom
+expectation and pass it to `AppState`:
+
+```rust
+use stellar_rwa_api::indexer::{AbiExpectation, AppState, Config};
+
+let abi = AbiExpectation {
+    registry:    1..=1,
+    dividend:    1..=99,   // accept any future test version
+    asset_token: 1..=1,
+    compliance:  1..=1,
+};
+// AppState::new_with_abi(config, metrics, abi)  — see the indexer docs.
+```

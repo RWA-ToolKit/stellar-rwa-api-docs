@@ -1,0 +1,92 @@
+export const metadata = {
+  title: "FAQ",
+  description: "Short answers to recurring questions, each linking to the full explanation.",
+  canonical: "/docs/faq",
+};
+
+# FAQ
+
+Short answers to the questions that come up most often. Each one links to the
+page that covers the topic in full.
+
+## Do I need a wallet?
+
+Not to read data. The API is read-only and needs no wallet, signing, or tokens —
+the [Quickstart](/docs/getting-started#quickstart) runs entirely against it.
+To issue, transfer, or claim through the web app you need the
+[Freighter](https://freighter.app) extension; the app signs through it and never
+holds keys. See [Connecting Freighter](/docs/web-app#connecting-freighter).
+
+## Is it on mainnet?
+
+No. Everything is deployed on **Testnet** for demonstration and must not be used
+to custody real value. See the [Network guide](/docs/getting-started#network-guide)
+and the [deployed contract addresses](/docs/getting-started#deployed-contract-addresses-testnet).
+
+## How is compliance enforced?
+
+In the contract itself. On every `transfer` (and on `mint`), the asset-token
+contract calls the compliance contract to check the sender and recipient; if
+either fails, the transaction reverts. See
+[How transfer gating works](/docs/compliance-guide#how-transfer-gating-works).
+
+## Who counts as "allowed"?
+
+An address passes `is_allowed` only if its KYC record is `Approved`, the approval
+has not expired, **and** its jurisdiction is not blocked. See
+[How the allowlist model works](/docs/compliance-guide#how-the-allowlist-model-works)
+and [`is_allowed`](/docs/contracts/compliance#is-allowed).
+
+## What happens when an approval expires?
+
+Once the current ledger reaches `expires_at`, `is_allowed` returns `false`: the
+holder can no longer transfer or receive the token until re-approved. There is no
+background job — expiry is checked live on every read. See
+[KYC expiry and suspension](/docs/compliance-guide#kyc-expiry-and-suspension).
+
+## Why are times ledger numbers instead of dates?
+
+All on-chain and API time fields are Stellar ledger sequence numbers, and
+`expires_at = 0` means "never". See [Time & Ledgers](/docs/time-and-ledgers),
+including [converting ledgers to wall-clock time](/docs/time-and-ledgers#converting-ledger-numbers-to-wall-clock-time).
+
+## Why was my transfer blocked?
+
+Usually one of: pending approval, suspension, a blocked jurisdiction, an expired
+approval, not being on the allowlist, or the token being paused by the issuer.
+This is the compliance gate, not a bug — ask the issuer to approve your address.
+See [What a failed gate looks like](/docs/compliance-guide#what-a-failed-gate-looks-like).
+
+## Can an issuer block a whole country?
+
+Yes. `block_jurisdiction` makes every approved address in that jurisdiction fail
+`is_allowed` immediately; `unblock_jurisdiction` restores them. See
+[Jurisdiction restrictions](/docs/compliance-guide#jurisdiction-restrictions).
+
+## How are dividends calculated?
+
+Each holder claims `total_amount * balance / total_supply`, with balances read at
+**claim time**, not at a snapshot. See the
+[Dividend contract](/docs/contracts/dividend) and its
+[security considerations](/docs/contracts/dividend#security-considerations).
+
+## Does the API need authentication? Is it rate limited?
+
+No authentication is required today. Rate limits and ETag caching are being
+introduced but are not yet enforced on Testnet. See
+[Authentication and rate limiting](/docs/api/overview#authentication-and-rate-limiting)
+and [Rate Limits & Caching](/docs/api/rate-limits).
+
+## How fresh is the API data?
+
+The API polls Soroban RPC roughly every 10 seconds, so data lags the ledger by
+about that much, and it keeps serving the last snapshot if RPC is unreachable.
+For real-time state, read the contracts directly. See
+[Data freshness and caching](/docs/api/overview#data-freshness-and-caching) and
+[Reading contracts directly](/docs/integration#reading-contracts-directly).
+
+## Why are amounts strings, and how do I display them?
+
+Token amounts are `i128` on-chain, so the API serializes them as strings to avoid
+precision loss. They are raw base units — divide by `10 ** decimals`. See the
+API [Conventions](/docs/api/overview#conventions).

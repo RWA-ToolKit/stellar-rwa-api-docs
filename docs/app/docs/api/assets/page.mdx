@@ -2,9 +2,12 @@ export const metadata = {
   title: "API · Assets",
   description: "List all tokenized assets, or fetch one by id.",
   canonical: "/docs/api/assets",
+  lastReviewed: "2026-08-30",
 };
 
 # Assets
+
+<LastReviewed date={metadata.lastReviewed} />
 
 <CalloutBox variant="note">
 Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
@@ -43,10 +46,10 @@ curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 | `symbol` | string | |
 | `asset_type` | string | `real_estate` \| `invoice` \| `commodity` |
 | `description` | string | |
-| `valuation_cents` | string | USD cents (`i128`) |
-| `valuation_usd` | number | Dollars, convenience |
-| `decimals` | number | |
-| `total_supply` | string | Base units (`i128`) |
+| `valuation_cents` | string | Valuation in **USD cents** (`i128` string). Divide by 100 to get USD dollars. |
+| `valuation_usd` | number | Valuation in **USD dollars** (`f64` convenience float, equal to `valuation_cents / 100`). |
+| `decimals` | number | Number of decimal places used by this asset token (e.g. `2`). |
+| `total_supply` | string | Total supply in **base units** (`i128` string in the token's `decimals` base). Divide by `10 ** decimals` to get the human-readable token amount. |
 | `holders` | number | Addresses with a positive balance |
 | `active` | boolean | |
 | `paused` | boolean | |
@@ -54,11 +57,33 @@ curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 | `created_at_ledger` | number | |
 | `indexed_at_ledger` | number | Most recent ledger successfully indexed for this asset |
 | `index_error` | string or null | Per-asset index error, if the latest refresh failed |
+**Response schema** (`Asset`, per asset):
+
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `id` | integer | Registry id | No | |
+| `token_contract` | string | — | No | Asset-token contract address |
+| `issuer` | string | — | No | Issuer account address |
+| `name` | string | — | No | |
+| `symbol` | string | — | No | |
+| `asset_type` | string | — | No | `real_estate`, `invoice`, or `commodity` |
+| `description` | string | — | No | |
+| `valuation_cents` | string | USD cents | No | Exact valuation (`i128` serialized as a decimal string) |
+| `valuation_usd` | number | USD | No | Convenience valuation in dollars |
+| `decimals` | integer | Decimal places | No | Token precision for converting base units |
+| `total_supply` | string | Asset-token base units | No | Exact supply (`i128` serialized as a decimal string) |
+| `holders` | integer | Addresses | No | Addresses with a positive balance |
+| `active` | boolean | — | No | |
+| `paused` | boolean | — | No | |
+| `compliance_contract` | string | — | No | Compliance contract address |
+| `created_at_ledger` | integer | Ledger sequence | No | |
+| `indexed_at_ledger` | integer | Ledger sequence | No | Most recent ledger successfully indexed for this asset |
+| `index_error` | string | — | Yes | Error from the latest per-asset index attempt; JSON `null` when there is no error |
 
 **Example**
 
 ```bash
-curl $API_BASE_URL/assets
+curl $API_BASE_URL/v1/assets
 ```
 
 ```json
@@ -99,7 +124,7 @@ curl $API_BASE_URL/assets
 **Example**
 
 ```bash
-curl $API_BASE_URL/assets/1
+curl $API_BASE_URL/v1/assets/1
 ```
 
 Returns a single asset object with the schema above.
@@ -107,7 +132,7 @@ Returns a single asset object with the schema above.
 You can also request a sparse fieldset with `?fields=`; for example:
 
 ```bash
-curl "$API_BASE_URL/assets/1?fields=id,name,active,indexed_at_ledger"
+curl "$API_BASE_URL/v1/assets/1?fields=id,name,active,indexed_at_ledger"
 ```
 
 **Errors**
@@ -119,8 +144,27 @@ curl "$API_BASE_URL/assets/1?fields=id,name,active,indexed_at_ledger"
 Returned with status `404` when no asset has the given id. A non-numeric id
 (`/assets/abc`) is rejected with `400` by the router.
 
-<CalloutBox variant="tip">
-`total_supply` and `valuation_cents` are strings. In JavaScript, parse them with
-`BigInt(asset.total_supply)` and compute a display value as
-`Number(BigInt(asset.total_supply)) / 10 ** asset.decimals`.
+<CalloutBox variant="tip" title="Amount units and conversions">
+Both `total_supply` and `valuation_cents` are 128-bit integers returned as strings to prevent rounding in JavaScript runtimes.
+
+```typescript
+// 1. Converting total_supply (base units to display tokens):
+// Given total_supply = "1000000" and decimals = 2:
+const rawSupply = BigInt(asset.total_supply);
+const displaySupply = Number(rawSupply) / (10 ** asset.decimals);
+// => 10,000.00 MLOFT
+
+// 2. Converting valuation_cents (USD cents to USD dollars):
+// Given valuation_cents = "500000000":
+const rawCents = BigInt(asset.valuation_cents);
+const displayUsd = Number(rawCents) / 100;
+// => 5000000.00 ($5,000,000.00 USD)
+```
 </CalloutBox>
+
+## What to read next
+
+- [API · Holders](/docs/api/holders) — list holders and balances for an asset.
+- [API · Compliance](/docs/api/compliance) — aggregate compliance stats for an asset.
+- [API · Dividends](/docs/api/dividends) — distribution history for an asset.
+- [Time & Ledgers](/docs/time-and-ledgers) — understand `created_at_ledger` and `indexed_at_ledger`.

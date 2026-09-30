@@ -2,9 +2,12 @@ export const metadata = {
   title: "Registry Contract",
   description: "Canonical on-chain index of every tokenized asset, plus total value locked.",
   canonical: "/docs/contracts/registry",
+  lastReviewed: "2026-09-26",
 };
 
 # Registry Contract
+
+<LastReviewed date={metadata.lastReviewed} />
 
 A canonical, on-chain index of every tokenized asset on the platform. Each issuer
 registers their asset-token contract here; the registry assigns a monotonically
@@ -60,16 +63,52 @@ fn get_asset(env: Env, asset_id: u64) -> AssetEntry
 
 Fetches a single asset. **Errors:** `AssetNotFound (4)`.
 
-### `get_assets_by_issuer` / `get_assets_by_type` / `get_all_assets`
+### `get_assets_by_issuer` / `get_assets_by_type`
 
 ```rust
 fn get_assets_by_issuer(env: Env, issuer: Address) -> Vec<AssetEntry>
 fn get_assets_by_type(env: Env, asset_type: String) -> Vec<AssetEntry>
-fn get_all_assets(env: Env) -> Vec<AssetEntry>
 ```
 
-Query helpers returning filtered or complete lists. These back the API's
-`/assets` endpoint and the web app's explore page.
+Filtered list helpers. These back the API's `/assets` endpoint and the web
+app's explore page.
+
+### `get_all_assets`
+
+```rust
+fn get_all_assets(env: Env, start_id: u64, limit: u32) -> Vec<AssetEntry>
+```
+
+Returns a page of registered assets starting from `start_id` (inclusive),
+capped at `limit` entries. Page through the full registry by calling again
+with `start_id = last_returned_id + 1` until the returned slice is shorter
+than `limit`.
+
+```ts
+// Page through all assets in TypeScript
+const REGISTRY = "CBX5SMLT…PUR3";
+const PAGE = 50;
+let startId = 0n;
+const all: AssetEntry[] = [];
+do {
+  const op = new Contract(REGISTRY).call(
+    "get_all_assets",
+    nativeToScVal(startId, { type: "u64" }),
+    nativeToScVal(PAGE, { type: "u32" }),
+  );
+  // build → simulate → scValToNative(retval)
+  const page: AssetEntry[] = await simulate(op);
+  all.push(...page);
+  if (page.length < PAGE) break;
+  startId = BigInt(page[page.length - 1].id) + 1n;
+} while (true);
+```
+
+<CalloutBox variant="note">
+Deployments from before pagination was introduced accept no arguments.
+The reference API indexer automatically detects this and falls back to
+the legacy zero-argument call, so it works with both contract versions.
+</CalloutBox>
 
 ### `deactivate_asset`
 
@@ -89,6 +128,33 @@ fn asset_count(env: Env) -> u64
 
 `total_value_locked` sums `valuation` across **active** assets, in USD cents.
 `asset_count` returns the total registered (active or not).
+
+### `active_count`
+
+```rust
+fn active_count(env: Env) -> u64
+```
+
+Returns the number of registered assets whose `active` flag is `true`.
+Unlike `asset_count`, it excludes assets deactivated by an administrator. It is
+read-only and requires no authorization.
+
+### Count and valuation units
+
+`asset_count` is a historical registration count; it does not decrease when an
+asset is deactivated. `active_count` is the currently listed count and can only
+decrease through `deactivate_asset`. `total_value_locked` is an `i128` sum of
+issuer-declared `valuation` values in **USD cents** (for example, `500_000_000`
+represents USD 5,000,000.00). It is not a token balance or a live oracle price.
+
+### Authority summary
+
+| Method | Authority |
+|---|---|
+| `initialize` | The supplied admin signs once |
+| `register_asset` | The issuer signs |
+| `deactivate_asset` | Stored admin |
+| `get_asset`, `get_assets_by_issuer`, `get_assets_by_type`, `get_all_assets`, `total_value_locked`, `asset_count`, `active_count` | Public read |
 
 ## Code example
 
@@ -110,7 +176,7 @@ const op = registry.call(
 | Topic | Data | Emitted by |
 |-------|------|------------|
 | `("register", issuer)` | `id` | `register_asset` |
-| `("deactvate",)` | `asset_id` | `deactivate_asset` |
+| `("deactivate",)` | `asset_id` | `deactivate_asset` |
 
 ## Error codes
 
@@ -135,3 +201,10 @@ const op = registry.call(
   should treat listing in the registry as *self-attestation*, and rely on the
   compliance contract for the actual holding restrictions.
 - **Deactivation is admin-only** and only affects TVL and listing, not the token.
+
+## What to read next
+
+- [Asset Token Contract](/docs/contracts/asset-token) — the token contract each registry entry points to.
+- [API · Assets](/docs/api/assets) — the REST endpoint backed by `get_all_assets`.
+- [Getting Started](/docs/getting-started) — deployed registry contract address and quickstart.
+- [Architecture Overview](/docs/architecture) — how the registry fits into the four-contract platform.

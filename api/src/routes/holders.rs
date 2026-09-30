@@ -1,5 +1,7 @@
 //! `GET /assets/:id/holders`.
 
+use std::collections::HashSet;
+
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -7,7 +9,7 @@ use axum::{
 use serde::Deserialize;
 
 use super::ApiError;
-use crate::indexer::AppState;
+use crate::indexer::{derive_allowed, AppState};
 use crate::models::{AddressHolding, Holder};
 
 const DEFAULT_PAGE_SIZE: usize = 50;
@@ -80,25 +82,48 @@ pub async fn by_address(
     Ok(Json(holdings))
 }
 
-/// Compliance view for a single address, showing which assets it currently holds.
+/// Compliance view for a single address, showing every asset whose allowlist
+/// contains the address (including zero-balance entries).
+///
+/// `status` and `allowed` reflect the real on-chain KYC record persisted in
+/// the snapshot — not a hardcoded constant.  An unknown address returns `[]`.
 pub async fn by_address_compliance(
     State(state): State<AppState>,
     Path(address): Path<String>,
 ) -> Result<Json<Vec<crate::models::AddressCompliance>>, ApiError> {
     let snap = state.snapshot();
+    let latest_ledger = snap.stats.last_indexed_ledger;
+    // Blocked jurisdictions are not yet fetched from the chain; default to
+    // empty so we don't incorrectly gate anyone.
+    let blocked: HashSet<String> = HashSet::new();
+
     let mut entries = Vec::new();
 
-    for (asset_id, holders) in &snap.holders {
-        if let Some(holder) = holders.iter().find(|h| h.address == address) {
+    for (asset_id, asset_records) in &snap.compliance_records {
+        if let Some(rec) = asset_records.get(&address) {
             if let Some(asset) = snap.asset(*asset_id) {
+                let balance = snap
+                    .holders
+                    .get(asset_id)
+                    .and_then(|holders| holders.iter().find(|h| h.address == address))
+                    .map(|h| h.balance.clone())
+                    .unwrap_or_else(|| "0".to_string());
+
+                let allowed = derive_allowed(rec, latest_ledger, &blocked);
                 entries.push(crate::models::AddressCompliance {
-                    address: holder.address.clone(),
+                    address: address.clone(),
                     asset_id: *asset_id,
                     asset_name: asset.name.clone(),
                     symbol: asset.symbol.clone(),
-                    balance: holder.balance.clone(),
-                    status: "approved".to_string(),
-                    allowed: true,
+                    balance,
+                    status: rec.status.clone(),
+                    allowed,
+                    jurisdiction: Some(rec.jurisdiction.clone()),
+                    expires_at: if rec.expires_at == 0 {
+                        None
+                    } else {
+                        Some(rec.expires_at)
+                    },
                 });
             }
         }
@@ -236,5 +261,121 @@ mod tests {
         assert_eq!(holdings.len(), 2);
         assert_eq!(holdings[0].asset_id, 1);
         assert_eq!(holdings[1].asset_id, 2);
+    }
+
+    // -------------------------------------------------------------------------
+    // #457 – by_address_compliance uses real on-chain records
+    // -------------------------------------------------------------------------
+
+    use super::by_address_compliance;
+    use crate::models::{ComplianceRecord, Stats};
+    use std::collections::HashMap;
+
+    fn crec(status: &str, jurisdiction: &str, expires_at: u32) -> ComplianceRecord {
+        ComplianceRecord {
+            status: status.to_string(),
+            jurisdiction: jurisdiction.to_string(),
+            expires_at,
+        }
+    }
+
+    fn snap_with_crec(
+        asset_id: u64,
+        address: &str,
+        rec: ComplianceRecord,
+        balance: i128,
+        latest_ledger: u32,
+    ) -> Snapshot {
+        let mut snap = Snapshot {
+            stats: Stats {
+                last_indexed_ledger: latest_ledger,
+                ..Stats::default()
+            },
+            ..Snapshot::default()
+        };
+        snap.assets.push(asset(asset_id));
+        if balance > 0 {
+            snap.holders.insert(
+                asset_id,
+                vec![crate::models::Holder {
+                    address: address.to_string(),
+                    balance: balance.to_string(),
+                    share_percent: 100.0,
+                }],
+            );
+        } else {
+            snap.holders.insert(asset_id, vec![]);
+        }
+        let mut crecs = HashMap::new();
+        crecs.insert(address.to_string(), rec);
+        snap.compliance_records.insert(asset_id, crecs);
+        snap
+    }
+
+    /// Suspended address: status="Suspended", allowed=false.
+    #[tokio::test]
+    async fn holders_compliance_suspended_is_not_allowed() {
+        let snap = snap_with_crec(1, "GADDR", crec("Suspended", "US", 0), 1_000, 100);
+        let state = state_with(snap);
+
+        let result = by_address_compliance(State(state), Path("GADDR".to_string()))
+            .await
+            .expect("should succeed")
+            .0;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].status, "Suspended");
+        assert!(!result[0].allowed, "Suspended must not be allowed");
+    }
+
+    /// Expired approval: status="Approved", expires_at in the past → allowed=false.
+    #[tokio::test]
+    async fn holders_compliance_expired_approval_is_not_allowed() {
+        // expires_at=50, latest_ledger=100 → expired
+        let snap = snap_with_crec(1, "GADDR", crec("Approved", "US", 50), 500, 100);
+        let state = state_with(snap);
+
+        let result = by_address_compliance(State(state), Path("GADDR".to_string()))
+            .await
+            .expect("should succeed")
+            .0;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].status, "Approved");
+        assert!(!result[0].allowed, "Expired approval must not be allowed");
+        assert_eq!(result[0].expires_at, Some(50));
+    }
+
+    /// Zero-balance allowlisted address appears with balance="0" and correct status.
+    #[tokio::test]
+    async fn holders_compliance_zero_balance_shows_allowlisted_entry() {
+        // balance=0 → not in holders map
+        let snap = snap_with_crec(1, "GADDR", crec("Approved", "SG", 0), 0, 100);
+        let state = state_with(snap);
+
+        let result = by_address_compliance(State(state), Path("GADDR".to_string()))
+            .await
+            .expect("should succeed")
+            .0;
+
+        assert_eq!(result.len(), 1, "allowlisted zero-balance address must appear");
+        assert_eq!(result[0].balance, "0");
+        assert!(result[0].allowed);
+    }
+
+    /// Unknown address returns empty array (not 404).
+    #[tokio::test]
+    async fn holders_compliance_unknown_address_returns_empty() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        snap.holders.insert(1, vec![]);
+        let state = state_with(snap);
+
+        let result = by_address_compliance(State(state), Path("GUNKNOWN".to_string()))
+            .await
+            .expect("should succeed")
+            .0;
+
+        assert!(result.is_empty(), "unknown address must return []");
     }
 }

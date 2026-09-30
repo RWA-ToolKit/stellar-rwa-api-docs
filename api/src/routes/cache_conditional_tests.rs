@@ -71,18 +71,31 @@ async fn data_route_sets_cache_control_and_etag() {
 }
 
 #[tokio::test]
-async fn matching_if_none_match_returns_304_with_empty_body() {
+async fn if_none_match_supports_lists_weak_tags_and_wildcard() {
     let etag = format!("\"ledger-{LEDGER}\"");
-    let response = get(app(), "/v1/stats", Some(&etag)).await;
+    let cases = [
+        (&etag[..], StatusCode::NOT_MODIFIED),
+        ("W/\"ledger-4242\"", StatusCode::NOT_MODIFIED),
+        (
+            "\"ledger-122\", \"ledger-4242\"",
+            StatusCode::NOT_MODIFIED,
+        ),
+        ("\"ledger-122\"", StatusCode::OK),
+        ("*", StatusCode::NOT_MODIFIED),
+        ("\"ledger-4242", StatusCode::OK),
+        ("\"ledger-4242\",", StatusCode::OK),
+    ];
 
-    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
-    assert_eq!(header_str(&response, header::ETAG), etag);
-    assert_eq!(
-        header_str(&response, header::CACHE_CONTROL),
-        format!("public, max-age={}", POLL_INTERVAL.as_secs())
-    );
-    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    assert!(body.is_empty(), "304 must not carry a body");
+    for (if_none_match, expected_status) in cases {
+        let response = get(app(), "/v1/stats", Some(if_none_match)).await;
+
+        assert_eq!(response.status(), expected_status, "{if_none_match}");
+        assert_eq!(header_str(&response, header::ETAG), etag);
+        if expected_status == StatusCode::NOT_MODIFIED {
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert!(body.is_empty(), "304 must not carry a body");
+        }
+    }
 }
 
 #[tokio::test]

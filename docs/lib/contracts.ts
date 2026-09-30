@@ -75,6 +75,23 @@ export const ASSET_TOKEN_CONTRACT: ContractSpec = {
       ],
     },
     {
+      name: "mint_batch",
+      returns: "void",
+      params: [
+        { name: "admin", type: "Address" },
+        { name: "recipients", type: "Vec<Address>" },
+        { name: "amounts", type: "Vec<i128>" },
+      ],
+      auth: "admin",
+      errors: [
+        "Unauthorized (3)",
+        "InvalidAmount (5)",
+        "Paused (6)",
+        "RecipientNotCompliant (8)",
+        "Overflow (9)",
+      ],
+    },
+    {
       name: "burn",
       returns: "void",
       params: [
@@ -234,7 +251,7 @@ export const DIVIDEND_CONTRACT: ContractSpec = {
     },
     {
       name: "create_distribution",
-      returns: "i128",
+      returns: "u64",
       params: [
         { name: "admin", type: "Address" },
         { name: "asset_token", type: "Address" },
@@ -244,13 +261,23 @@ export const DIVIDEND_CONTRACT: ContractSpec = {
       auth: "admin",
     },
     {
-      name: "claim_distribution",
+      name: "claimable",
       returns: "i128",
       params: [
+        { name: "distribution_id", type: "u64" },
         { name: "holder", type: "Address" },
-        { name: "distribution_id", type: "i128" },
+      ],
+      errors: ["DistributionNotFound (4)"],
+    },
+    {
+      name: "claim",
+      returns: "void",
+      params: [
+        { name: "distribution_id", type: "u64" },
+        { name: "holder", type: "Address" },
       ],
       auth: "holder",
+      errors: ["DistributionNotFound (4)", "NothingToClaim (6)", "AlreadyClaimed (7)"],
     },
     {
       name: "get_distribution",
@@ -261,6 +288,14 @@ export const DIVIDEND_CONTRACT: ContractSpec = {
       name: "get_distributions_for_asset",
       returns: "Vec<i128>",
       params: [{ name: "asset_token", type: "Address" }],
+    },
+    {
+      name: "has_claimed",
+      returns: "bool",
+      params: [
+        { name: "distribution_id", type: "u64" },
+        { name: "holder", type: "Address" },
+      ],
     },
   ],
 };

@@ -4,6 +4,9 @@
   "private": true,
   "description": "Documentation site for the Stellar RWA platform — contracts, API and web app.",
   "scripts": {
+    "build:search": "node scripts/build-search-index.mjs",
+    "prebuild": "node scripts/build-search-index.mjs",
+    "predev": "node scripts/build-search-index.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

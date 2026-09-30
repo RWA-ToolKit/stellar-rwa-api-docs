@@ -2,9 +2,12 @@ export const metadata = {
   title: "Compliance Guide",
   description: "The core of an RWA platform — allowlists, transfer gating, jurisdictions, KYC expiry.",
   canonical: "/docs/compliance-guide",
+  lastReviewed: "2026-09-26",
 };
 
 # Compliance Guide
+
+<LastReviewed date={metadata.lastReviewed} />
 
 Compliance is what separates a **real-world asset platform** from a plain token
 factory. Anyone can mint a token; the hard part — and the regulated part — is
@@ -33,7 +36,8 @@ asking a separate compliance contract for permission.
 ## How the allowlist model works
 
 The [compliance contract](/docs/contracts/compliance) maintains a **KYC allowlist**:
-a set of `KycRecord`s, one per address. Each record carries:
+a set of `KycRecord`s, one per address. A `KycRecord` is the on-chain struct that
+stores everything the compliance contract knows about one address. Each record carries:
 
 - a **status** — `Approved`, `Pending`, `Rejected`, or `Suspended`
 - a **jurisdiction** — an ISO country code (`US`, `KE`, `DE`, …)
@@ -64,6 +68,33 @@ transfer(from, to, amount)
   ├─ compliance.is_allowed(from)   ── cross-contract call ──▶ compliance contract
   ├─ compliance.is_allowed(to)     ── cross-contract call ──▶ compliance contract
   └─ move balances + emit event
+```
+
+The same gate as a sequence. The sender is checked first, so a transfer
+between two non-approved addresses fails with `SenderNotCompliant` and the
+recipient check never runs:
+
+```text
+Caller             Asset token                     Compliance contract
+  │                    │                                    │
+  │ transfer(from,     │                                    │
+  │   to, amount) ───▶ │                                    │
+  │                    │ from.require_auth(), assert !paused│
+  │                    │                                    │
+  │                    │ is_allowed(from) ────────────────▶ │
+  │                    │ ◀──────────────────── true | false │
+  │                    │                                    │
+  │                    ├─ false ─▶ revert SenderNotCompliant (7)
+  │                    │           (no balance change, no event)
+  │                    │                                    │
+  │                    │ is_allowed(to) ──────────────────▶ │
+  │                    │ ◀──────────────────── true | false │
+  │                    │                                    │
+  │                    ├─ false ─▶ revert RecipientNotCompliant (8)
+  │                    │           (no balance change, no event)
+  │                    │                                    │
+  │                    │ both true: move balances,          │
+  │ ◀──────── ok ───── │ emit transfer event                │
 ```
 
 If either `is_allowed` returns `false`, the transaction **reverts** — no balance
@@ -178,3 +209,10 @@ escrow, the API, the web app — is built around the single invariant it enforce
 Next, see how issuers operate this in practice in the
 [Web App Guide](/docs/web-app), or how to read compliance state programmatically in
 the [Integration Guide](/docs/integration).
+
+## What to read next
+
+- [Compliance Contract](/docs/contracts/compliance) — full function reference for `add_to_allowlist`, `is_allowed`, `block_jurisdiction`, and more.
+- [Integration Guide](/docs/integration) — check `is_allowed` live before submitting a transfer.
+- [Web App Guide](/docs/web-app) — manage the allowlist and distribute dividends as an issuer.
+- [API · Compliance](/docs/api/compliance) — read aggregate compliance stats (counts, jurisdictions) over REST.

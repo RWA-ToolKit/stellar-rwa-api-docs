@@ -1,10 +1,28 @@
-/node_modules
-/.next/
-/out/
-/build
+# Next.js build output
+.next/
+out/
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# TypeScript build info
+*.tsbuildinfo
 next-env.d.ts
+
+# Test artifacts
+__snapshots__/
+*.snap
+coverage/
+.nyc_output/
+
+# Env
 .env
 .env*.local
-*.tsbuildinfo
+
+# Vercel
+.vercel/
+
+# OS
 .DS_Store
-.vercel

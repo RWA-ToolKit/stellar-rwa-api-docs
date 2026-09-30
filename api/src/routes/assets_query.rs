@@ -127,6 +127,9 @@ pub async fn list(
                 ord
             }
         });
+    } else {
+        // When no explicit sort specified, use stable ordering by ID.
+        assets.sort_by_key(|a| a.id);
     }
     let page: Vec<_> = assets
         .into_iter()

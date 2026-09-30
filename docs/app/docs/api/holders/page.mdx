@@ -2,9 +2,12 @@ export const metadata = {
   title: "API · Holders",
   description: "Holder list with balances for a tokenized asset.",
   canonical: "/docs/api/holders",
+  lastReviewed: "2026-08-28",
 };
 
 # Holders
+
+<LastReviewed date={metadata.lastReviewed} />
 
 <CalloutBox variant="note">
 Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
@@ -29,18 +32,23 @@ the indexer derives this from the allowlist intersected with balances.
 | `offset` | integer | Skip the first N holders. Default: `0`. |
 | `limit` | integer | Page size. Default: `50`; maximum: `100`. |
 
-**Response schema** (per holder):
+**Response schema** (`Holder`, per holder):
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `address` | string | Holder account |
-| `balance` | string | Base units (`i128`) |
-| `share_percent` | number | Percent of total supply, 0–100 (2 dp) |
+| `balance` | string | Balance in **base units** (`i128` string in the asset token's `decimals` base). Divide by `10 ** decimals` (from the asset's metadata) to get the display balance. |
+| `share_percent` | number | Share of total token supply, 0–100 with 2 decimal places (`balance / total_supply * 100`). |
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `address` | string | — | No | Holder account address |
+| `balance` | string | Asset-token base units | No | Exact balance (`i128` serialized as a decimal string) |
+| `share_percent` | number | Percent | No | Share of total supply, 0–100 |
 
 **Example**
 
 ```bash
-curl $API_BASE_URL/assets/1/holders
+curl $API_BASE_URL/v1/assets/1/holders
 ```
 
 ```json
@@ -59,8 +67,78 @@ Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown.
 asset with holders but none currently holding a positive balance returns an empty
 array `[]`.
 
+<CalloutBox variant="tip" title="Balance conversion example">
+Holder balances are raw integers on-chain. To format a balance for end users, query the asset's `decimals` value and scale the integer:
+
+```typescript
+// Given holder.balance = "1000000" and asset.decimals = 2:
+const rawBalance = BigInt(holder.balance);
+const displayBalance = Number(rawBalance) / (10 ** asset.decimals);
+// => 10,000.00 tokens
+```
+</CalloutBox>
+
 <CalloutBox variant="note">
 Holders are sorted by balance, largest first. `share_percent` is computed from
 `balance / total_supply` at index time, so it reflects the most recent 10-second
 refresh.
+</CalloutBox>
+
+---
+
+<ApiEndpoint method="GET" path="/holders/:address/compliance" description="Compliance status for a single address across all assets it is allowlisted on." />
+
+Returns every asset whose compliance allowlist contains `address`, with the
+**real on-chain KYC status and derived `allowed` flag** for each.  Addresses
+with a zero balance still appear (with `"balance": "0"`) — distinguishable from
+an unknown address, which returns an empty array `[]`.
+
+**Path parameters**
+
+| Name | Type | Notes |
+|------|------|-------|
+| `address` | string | Stellar account address (G…) |
+
+**Response schema** (array of objects):
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `address` | string | The queried address |
+| `asset_id` | number | Registry asset ID |
+| `asset_name` | string | Asset name |
+| `symbol` | string | Ticker symbol |
+| `balance` | string | Base-unit balance. `"0"` if allowlisted but not holding. |
+| `status` | string | On-chain KYC status: `"Approved"`, `"Suspended"`, `"Rejected"`, `"Pending"` |
+| `allowed` | boolean | `true` when `status == "Approved"`, record is not expired, and jurisdiction is not blocked |
+| `jurisdiction` | string \| null | ISO jurisdiction code from the KYC record |
+| `expires_at` | number \| null | Ledger at which approval expires; `null` if no expiry set |
+
+**Example**
+
+```bash
+curl $API_BASE_URL/holders/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA/compliance
+```
+
+```json
+[
+  {
+    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+    "asset_id": 1,
+    "asset_name": "RWA Property Fund",
+    "symbol": "RPF",
+    "balance": "1000000",
+    "status": "Approved",
+    "allowed": true,
+    "jurisdiction": "US",
+    "expires_at": null
+  }
+]
+```
+
+<CalloutBox variant="warning" title="allowed vs. the live on-chain gate">
+`allowed` is derived from the last snapshot (≈10 s old). It mirrors the
+compliance contract's `is_allowed` logic: `status == "Approved"`, record not
+expired at the latest indexed ledger, and jurisdiction not blocked. For
+security-critical pre-transfer checks, call the compliance contract's
+`is_allowed` entry point directly rather than relying solely on this field.
 </CalloutBox>

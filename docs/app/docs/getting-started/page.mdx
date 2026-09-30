@@ -2,9 +2,12 @@ export const metadata = {
   title: "Getting Started",
   description: "What the Stellar RWA Toolkit is, how asset tokenization works, and how to run it.",
   canonical: "/docs/getting-started",
+  lastReviewed: "2026-09-28",
 };
 
 # Getting Started
+
+<LastReviewed date={metadata.lastReviewed} />
 
 The **Stellar RWA Toolkit** is an end-to-end system for tokenizing real-world
 assets (RWAs) — real estate, invoices, commodities — on Stellar using Soroban
@@ -56,7 +59,9 @@ asset. See the [Compliance Guide](/docs/compliance-guide).
 ```
 
 - The **web app** signs and submits transactions through the user's wallet.
-- The **API** only reads: it indexes on-chain state every 10 seconds and never
+- The **API** only reads: it indexes on-chain state every 10 seconds via
+  `simulateTransaction` (the Soroban RPC method that runs a contract function
+  read-only without submitting anything to the network) and never
   holds a key or signs anything.
 
 ## Prerequisites
@@ -133,15 +138,23 @@ curl http://localhost:8080/v1/assets
 [
   {
     "id": 1,
-    "contract_id": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+    "token_contract": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+    "issuer": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
     "name": "Manhattan Loft",
     "symbol": "MLOFT",
     "asset_type": "real_estate",
+    "description": "A tokenized loft in Manhattan",
     "decimals": 7,
     "total_supply": "50000000000000",
     "valuation_cents": "500000000",
     "valuation_usd": 5000000.0,
-    "active": true
+    "holders": 1,
+    "active": true,
+    "paused": false,
+    "compliance_contract": "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU",
+    "created_at_ledger": 3502885,
+    "indexed_at_ledger": 3502885,
+    "index_error": null
   }
 ]
 ```
@@ -155,15 +168,23 @@ curl http://localhost:8080/v1/assets/1
 ```json
 {
   "id": 1,
-  "contract_id": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "token_contract": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "issuer": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
   "name": "Manhattan Loft",
   "symbol": "MLOFT",
   "asset_type": "real_estate",
+  "description": "A tokenized loft in Manhattan",
   "decimals": 7,
   "total_supply": "50000000000000",
   "valuation_cents": "500000000",
   "valuation_usd": 5000000.0,
-  "active": true
+  "holders": 1,
+  "active": true,
+  "paused": false,
+  "compliance_contract": "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU",
+  "created_at_ledger": 3502885,
+  "indexed_at_ledger": 3502885,
+  "index_error": null
 }
 ```
 
@@ -220,10 +241,15 @@ curl http://localhost:8080/v1/assets/1/compliance
 
 ```json
 {
-  "asset_id": 1,
-  "total_approved": 1,
-  "total_suspended": 0,
-  "total_expired": 0
+  "total_records": 1,
+  "approved": 1,
+  "suspended": 0,
+  "rejected": 0,
+  "pending": 0,
+  "with_expiry": 0,
+  "jurisdictions": [
+    { "jurisdiction": "US", "count": 1 }
+  ]
 }
 ```
 
@@ -286,6 +312,60 @@ docker run -p 8080:8080 --env-file .env stellar-rwa-api
 
 Then run the same curl commands from step 2 against `http://localhost:8080`.
 
+## Reading contract state without a wallet
+
+**Reads need no wallet, no secret key and no funds.** Every read is a
+*simulated* contract invocation: an unsigned transaction is sent to the Soroban
+RPC `simulateTransaction` method, which executes the call and returns the result
+without ever submitting it to the ledger. Nothing is signed, no fee is charged
+and no state changes.
+
+This is exactly how the API indexer works — it simulates view calls such as
+`get_all_assets`, `get_metadata` and `balance`, using `RWA_READ_SOURCE` only as
+the transaction's source address. That account is never asked to sign and
+never pays anything; it just needs to exist on the network.
+
+You have two wallet-free options:
+
+1. **The REST API** — the `curl` commands in the Quickstart above serve
+   an indexed snapshot of the same state.
+2. **Simulate directly against Soroban RPC** — no API server needed. Save this
+   as `read.ts` and run it with `npm install @stellar/stellar-sdk && npx tsx read.ts`:
+
+```ts
+import {
+  Account, BASE_FEE, Contract, Networks, TransactionBuilder, rpc, scValToNative,
+} from "@stellar/stellar-sdk";
+
+const server = new rpc.Server("https://soroban-testnet.stellar.org");
+const ASSET_TOKEN = "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ";
+
+// Any existing account works as the source. No secret key is used, and the
+// sequence number is irrelevant because the transaction is never submitted.
+const source = new Account("GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA", "0");
+
+const tx = new TransactionBuilder(source, {
+  fee: BASE_FEE,
+  networkPassphrase: Networks.TESTNET,
+})
+  .addOperation(new Contract(ASSET_TOKEN).call("get_metadata"))
+  .setTimeout(30)
+  .build();
+
+const sim = await server.simulateTransaction(tx);
+if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error);
+console.log(scValToNative(sim.result!.retval)); // { name: "Manhattan Loft", symbol: "MLOFT", ... }
+```
+
+<CalloutBox variant="note" title="Reads vs. writes">
+A **read** is only simulated: unsigned, free, and it never changes state. A
+**write** (`transfer`, `mint`, allowlist changes, dividend claims) must be
+signed by the authorizing account — usually through Freighter — pays a network
+fee in XLM, and is submitted with `sendTransaction` to change on-chain state.
+Simulating a write only *previews* it; nothing happens until it is signed and
+submitted. See [Integration](/docs/integration).
+</CalloutBox>
+
 ## Network guide
 
 Everything is deployed on **Testnet**. The network passphrase is:
@@ -295,7 +375,8 @@ Test SDF Network ; September 2015
 ```
 
 Point Freighter at Testnet and fund your account with the
-[friendbot](https://friendbot.stellar.org) before interacting.
+[Stellar Laboratory account creator](https://laboratory.stellar.org/account-creator)
+before interacting.
 
 <CalloutBox variant="warning">
 These contracts are deployed on Testnet for demonstration. Do not use them to
@@ -324,14 +405,32 @@ read-only simulations do not submit transactions; deployments and writes do incu
 Mainnet fees. See the [Integration Guide](/docs/integration) for the
 simulate-and-assemble flow.
 
-## Deployed contract addresses (Testnet)
+## How to verify this yourself
+
+Open any contract in [Stellar Expert](https://stellar.expert/explorer/testnet) to
+check its Testnet deployment and on-chain activity:
 
 | Contract    | Contract ID |
 |-------------|-------------|
-| compliance  | `CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU` |
-| asset-token | `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ` |
-| registry    | `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` |
-| dividend    | `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX` |
+| compliance  | [`CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU`](https://stellar.expert/explorer/testnet/contract/CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU) |
+| asset-token | [`CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ`](https://stellar.expert/explorer/testnet/contract/CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ) |
+| registry    | [`CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3`](https://stellar.expert/explorer/testnet/contract/CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3) |
+| dividend    | [`CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX`](https://stellar.expert/explorer/testnet/contract/CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX) |
+
+You can also call a read-only view on the registry with the Stellar CLI:
+
+```bash
+stellar contract invoke \
+  --contract-id CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3 \
+  --source-account GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA \
+  --network testnet \
+  --send no \
+  -- get_all_assets
+```
+
+`--send no` simulates the call and returns its result without signing or
+submitting a transaction. The source is a public Testnet address; you do not need
+your own wallet, secret key, or funds.
 
 The admin / issuer account for the sample deployment is
 `GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA`, and the sample asset
@@ -339,3 +438,10 @@ is **Manhattan Loft** (`MLOFT`), a `real_estate` asset valued at $5,000,000.
 
 Continue to the [Compliance Guide](/docs/compliance-guide) — the concept that
 makes this an RWA platform rather than a plain token factory.
+
+## What to read next
+
+- [Architecture Overview](/docs/architecture) — understand how the API, contracts, and web app fit together.
+- [Compliance Guide](/docs/compliance-guide) — how the on-chain transfer gate works and why it matters.
+- [API Overview](/docs/api/overview) — the REST service conventions and all available endpoints.
+- [Integration Guide](/docs/integration) — query the API and call contracts directly from TypeScript.

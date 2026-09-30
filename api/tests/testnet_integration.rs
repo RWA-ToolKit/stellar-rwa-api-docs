@@ -9,9 +9,10 @@
 //! RUN_TESTNET_TESTS=1 cargo test --test testnet_integration -- --ignored
 //! ```
 //!
-//! If `RUN_TESTNET_TESTS` isn't set, each test skips itself with a clear
-//! message instead of failing, so accidentally running with `--ignored` in
-//! an offline environment doesn't produce a red build.
+//! The scheduled workflow treats a failure as an observational drift signal:
+//! it uploads this test output, writes a run summary, and compares recent
+//! scheduled outcomes to distinguish a transient outage from persistent drift.
+//! It does not put a failing Testnet check on the merge path.
 
 use serde_json::json;
 
@@ -50,22 +51,22 @@ async fn testnet_rpc_reports_healthy() {
         .json(&body)
         .send()
         .await
-        .unwrap_or_else(|e| panic!("failed to reach testnet RPC at {rpc_url}: {e}"));
+        .unwrap_or_else(|e| panic!("testnet drift: getHealth request to {rpc_url} failed: {e}"));
 
     assert!(
         resp.status().is_success(),
-        "testnet RPC returned non-success status: {}",
+        "testnet drift: getHealth at {rpc_url} returned non-success status: {}",
         resp.status()
     );
 
     let value: serde_json::Value = resp
         .json()
         .await
-        .expect("testnet RPC response was not valid JSON");
+        .expect("testnet drift: getHealth response was not valid JSON");
 
     assert_eq!(
         value["result"]["status"], "healthy",
-        "unexpected getHealth response: {value}"
+        "testnet drift: unexpected getHealth response from {rpc_url}: {value}"
     );
 }
 
@@ -93,21 +94,21 @@ async fn testnet_rpc_reports_recent_ledger() {
         .json(&body)
         .send()
         .await
-        .unwrap_or_else(|e| panic!("failed to reach testnet RPC at {rpc_url}: {e}"));
+        .unwrap_or_else(|e| panic!("testnet drift: getLatestLedger request to {rpc_url} failed: {e}"));
 
     let value: serde_json::Value = resp
         .json()
         .await
-        .expect("testnet RPC response was not valid JSON");
+        .expect("testnet drift: getLatestLedger response was not valid JSON");
 
     let sequence = value["result"]["sequence"]
         .as_u64()
-        .unwrap_or_else(|| panic!("unexpected getLatestLedger response: {value}"));
+        .unwrap_or_else(|| panic!("testnet drift: unexpected getLatestLedger response from {rpc_url}: {value}"));
 
     // Testnet has been running for years; a non-trivial sequence number is
     // enough to confirm this is a real, synced node and not a stub.
     assert!(
         sequence > 1_000_000,
-        "ledger sequence {sequence} looks implausibly low for testnet"
+        "testnet drift: ledger sequence {sequence} from {rpc_url} looks implausibly low for testnet"
     );
 }

@@ -1,0 +1,80 @@
+export const metadata = {
+  title: "API deployment",
+  description: "Resource requirements and operational wiring for the Stellar RWA API.",
+  canonical: "/docs/deployment",
+};
+
+# Deploying the Stellar RWA API
+
+The API is a long-running indexer. It keeps the latest decoded snapshot and
+query indexes in memory, while using Soroban RPC for polling. Size the service
+for the snapshot rather than treating it as a stateless request proxy.
+
+## Resource profile
+
+The following is a safe starting point for one network and a moderate workload:
+
+| Resource | Starting point | Scale when |
+|---|---:|---|
+| CPU | 1 vCPU | polling, decoding, or concurrent requests saturate the process |
+| Memory | 512 MiB | the snapshot, decoded events, or query indexes approach the limit |
+| Disk | 1 GiB ephemeral minimum | logs or an optional local cache are retained |
+| Replicas | 1 per indexed network | each replica must have an independent poller/coordination policy |
+
+Memory is workload-dependent. A large holder/event snapshot can require several
+times the baseline; set a container memory limit and alert before the process is
+OOM-killed. Do not run an unbounded number of pollers in the same process.
+
+## Configuration
+
+Set the RPC and deployment values in the service environment (names may vary by
+the API release):
+
+```dotenv
+SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
+RWA_NETWORK=testnet
+RWA_CONTRACT_ID=C...
+RWA_POLL_INTERVAL_MS=5000
+RWA_METRICS_TOKEN=change-me
+PORT=8080
+```
+
+Keep credentials such as `RWA_METRICS_TOKEN` in the platform secret store, not in
+an image or a committed `.env` file. Use a separate deployment and contract ID
+for each network.
+
+## Sample container deployment
+
+```yaml
+services:
+  rwa-api:
+    image: ghcr.io/rwa-toolkit/stellar-rwa-api:latest
+    restart: unless-stopped
+    environment:
+      SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
+      RWA_NETWORK: testnet
+      RWA_CONTRACT_ID: ${RWA_CONTRACT_ID}
+      RWA_METRICS_TOKEN: ${RWA_METRICS_TOKEN}
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+```
+
+## Health and metrics
+
+Configure the platform liveness probe to call `GET /health`. A successful
+response means the HTTP process is alive; it is not a guarantee that the poller
+is caught up. Scrape `GET /metrics` from a private network and send the bearer
+token configured by `RWA_METRICS_TOKEN`. Alert on stale poll timestamps, repeated
+RPC errors, process restarts, and memory pressure. Put a reverse proxy or
+network policy in front of both endpoints when they are exposed outside the
+cluster.
+
+During rollout, wait for `/health` and a recent poll timestamp in metrics before
+removing the previous instance. Keep graceful shutdown enabled so an in-flight
+poll can finish without publishing a partial snapshot.

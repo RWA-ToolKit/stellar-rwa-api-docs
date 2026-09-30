@@ -2,9 +2,12 @@ export const metadata = {
   title: "API · Filtering and sorting assets",
   description: "Filter and sort the asset list server-side.",
   canonical: "/docs/api/assets-query",
+  lastReviewed: "2026-09-26",
 };
 
 # Filtering and sorting assets
+
+<LastReviewed date={metadata.lastReviewed} />
 
 `GET /v1/assets` accepts these query parameters:
 
@@ -12,7 +15,7 @@ export const metadata = {
 | --- | --- | --- |
 | `asset_type` | e.g. `real_estate` | Only assets of this class. |
 | `active` | `true`, `false` | Only active or inactive assets. |
-| `sort` | `valuation` | Sort by USD valuation. |
+| `sort` | `valuation` | Sort by USD valuation (ordered by `valuation_cents` in USD cents). |
 | `order` | `asc`, `desc` (default) | Direction; requires `sort`. |
 | `offset`, `limit` | integers | Pagination (limit defaults to 50, max 100). |
 
@@ -22,3 +25,10 @@ curl "$API_BASE_URL/v1/assets?asset_type=real_estate&sort=valuation&order=asc"
 
 Invalid or unknown parameters return `400` with a body of the form
 `{"error": "invalid_parameter", "message": "..."}`.
+
+## What to read next
+
+- [API · Assets](/docs/api/assets) — full response schema and per-asset endpoints.
+- [API · Field Selection](/docs/api/field-selection) — combine `?fields=` with filter parameters.
+- [API · Error Bodies](/docs/api/errors) — details on the `400` error shape.
+- [Rate Limits & Caching](/docs/api/rate-limits) — use ETags to poll filtered lists efficiently.

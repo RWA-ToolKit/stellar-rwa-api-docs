@@ -71,6 +71,19 @@ pub struct AddressHolding {
     pub share_percent: f64,
 }
 
+/// The raw on-chain KYC record for one address within one asset's compliance
+/// contract. Persisted in the snapshot so routes can derive `allowed` without
+/// an extra RPC call.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct ComplianceRecord {
+    /// KYC status string, e.g. `"Approved"`, `"Suspended"`, `"Rejected"`, `"Pending"`.
+    pub status: String,
+    /// ISO jurisdiction code from the on-chain record.
+    pub jurisdiction: String,
+    /// Ledger-based expiry (`expires_at` field). `0` means no expiry set.
+    pub expires_at: u32,
+}
+
 /// Compliance status for a single address within an asset.
 #[derive(Debug, Clone, Serialize)]
 pub struct AddressCompliance {
@@ -79,8 +92,16 @@ pub struct AddressCompliance {
     pub asset_name: String,
     pub symbol: String,
     pub balance: String,
+    /// KYC status string from the on-chain record (`"Approved"`, `"Suspended"`, etc.).
+    /// `"none"` when the address is unknown to this asset's compliance contract.
     pub status: String,
+    /// `true` when `status == "Approved"`, the record has not expired at the
+    /// latest indexed ledger, and the record's jurisdiction is not blocked.
     pub allowed: bool,
+    /// ISO jurisdiction code, `null` when the address is unknown.
+    pub jurisdiction: Option<String>,
+    /// Ledger at which approval expires; `null` if no expiry or unknown address.
+    pub expires_at: Option<u32>,
 }
 
 /// Aggregate, non-PII summary of an asset's compliance allowlist.

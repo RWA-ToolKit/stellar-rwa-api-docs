@@ -2,9 +2,12 @@ export const metadata = {
   title: "API Changelog",
   description: "Changes to the documented public surface of the Stellar RWA API, by version.",
   canonical: "/docs/changelog",
+  lastReviewed: "2026-09-28",
 };
 
 # API Changelog
+
+<LastReviewed date={metadata.lastReviewed} />
 
 This page tracks changes to the **documented public surface** of the Stellar RWA
 API: endpoints, query parameters, response fields, headers, and status codes.
@@ -72,3 +75,10 @@ surface:
 4. On release (see `RELEASING.md`), rename **Unreleased** to
    `<version> — <YYYY-MM-DD>`, matching the tag and the `CHANGELOG.md` section,
    and start a new empty **Unreleased** section above it.
+
+## What to read next
+
+- [API Overview](/docs/api/overview) — the current endpoint list and versioning policy.
+- [OpenAPI Specification](/docs/api/openapi) — machine-readable spec reflecting the current API surface.
+- [Getting Started](/docs/getting-started) — run the API and verify the current version with `GET /version`.
+- [Architecture Overview](/docs/architecture) — the stability contract between the API, contracts, and web app.

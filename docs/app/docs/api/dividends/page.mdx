@@ -2,9 +2,12 @@ export const metadata = {
   title: "API · Dividends",
   description: "Distribution history for a tokenized asset.",
   canonical: "/docs/api/dividends",
+  lastReviewed: "2026-08-29",
 };
 
 # Dividends
+
+<LastReviewed date={metadata.lastReviewed} />
 
 <CalloutBox variant="note">
 Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
@@ -21,24 +24,35 @@ creation ledger (newest first).
 |------|------|-------|
 | `id` | number | Registry id |
 
-**Response schema** (per distribution):
+**Response schema** (`Distribution`, per distribution):
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | number | Distribution id |
 | `asset_token` | string | The asset paid out on |
 | `payment_token` | string | Token used to pay |
-| `total_amount` | string | Pool size, base units (`i128`) |
-| `distributed` | string | Claimed so far, base units (`i128`) |
-| `claimed_percent` | number | 0–100 (2 dp) |
+| `total_amount` | string | Pool size in **payment-token base units** (`i128` string). Divide by `10 ** payment_token_decimals` to get human-readable units. |
+| `distributed` | string | Claimed so far in **payment-token base units** (`i128` string). Divide by `10 ** payment_token_decimals` to get human-readable units. |
+| `claimed_percent` | number | Percentage of pool claimed, 0–100 with 2 decimal places (`f64`). |
 | `overflow_detected` | boolean | `true` when `distributed` exceeds `total_amount` (on-chain anomaly, not an API bug) |
 | `completed` | boolean | `true` once fully claimed |
 | `created_at_ledger` | number | |
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `id` | integer | Distribution id | No | |
+| `asset_token` | string | — | No | Asset-token contract address |
+| `payment_token` | string | — | No | Payment-token contract address |
+| `total_amount` | string | Payment-token base units | No | Exact pool size (`i128` serialized as a decimal string) |
+| `distributed` | string | Payment-token base units | No | Exact amount claimed so far (`i128` serialized as a decimal string) |
+| `claimed_percent` | number | Percent | No | Claimed share of the pool; may exceed 100 when `overflow_detected` is true |
+| `overflow_detected` | boolean | — | No | `true` when `distributed` exceeds `total_amount` (on-chain anomaly, not an API bug) |
+| `completed` | boolean | — | No | `true` once fully claimed |
+| `created_at_ledger` | integer | Ledger sequence | No | |
 
 **Example**
 
 ```bash
-curl $API_BASE_URL/assets/1/dividends
+curl $API_BASE_URL/v1/assets/1/dividends
 ```
 
 ```json
@@ -81,7 +95,7 @@ Same shape as a single item from the list above.
 **Example**
 
 ```bash
-curl $API_BASE_URL/assets/1/distributions/1
+curl $API_BASE_URL/v1/assets/1/distributions/1
 ```
 
 ```json
@@ -92,6 +106,7 @@ curl $API_BASE_URL/assets/1/distributions/1
   "total_amount": "100000000000",
   "distributed": "25000000000",
   "claimed_percent": 25.0,
+  "overflow_detected": false,
   "completed": false,
   "created_at_ledger": 3510000
 }
@@ -101,8 +116,33 @@ curl $API_BASE_URL/assets/1/distributions/1
 
 Returns `404` with `{ "error": "not_found", … }` when the asset id or the distribution id is unknown.
 
+<CalloutBox variant="tip" title="Payment-token units and conversion">
+`total_amount` and `distributed` are measured in the **payment token's** base units, not the asset token's. Classic Stellar assets (SACs) such as USDC use 7 decimals, whereas other tokens may specify different decimals.
+
+```typescript
+// Converting distribution amounts for a payment token with 7 decimals (e.g. SAC USDC):
+const paymentDecimals = 7;
+
+// Pool size:
+const rawTotal = BigInt(distribution.total_amount); // "100000000000"
+const displayTotal = Number(rawTotal) / (10 ** paymentDecimals);
+// => 10,000.0 USDC
+
+// Claimed so far:
+const rawDistributed = BigInt(distribution.distributed); // "25000000000"
+const displayDistributed = Number(rawDistributed) / (10 ** paymentDecimals);
+// => 2,500.0 USDC
+```
 <CalloutBox variant="note">
 `total_amount` and `distributed` are in the **payment token's** base units, not the
-asset token's. Classic Stellar assets (SACs) use 7 decimals, so `100000000000`
+asset token's. Classic Stellar assets (SACs — Stellar Asset Contracts, the on-chain
+representation of classic Stellar assets like USDC) use 7 decimals, so `100000000000`
 above is `10,000.0` units of the payment token.
 </CalloutBox>
+
+## What to read next
+
+- [Dividend Contract](/docs/contracts/dividend) — `create_distribution`, `claim`, and the full function surface.
+- [API · Assets](/docs/api/assets) — get the asset's `token_contract` to cross-reference distributions.
+- [Web App Guide](/docs/web-app) — create distributions and let holders claim through the UI.
+- [Time & Ledgers](/docs/time-and-ledgers) — understand `created_at_ledger` values in distribution responses.

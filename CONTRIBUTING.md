@@ -38,11 +38,42 @@ This monorepo contains two independent projects with separate toolchains:
 
 ```bash
 cd docs
-npm install
+npm ci
 npm run dev      # http://localhost:3000
-npm run build    # must pass before you open a PR
-npm run lint     # Check for style issues
+npm run lint     # ESLint — catches style and import issues
+npm run build    # Next.js production build — must pass before you open a PR
 ```
+
+#### Local CI checks
+
+Before pushing, run the two checks that CI will run on your PR:
+
+**1. MDX sample checker**
+
+```bash
+cd docs
+npm run check:mdx-samples
+```
+
+This extracts every fenced `ts`, `tsx`, `js`, and `jsx` code block from `.mdx`
+files under `docs/app/` and verifies that each one parses as valid JavaScript or
+TypeScript. It checks **syntax only** — it does not run the samples, resolve
+imports, or type-check them. Blocks fenced as `bash`, `json`, `rust`, or other
+languages are skipped. Run this any time you add or change a TypeScript example.
+
+**2. Production build**
+
+```bash
+cd docs
+npm run build
+```
+
+A passing build confirms that all MDX pages compile, internal links resolve, and
+Next.js can generate the static site. This is the same command CI runs; a PR
+cannot be merged if it fails.
+
+Both commands are referenced from `docs/CONTRIBUTING-DOCS.md`, which also covers
+adding pages and updating navigation.
 
 ### API (Rust) — Maintainer-only
 

@@ -2,9 +2,12 @@ export const metadata = {
   title: "Compliance Contract",
   description: "KYC allowlist and jurisdiction rules — the on-chain transfer gate.",
   canonical: "/docs/contracts/compliance",
+  lastReviewed: "2026-09-26",
 };
 
 # Compliance Contract
+
+<LastReviewed date={metadata.lastReviewed} />
 
 Maintains the KYC allowlist and jurisdiction rules that gate who may hold or
 transfer a tokenized asset. The asset-token contract calls
@@ -111,6 +114,40 @@ Blocking a jurisdiction makes **every** approved address in that jurisdiction fa
 `is_allowed`, without touching individual records. **Auth:** admin for the mutating
 calls.
 
+### `status_of`
+
+```rust
+fn status_of(env: Env, address: Address) -> ComplianceStatus
+```
+
+Returns the current status for an address. Unknown addresses are `Rejected`;
+expiry and jurisdiction blocking are evaluated by `is_allowed`, not by changing
+the stored status. This is a read-only call and requires no authorization.
+
+### `prune_expired`
+
+```rust
+fn prune_expired(env: Env, admin: Address, limit: u32) -> u32
+```
+
+Removes up to `limit` expired records and returns the number removed. It is an
+optional storage-maintenance operation: expiry already makes an address fail
+`is_allowed` immediately, so pruning does not change transfer authorization.
+**Auth:** `admin`. Use a bounded limit and repeat the call for large allowlists.
+
+### Authority summary
+
+| Method | Authority |
+|---|---|
+| `initialize` | The supplied admin signs once |
+| `add_to_allowlist`, `suspend`, `remove` | Stored admin |
+| `block_jurisdiction`, `unblock_jurisdiction`, `prune_expired` | Stored admin |
+| `is_allowed`, `get_record`, `status_of`, `get_allowlist`, `is_jurisdiction_blocked` | Public read |
+
+`ComplianceStatus` values are `Approved` (passes when unexpired and not blocked),
+`Pending` (verification is incomplete), `Rejected` (not approved), and
+`Suspended` (temporarily disabled). Only `Approved` can pass the gate.
+
 ## Code example
 
 Approve an investor in the US with a one-year expiry (~6.3M ledgers at 5s each):
@@ -158,3 +195,10 @@ const op = compliance.call(
   freezes every `US` holder's ability to transfer. Use deliberately.
 - **`remove` vs `suspend`:** `suspend` is reversible and keeps the audit record;
   `remove` erases it. Prefer `suspend` for temporary actions.
+
+## What to read next
+
+- [Compliance Guide](/docs/compliance-guide) — the conceptual model behind allowlists, expiry, and jurisdiction rules.
+- [Asset Token Contract](/docs/contracts/asset-token) — how `is_allowed` is called on every transfer and mint.
+- [API · Compliance](/docs/api/compliance) — read aggregate compliance stats over REST.
+- [Integration Guide](/docs/integration) — call `is_allowed` live before submitting a transfer.

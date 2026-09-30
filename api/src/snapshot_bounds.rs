@@ -21,6 +21,7 @@ pub fn estimate_bytes(snapshot: &Snapshot) -> usize {
     len(&snapshot.assets)
         + len(&snapshot.holders)
         + len(&snapshot.compliance)
+        + len(&snapshot.compliance_records)
         + len(&snapshot.dividends)
         + len(&snapshot.events)
         + len(&snapshot.stats)

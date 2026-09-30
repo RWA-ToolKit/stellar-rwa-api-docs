@@ -17,6 +17,7 @@ describe("Asset Token Contract Documentation", () => {
       { name: "initialize", params: 9 },
       { name: "transfer", params: 3 },
       { name: "mint", params: 3 },
+      { name: "mint_batch", params: 3 },
       { name: "burn", params: 2 },
       { name: "balance", params: 1 },
       { name: "total_supply", params: 0 },
@@ -101,9 +102,11 @@ describe("Dividend Contract Documentation", () => {
     const documentedMethods = [
       { name: "initialize", params: 1 },
       { name: "create_distribution", params: 4 },
-      { name: "claim_distribution", params: 2 },
+      { name: "claimable", params: 2 },
+      { name: "claim", params: 2 },
       { name: "get_distribution", params: 1 },
       { name: "get_distributions_for_asset", params: 1 },
+      { name: "has_claimed", params: 2 },
     ];
 
     const result = validateContractDocumentation(DIVIDEND_CONTRACT, documentedMethods);

@@ -29,7 +29,16 @@ url = "2"
 [dev-dependencies]
 insta = { version = "1", features = ["json"] }
 serde_json = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bin]]
 name = "stellar-rwa-api"
 path = "src/main.rs"
+
+[lib]
+name = "stellar_rwa_api"
+path = "src/lib.rs"
+
+[[bench]]
+name = "registry_scaling"
+harness = false

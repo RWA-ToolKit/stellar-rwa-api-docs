@@ -1,17 +1,40 @@
 # Rust
 /api/target
+**/*.rs.bk
 
 # Node
 node_modules
 .next
 out
+dist
+build
+
+# Test artifacts
+__snapshots__
+*.snap
+coverage
+.nyc_output
+
+# TypeScript build info
+*.tsbuildinfo
+next-env.d.ts
 
 # Env
 .env
 .env*.local
+.env.local
 
 # OS / editor
 .DS_Store
 .idea
 .vscode/*
 !.vscode/extensions.json
+
+# Vercel
+.vercel
+
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

@@ -2,9 +2,12 @@ export const metadata = {
   title: "API · Error Bodies",
   description: "The single JSON error shape returned by every route of the Stellar RWA API, with the full list of error codes.",
   canonical: "/docs/api/errors",
+  lastReviewed: "2026-09-26",
 };
 
 # Error Bodies
+
+<LastReviewed date={metadata.lastReviewed} />
 
 Every error response, from any route or from the server itself, has the same
 JSON shape and an `application/json` content type:
@@ -16,10 +19,10 @@ JSON shape and an `application/json` content type:
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `error` | string | Stable, machine-readable code. Branch on this. |
-| `message` | string | Human-readable explanation. Do not parse it. |
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `error` | string | — | No | Stable, machine-readable code. Branch on this. |
+| `message` | string | — | No | Human-readable explanation. Do not parse it. |
 
 The body contains exactly these two fields. Headers such as `Retry-After` are
 preserved on the response.
@@ -40,3 +43,10 @@ preserved on the response.
 
 `GET /health` is a status report rather than an error: it returns its own JSON
 status document, with a `503` status while the snapshot is stale.
+
+## What to read next
+
+- [API Overview](/docs/api/overview) — endpoint list, conventions, and the error-body format.
+- [API · Health & Indexer Lag](/docs/api/health) — the `503` condition explained.
+- [Rate Limits & Caching](/docs/api/rate-limits) — the `429` response and backoff guidance.
+- [Integration Guide](/docs/integration) — how to handle errors in TypeScript client code.

@@ -5,6 +5,7 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { ApiEndpoint } from "@/components/ApiEndpoint";
 import { ErrorCodeTable } from "@/components/ErrorCodeTable";
 import { createHeading } from "@/components/HeadingAnchor";
+import { LastReviewed } from "@/components/DocHeader";
 
 const h2 = createHeading(2);
 const h3 = createHeading(3);
@@ -64,6 +65,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     CodeBlock,
     ApiEndpoint,
     ErrorCodeTable,
+    LastReviewed,
     ...components,
   };
 }

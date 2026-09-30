@@ -5,20 +5,14 @@
 //! and serves the current in-memory snapshot over HTTP. It holds no secrets,
 //! signs nothing, and never mutates on-chain state.
 
-mod config_env;
-mod indexer;
-mod indexer_metrics;
-mod models;
-mod poll_status;
-mod request_id;
-mod snapshot_bounds;
-mod routes;
-mod shutdown;
-mod stale_guard;
+use stellar_rwa_api::config_env;
+use stellar_rwa_api::indexer::{AppState, Config, Indexer};
+use stellar_rwa_api::routes;
+use stellar_rwa_api::request_id;
+use stellar_rwa_api::shutdown;
 
 use std::net::SocketAddr;
 
-use indexer::{AppState, Config, Indexer};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use tokio::sync::watch;
 
@@ -41,6 +35,14 @@ async fn main() {
         registry = %config.registry_id,
         "starting stellar-rwa-api"
     );
+
+    // Issue #432 — probe configured contract ids at startup and warn loudly
+    // if any do not resolve. Startup continues regardless so a transient RPC
+    // hiccup or an incorrect env var does not prevent the process from
+    // starting; the warnings are actionable without being fatal.
+    for warning in indexer::probe_contract_ids(&config).await {
+        tracing::warn!(warning, "contract id probe failed at startup");
+    }
 
     let metrics_handle = PrometheusBuilder::new()
         .install_recorder()

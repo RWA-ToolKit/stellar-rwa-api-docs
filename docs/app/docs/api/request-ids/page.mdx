@@ -2,9 +2,12 @@ export const metadata = {
   title: "API · Request IDs & Logging",
   description: "Correlate a response with server logs using the request id.",
   canonical: "/docs/api/request-ids",
+  lastReviewed: "2026-09-26",
 };
 
 # Request IDs & logging
+
+<LastReviewed date={metadata.lastReviewed} />
 
 Every response carries an `X-Request-Id` header. Send your own `X-Request-Id`
 (up to 64 characters of letters, digits, `-` and `_`) to have it reused.
@@ -19,3 +22,10 @@ The server logs one structured line per request inside a span carrying
 `request_id`, `method` and `path`, with `status`, `latency_ms`,
 `indexed_ledger` and `consecutive_failures`, so a report can be matched to the
 indexer state at that moment. Set `RUST_LOG` to control verbosity.
+
+## What to read next
+
+- [API · Error Bodies](/docs/api/errors) — the full error schema including the `request_id` field.
+- [API · Health & Indexer Lag](/docs/api/health) — correlate a `503` with `consecutive_failures`.
+- [Indexer Metrics](/docs/metrics) — Prometheus metrics for tracking indexer health over time.
+- [API Overview](/docs/api/overview) — all endpoint conventions.

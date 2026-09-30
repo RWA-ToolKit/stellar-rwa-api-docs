@@ -91,7 +91,7 @@ export function Search() {
           <div className="absolute top-full z-50 mt-2 w-full overflow-hidden rounded-lg border border-base-300/20 bg-base-900 shadow-lg">
             <ul id="search-results-list" role="listbox" aria-label="Search suggestions" className="max-h-96 overflow-y-auto py-1">
               {results.map((result, index) => (
-                <li key={result.href} id={`search-result-${index}`} role="option" aria-selected={index === activeIndex}>
+                <li key={`${result.href}-${index}`} id={`search-result-${index}`} role="option" aria-selected={index === activeIndex}>
                   <Link
                     href={result.href}
                     onClick={() => {
@@ -106,7 +106,7 @@ export function Search() {
                     <div className="font-medium text-base-100">{result.title}</div>
                     <div className="text-xs text-base-300">{result.section}</div>
                     {result.excerpt && (
-                      <div className="mt-1 line-clamp-1 text-xs text-base-200">
+                      <div className="mt-1 line-clamp-2 text-xs text-base-200">
                         {result.excerpt}
                       </div>
                     )}

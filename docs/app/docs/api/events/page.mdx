@@ -2,13 +2,14 @@ export const metadata = {
   title: "API · Events",
   description: "Recent contract events emitted by the indexer.",
   canonical: "/docs/api/events",
+  lastReviewed: "2026-09-28",
 };
 
 # Events
 
-The API exposes a compact event stream for clients that need to react to state
-changes without polling the full asset list. The payload is a JSON array ordered
-**newest-first**.
+<LastReviewed date={metadata.lastReviewed} />
+
+The API exposes a compact event stream for clients that need to react to state changes without polling the full asset list. The payload is a JSON array ordered newest-first.
 
 <ApiEndpoint method="GET" path="/v1/events" description="Most recent contract events captured by the indexer.">
 
@@ -35,31 +36,52 @@ curl "$API_BASE_URL/v1/events?limit=20"
 
 </ApiEndpoint>
 
-Each event includes the contract address, event name, ledger, timestamp (when
-available from the node), and the raw payload emitted by the contract.
+**Response schema** (`Event`, per event):
 
-## Ingestion
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `id` | integer | Event id | No | Indexer-assigned event id |
+| `contract` | string | — | No | Contract address that emitted the event |
+| `event_type` | string | — | No | Event name |
+| `ledger` | integer | Ledger sequence | No | Ledger containing the event |
+| `timestamp` | string | RFC 3339 timestamp | Yes | JSON `null` when the ledger timestamp is unavailable |
+| `data` | JSON value | — | No | Raw event payload |
 
-The indexer calls Soroban RPC `getEvents` every 10 seconds for all monitored
-contracts (registry, dividend, and every discovered asset-token and compliance
-contract). A ledger cursor is advanced after each successful call so only new
-events are fetched on the next cycle.
+Each event includes the contract address, event name, ledger, timestamp (when available), and the raw payload emitted by the contract.
 
-## Retention and ordering
+**Response schema:**
 
-- Events are kept in a **bounded in-memory ring buffer** of up to **200 events**.
-- The buffer is sorted **newest-first** by ledger (then by event id within the
-  same ledger).
-- On a failed RPC cycle the previous event list is carried forward unchanged —
-  the endpoint never resets to an empty array because of a transient failure.
-- The `limit` query parameter (default `50`, max `200`) controls how many
-  events are returned per request.
+| Field | Type | Description |
+|---|---|---|
+| `id` | number | Sequential event ID |
+| `contract` | string | Address of the contract emitting the event |
+| `event_type` | string | Event name (e.g. `Transfer`, `Mint`, `Burn`, `Valuation`, `created`, `claim`) |
+| `ledger` | number | Ledger sequence number where the event was recorded |
+| `timestamp` | string or null | ISO 8601 timestamp of ledger close |
+| `data` | object | Event-specific data payload |
 
-## Covered contracts
+**Event payload amount units:**
 
-| Contract | Event types |
-|----------|-------------|
-| Registry | `register`, `deactivate` |
-| Asset-token | `transfer`, `mint`, `burn` |
-| Dividend | `created`, `claim`, `cancel` |
-| Compliance | `add_record`, `update_record` |
+Amounts inside `data` depend on the contract and event type, in accordance with the contracts specification:
+
+| Event type | Amount field | Unit / Base | Conversion |
+|---|---|---|---|
+| `Transfer`, `Mint`, `Burn` | `data.amount` | Asset token base units (`i128` string) | `Number(BigInt(data.amount)) / 10 ** token.decimals` |
+| `Valuation` | `data.new_valuation` | USD cents (`i128` string) | `Number(BigInt(data.new_valuation)) / 100` |
+| Dividend `created` | `data.total_amount` | Payment token base units (`i128` string) | `Number(BigInt(data.total_amount)) / 10 ** payment_token.decimals` |
+| Dividend `claim` | `data.amount` | Payment token base units (`i128` string) | `Number(BigInt(data.amount)) / 10 ** payment_token.decimals` |
+
+<CalloutBox variant="tip" title="Event amount conversion example">
+```typescript
+// For a Transfer event with amount = "100" and token decimals = 2:
+const rawAmount = BigInt(event.data.amount);
+const displayAmount = Number(rawAmount) / (10 ** 2);
+// => 1.00 token
+```
+</CalloutBox>
+## What to read next
+
+- [API Overview](/docs/api/overview) — conventions, caching, and the full endpoint list.
+- [Asset Token Contract](/docs/contracts/asset-token) — the event topics emitted by `transfer`, `mint`, and `burn`.
+- [Rate Limits & Caching](/docs/api/rate-limits) — ETag support on the events endpoint.
+- [Time & Ledgers](/docs/time-and-ledgers) — understand `ledger` values in event payloads.

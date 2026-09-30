@@ -2,9 +2,12 @@ export const metadata = {
   title: "Snapshot Memory",
   description: "How the API's in-memory snapshot grows, what it costs per request, and the bounding strategy.",
   canonical: "/docs/snapshot-memory",
+  lastReviewed: "2026-09-26",
 };
 
 # Snapshot Memory
+
+<LastReviewed date={metadata.lastReviewed} />
 
 The indexer keeps a full snapshot (assets, holders, compliance, dividends,
 stats) in memory and rebuilds it every poll. Request handlers currently take a
@@ -28,3 +31,10 @@ Each refresh records:
    once `rwa_indexer_snapshot_estimated_bytes` approaches the container limit.
 3. Alert on `rwa_indexer_snapshot_estimated_bytes` growth per asset before
    changing storage (a database is the step after paging).
+
+## What to read next
+
+- [Indexer Metrics](/docs/metrics) — all Prometheus metrics including snapshot size gauges.
+- [Architecture Overview](/docs/architecture) — the indexer's polling model and snapshot lifecycle.
+- [API · Health & Indexer Lag](/docs/api/health) — health signals that surface when the indexer stalls.
+- [API Overview](/docs/api/overview) — how snapshot-backed responses use ETags and `Cache-Control`.

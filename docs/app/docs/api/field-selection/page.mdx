@@ -2,9 +2,12 @@ export const metadata = {
   title: "API · Field selection",
   description: "Request partial responses with the fields parameter.",
   canonical: "/docs/api/field-selection",
+  lastReviewed: "2026-09-26",
 };
 
 # Field selection
+
+<LastReviewed date={metadata.lastReviewed} />
 
 Every JSON data endpoint under `/v1` (assets, holders, events, dividends and
 single-record endpoints) accepts `?fields=` with a comma-separated list of
@@ -23,3 +26,13 @@ Requesting a field that does not exist returns `400`:
 
 Fields are validated against the first record of a list, so an empty list is
 returned as-is.
+
+<CalloutBox variant="note" title="Amount units in partial responses">
+When selecting amount fields like `balance`, remember that values are returned in raw base units. If you plan to format the balance for display, include `decimals` in your field list (or query the parent asset) so you can convert `balance / 10 ** decimals`. Similarly, note that `valuation_cents` is in USD cents while `valuation_usd` is in USD dollars.
+</CalloutBox>
+## What to read next
+
+- [API · Assets](/docs/api/assets) — the fields available for sparse field selection on assets.
+- [API · Holders](/docs/api/holders) — use `?fields=address,balance` to reduce payload size.
+- [Rate Limits & Caching](/docs/api/rate-limits) — ETags work alongside `?fields=` to avoid redundant transfers.
+- [API Overview](/docs/api/overview) — all endpoint conventions.

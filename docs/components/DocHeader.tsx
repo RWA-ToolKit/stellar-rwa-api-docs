@@ -91,4 +91,23 @@ export function DocHeader() {
   );
 }
 
+/**
+ * "Last reviewed" line shown under a page title. The date is maintained in
+ * each page's `metadata.lastReviewed` export (ISO `YYYY-MM-DD`).
+ */
+export function LastReviewed({ date }: { date?: string }) {
+  if (!date) return null;
+  const label = new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  return (
+    <p className="not-prose -mt-2 mb-6 text-sm text-base-300">
+      Last reviewed: <time dateTime={date}>{label}</time>
+    </p>
+  );
+}
+
 export default DocHeader;

@@ -23,6 +23,7 @@ export const NAV: NavSection[] = [
     items: [
       { title: "Compliance Guide", href: "/docs/compliance-guide" },
       { title: "Time & Ledgers", href: "/docs/time-and-ledgers" },
+      { title: "Security Considerations", href: "/docs/security-considerations" },
     ],
   },
   {
@@ -30,6 +31,7 @@ export const NAV: NavSection[] = [
     items: [
       { title: "Integration", href: "/docs/integration" },
       { title: "Web App Guide", href: "/docs/web-app" },
+      { title: "FAQ", href: "/docs/faq" },
     ],
   },
   {

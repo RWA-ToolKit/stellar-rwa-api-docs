@@ -2,9 +2,12 @@ export const metadata = {
   title: "API · Compliance",
   description: "Non-PII compliance summary for a tokenized asset.",
   canonical: "/docs/api/compliance",
+  lastReviewed: "2026-07-28",
 };
 
 # Compliance
+
+<LastReviewed date={metadata.lastReviewed} />
 
 <CalloutBox variant="note">
 Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
@@ -21,22 +24,29 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 |------|------|-------|
 | `id` | number | Registry id |
 
-**Response schema**
+**Response schema** (`ComplianceSummary`):
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `total_records` | number | Addresses ever added to the allowlist |
-| `approved` | number | Stored KYC status is `Approved` — **not** the same as currently passing `is_allowed` |
-| `suspended` | number | |
-| `rejected` | number | |
-| `pending` | number | |
-| `with_expiry` | number | Records with a non-zero `expires_at` |
-| `jurisdictions` | array | `{ jurisdiction, count }` breakdown |
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `total_records` | integer | Records | No | Addresses ever added to the allowlist |
+| `approved` | integer | Records | No | Stored KYC status is `Approved` — **not** the same as currently passing `is_allowed` |
+| `suspended` | integer | Records | No | |
+| `rejected` | integer | Records | No | |
+| `pending` | integer | Records | No | |
+| `with_expiry` | integer | Records | No | Records with a non-zero `expires_at` |
+| `jurisdictions` | `JurisdictionCount[]` | One entry per jurisdiction | No | Counts grouped by jurisdiction code |
+
+`JurisdictionCount` fields:
+
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `jurisdiction` | string | — | No | Jurisdiction code from the compliance record |
+| `count` | integer | Records | No | Records in this jurisdiction |
 
 **Example**
 
 ```bash
-curl $API_BASE_URL/assets/1/compliance
+curl $API_BASE_URL/v1/assets/1/compliance
 ```
 
 ```json
@@ -79,3 +89,127 @@ permitted to transact. Do not treat `approved` as that number on its own.
 The `jurisdictions` breakdown reflects the `jurisdiction` field of each KYC record.
 Combined with the contract's `is_jurisdiction_blocked`, it helps issuers audit
 their geographic exposure. See the [Compliance Guide](/docs/compliance-guide#jurisdiction-restrictions).
+
+## Address compliance
+
+<ApiEndpoint method="GET" path="/compliance/:address" description="Compliance status and balance for a single address across all held assets." />
+
+Returns the compliance authorization and token balance for an address across all assets it holds.
+
+```bash
+curl "$API_BASE_URL/compliance/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA"
+```
+
+---
+
+<ApiEndpoint method="GET" path="/compliance/:address" description="Per-address compliance status across all assets." />
+
+Returns every asset whose compliance allowlist contains `address`, together
+with the **real on-chain KYC status and derived `allowed` flag** for each.
+
+- If the address is allowlisted but holds **zero balance**, it still appears
+  with `"balance": "0"` — distinguishable from an unknown address.
+- If the address is **not on any allowlist**, the response is an empty array
+  `[]` (not `404`).
+
+**Path parameters**
+
+| Name | Type | Notes |
+|------|------|-------|
+| `address` | string | Stellar account address (G…) |
+
+**Response schema** (array of objects):
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `address` | string | The queried address |
+| `asset_id` | number | Registry asset ID |
+| `asset_name` | string | Asset name |
+| `symbol` | string | Ticker symbol |
+| `balance` | string | Base-unit balance (`i128` as string). `"0"` when allowlisted but not holding. |
+| `status` | string | On-chain KYC status: `"Approved"`, `"Suspended"`, `"Rejected"`, `"Pending"` |
+| `allowed` | boolean | `true` when `status == "Approved"`, record is not expired, and jurisdiction is not blocked |
+| `jurisdiction` | string \| null | ISO jurisdiction code from the KYC record |
+| `expires_at` | number \| null | Ledger at which approval expires; `null` if no expiry set |
+
+**Example — approved, active holder**
+
+```bash
+curl $API_BASE_URL/compliance/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA
+```
+
+```json
+[
+  {
+    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+    "asset_id": 1,
+    "asset_name": "RWA Property Fund",
+    "symbol": "RPF",
+    "balance": "1000000",
+    "status": "Approved",
+    "allowed": true,
+    "jurisdiction": "US",
+    "expires_at": null
+  }
+]
+```
+
+**Example — expired approval**
+
+```json
+[
+  {
+    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+    "asset_id": 1,
+    "asset_name": "Manhattan Loft",
+    "symbol": "MLOFT",
+    "balance": "1000000",
+    "status": "approved",
+    "allowed": true
+  }
+]
+```
+
+**Response schema** (per record):
+
+| Field | Type | Description |
+|---|---|---|
+| `address` | string | Stellar account address |
+| `asset_id` | number | Registry asset id |
+| `asset_name` | string | Name of the asset |
+| `symbol` | string | Token symbol |
+| `balance` | string | Token balance in **base units** (`i128` string in the asset token's `decimals` base). Divide by `10 ** decimals` to obtain human-readable units. |
+| `status` | string | Stored KYC status (e.g. `approved`, `pending`) |
+| `allowed` | boolean | Current compliance authorization flag (`true` if permitted to transact) |
+
+<CalloutBox variant="tip" title="Balance conversion">
+```typescript
+// Balance is in base units; divide by 10 ** decimals (found in the asset's metadata):
+const displayBalance = Number(BigInt(record.balance)) / (10 ** decimals);
+```
+    "asset_name": "RWA Property Fund",
+    "symbol": "RPF",
+    "balance": "1000000",
+    "status": "Approved",
+    "allowed": false,
+    "jurisdiction": "US",
+    "expires_at": 55000000
+  }
+]
+```
+
+**Example — unknown address**
+
+```json
+[]
+```
+
+<CalloutBox variant="warning" title="allowed reflects the indexer's gate, not the contract's real-time check">
+`allowed` is derived by the indexer at the time of the last snapshot
+(approximately every 10 seconds). It mirrors the on-chain `is_allowed` gate:
+`status == "Approved"`, record not expired at the latest indexed ledger, and
+jurisdiction not blocked. The blocked-jurisdiction set is not yet read from
+the chain in this version — see [Compliance Guide](/docs/compliance-guide)
+for the full gate logic. For security-critical pre-transfer checks, verify
+directly against the compliance contract's `is_allowed` entry point.
+</CalloutBox>

@@ -2,9 +2,12 @@ export const metadata = {
   title: "Web App Guide",
   description: "Connect Freighter, tokenize an asset, manage compliance, and distribute dividends.",
   canonical: "/docs/web-app",
+  lastReviewed: "2026-09-26",
 };
 
 # Web App Guide
+
+<LastReviewed date={metadata.lastReviewed} />
 
 The web app is the front-end for issuers and investors. It signs and submits every
 transaction through the user's **Freighter** wallet — it never holds keys. This
@@ -15,7 +18,7 @@ guide walks through the main flows.
 1. Install the [Freighter](https://freighter.app) browser extension and create or
    import an account.
 2. Switch Freighter to **Testnet** and fund the account via the
-   [friendbot](https://friendbot.stellar.org).
+   [Stellar Laboratory account creator](https://laboratory.stellar.org/account-creator).
 3. In the app, click **Connect Wallet** and approve the connection.
 
 The app follows Freighter's selected network while connected, so reads and writes
@@ -121,3 +124,10 @@ See the [Architecture Overview](/docs/architecture) for how the indexer works an
 Every on-chain action shows live progress — *preparing → awaiting signature →
 submitting → confirming* — and, on success, a link to the transaction on Stellar
 Expert. Contract errors are translated into plain-language messages.
+
+## What to read next
+
+- [Compliance Guide](/docs/compliance-guide) — the model behind the allowlist actions in the UI.
+- [Integration Guide](/docs/integration) — call the same contracts from your own TypeScript code.
+- [Dividend Contract](/docs/contracts/dividend) — details on how `create_distribution` and `claim` work.
+- [Architecture Overview](/docs/architecture) — how the web app, API, and contracts are related.
