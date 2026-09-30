@@ -44,6 +44,8 @@ pub struct Asset {
     pub created_at_ledger: u32,
     /// Ledger number at which this asset was last successfully indexed.
     pub indexed_at_ledger: u32,
+    /// Ledger number at which dividends for this asset were last successfully refreshed.
+    pub dividends_indexed_at_ledger: Option<u32>,
     /// Non-null when the most recent per-asset index attempt failed.  The
     /// global fields on [`Stats`] still reflect the last successful full
     /// refresh; this tells consumers which individual assets may be stale.

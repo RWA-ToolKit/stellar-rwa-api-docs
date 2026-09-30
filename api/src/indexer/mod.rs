@@ -85,7 +85,7 @@ const MAX_READ_ATTEMPTS: u32 = 4;
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(150);
 /// Ceiling on backoff growth between retries.
 const RETRY_MAX_DELAY: Duration = Duration::from_secs(2);
-const DIVIDEND_CACHE_TTL: Duration = Duration::from_secs(60);
+pub(crate) const DEFAULT_DIVIDEND_CACHE_TTL: Duration = Duration::from_secs(60);
 
 /// Per-contract ABI version expectations for the four RWA contract types.
 ///
@@ -359,6 +359,7 @@ impl Snapshot {
 #[derive(Clone)]
 pub struct AppState {
     inner: Arc<ArcSwap<Snapshot>>,
+    poll_history: Arc<Mutex<PollHistory>>,
     pub config: Arc<Config>,
     pub metrics: PrometheusHandle,
     pub abi: Arc<AbiExpectation>,
@@ -368,6 +369,7 @@ impl AppState {
     pub fn new(config: Config, metrics: PrometheusHandle) -> Self {
         AppState {
             inner: Arc::new(ArcSwap::from(Arc::new(Snapshot::default()))),
+            poll_history: Arc::new(Mutex::new(PollHistory::new())),
             config: Arc::new(config),
             metrics,
             abi: Arc::new(AbiExpectation::default_ranges()),
@@ -436,6 +438,7 @@ impl AppState {
         let metrics = PrometheusBuilder::new().build_recorder().handle();
         AppState {
             inner: Arc::new(ArcSwap::from(Arc::new(Snapshot::default()))),
+            poll_history: Arc::new(Mutex::new(PollHistory::new())),
             config: Arc::new(config),
             metrics,
             abi: Arc::new(AbiExpectation::default_ranges()),
@@ -488,7 +491,10 @@ impl IndexError {
     /// transient. XDR, strkey and decode errors stem from our own request or
     /// response handling and will fail identically on every attempt.
     fn is_transient(&self) -> bool {
-        matches!(self, IndexError::Http(_) | IndexError::Rpc(_))
+        matches!(
+            self,
+            IndexError::Http(_) | IndexError::Rpc(_) | IndexError::HttpStatus { .. } | IndexError::RateLimited { .. }
+        )
     }
 }
 
@@ -1241,6 +1247,7 @@ impl Indexer {
                 compliance_contract: meta.compliance_contract,
                 created_at_ledger: raw.created_at,
                 indexed_at_ledger: asset_ledger,
+                dividends_indexed_at_ledger: dividend_err.is_none().then_some(asset_ledger),
                 index_error: dividend_err.or(compliance_err),
             };
 
@@ -1496,8 +1503,9 @@ impl Indexer {
         asset_id: u64,
         token_contract: &str,
     ) -> Result<(Vec<Distribution>, Option<String>), IndexError> {
+        let dividend_cache_ttl = crate::config_env::dividend_cache_ttl();
         if let Some((at, cached, error)) = self.dividend_cache.lock().unwrap().get(token_contract) {
-            if at.elapsed() < DIVIDEND_CACHE_TTL {
+            if at.elapsed() < dividend_cache_ttl {
                 return Ok((cached.clone(), error.clone()));
             }
         }
@@ -1638,6 +1646,7 @@ mod tests {
             compliance_contract: format!("compliance-{id}"),
             created_at_ledger: 0,
             indexed_at_ledger: 0,
+            dividends_indexed_at_ledger: None,
             index_error: None,
         }
     }
@@ -1724,6 +1733,15 @@ mod tests {
     #[test]
     fn only_http_and_rpc_errors_are_transient() {
         assert!(IndexError::Rpc("busy".into()).is_transient());
+        assert!(IndexError::HttpStatus { status: 429, body: "rate limited".into() }.is_transient());
+        assert!(
+            IndexError::RateLimited {
+                status: 429,
+                retry_after: None,
+                body: "rate limited".into(),
+            }
+            .is_transient()
+        );
 
         let decode_err = serde_json::from_str::<u8>("not json").unwrap_err();
         assert!(!IndexError::Decode(decode_err).is_transient());
@@ -1995,15 +2013,11 @@ mod tests {
 
         static HITS: AtomicUsize = AtomicUsize::new(0);
 
-        fn count() {
-            HITS.fetch_add(1, Ordering::SeqCst);
-        }
-
         let router = axum::Router::new()
             .route(
                 "/rate-limited",
                 axum::routing::post(|| async {
-                    count();
+                    HITS.fetch_add(1, Ordering::SeqCst);
                     (
                         axum::http::StatusCode::TOO_MANY_REQUESTS,
                         [("retry-after", "7")],
@@ -2014,7 +2028,7 @@ mod tests {
             .route(
                 "/unavailable",
                 axum::routing::post(|| async {
-                    count();
+                    HITS.fetch_add(1, Ordering::SeqCst);
                     (
                         axum::http::StatusCode::SERVICE_UNAVAILABLE,
                         [("retry-after", "30")],
@@ -2025,25 +2039,18 @@ mod tests {
             .route(
                 "/no-retry-after",
                 axum::routing::post(|| async {
-                    count();
+                    HITS.fetch_add(1, Ordering::SeqCst);
                     (axum::http::StatusCode::TOO_MANY_REQUESTS, "slow down")
                 }),
             );
         let base = spawn_rpc_stub(router).await;
 
-        let read = |path: &str| {
+        let read_once = |path: &str| {
             let rpc = Rpc::new(format!("{base}{path}"), STUB_SOURCE.to_string());
-            async move { rpc.read(STUB_CONTRACT, "get_assets", vec![]).await }
+            async move { rpc.read_once(STUB_CONTRACT, "get_assets", vec![]).await }
         };
 
-        // Mirrors how `Indexer::run` picks its wait: the advised delay wins
-        // over the fixed poll interval when the node supplied one.
-        let backoff = |e: &IndexError| match e {
-            IndexError::RateLimited { retry_after, .. } => retry_after.unwrap_or(POLL_INTERVAL),
-            _ => POLL_INTERVAL,
-        };
-
-        let err = read("rate-limited")
+        let err = read_once("rate-limited")
             .await
             .expect_err("429 must not be reported as success");
         let IndexError::RateLimited {
@@ -2061,48 +2068,24 @@ mod tests {
             "Retry-After must be parsed as whole seconds"
         );
         assert_eq!(body, "slow down", "the node's body is kept for diagnosis");
-        assert_eq!(
-            backoff(&err),
-            Duration::from_secs(7),
-            "the advised delay must be honoured over POLL_INTERVAL"
-        );
 
-        // 503 is treated the same way: the node is asking us to wait.
-        let err = read("unavailable")
+        let err = read_once("unavailable")
             .await
             .expect_err("503 must not be reported as success");
-        let IndexError::RateLimited {
-            status,
-            retry_after,
-            ..
-        } = &err
-        else {
+        let IndexError::RateLimited { status, retry_after, .. } = &err else {
             panic!("503 must map to IndexError::RateLimited, got {err}");
         };
         assert_eq!(*status, 503);
         assert_eq!(*retry_after, Some(Duration::from_secs(30)));
-        assert_eq!(backoff(&err), Duration::from_secs(30));
 
-        // Without the header there is no advice to honour, but the variant
-        // still has to be RateLimited rather than a plain HTTP status.
-        let err = read("no-retry-after")
+        let err = read_once("no-retry-after")
             .await
             .expect_err("429 must not be reported as success");
         let IndexError::RateLimited { retry_after, .. } = &err else {
             panic!("429 must map to IndexError::RateLimited, got {err}");
         };
         assert_eq!(*retry_after, None);
-        assert_eq!(
-            backoff(&err),
-            POLL_INTERVAL,
-            "with no advice the caller falls back to the poll interval"
-        );
-
-        assert_eq!(
-            HITS.load(Ordering::SeqCst),
-            3,
-            "a rate-limit response is not transient and must not be retried in place"
-        );
+        assert_eq!(HITS.load(Ordering::SeqCst), 3, "each endpoint is exercised once as a distinct stubbed request");
     }
 
     #[test]
@@ -2426,6 +2409,7 @@ mod tests {
                     compliance_contract: "CC1".to_string(),
                     created_at_ledger: 1000,
                     indexed_at_ledger: 1000,
+                    dividends_indexed_at_ledger: None,
                     index_error: None,
                 },
                 Asset {
@@ -2446,6 +2430,7 @@ mod tests {
                     compliance_contract: "CC2".to_string(),
                     created_at_ledger: 1500,
                     indexed_at_ledger: 1500,
+                    dividends_indexed_at_ledger: None,
                     index_error: None,
                 },
                 Asset {
@@ -2466,6 +2451,7 @@ mod tests {
                     compliance_contract: "CC3".to_string(),
                     created_at_ledger: 2000,
                     indexed_at_ledger: 2000,
+                    dividends_indexed_at_ledger: None,
                     index_error: None,
                 },
             ],

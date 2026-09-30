@@ -83,6 +83,7 @@ pub async fn for_address(
             .parse::<i128>()
             .unwrap_or_default()
             .cmp(&a.balance.parse::<i128>().unwrap_or_default())
+            .then_with(|| a.asset_id.cmp(&b.asset_id))
     });
 
     Ok(Json(records))

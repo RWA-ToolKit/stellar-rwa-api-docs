@@ -40,7 +40,7 @@ async fn main() {
     // if any do not resolve. Startup continues regardless so a transient RPC
     // hiccup or an incorrect env var does not prevent the process from
     // starting; the warnings are actionable without being fatal.
-    for warning in indexer::probe_contract_ids(&config).await {
+    for warning in stellar_rwa_api::indexer::probe_contract_ids(&config).await {
         tracing::warn!(warning, "contract id probe failed at startup");
     }
 

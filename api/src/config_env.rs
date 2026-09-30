@@ -3,12 +3,15 @@
 
 use std::time::Duration;
 
-use crate::indexer::POLL_INTERVAL;
+use crate::indexer::{POLL_INTERVAL, DEFAULT_DIVIDEND_CACHE_TTL};
 
 /// Env var holding the poll interval in whole seconds.
 pub const POLL_INTERVAL_VAR: &str = "RWA_POLL_INTERVAL_SECS";
+pub const DIVIDEND_CACHE_TTL_VAR: &str = "RWA_DIVIDEND_CACHE_TTL_SECS";
 const MIN_POLL_SECS: u64 = 1;
 const MAX_POLL_SECS: u64 = 3600;
+const MIN_DIVIDEND_CACHE_TTL_SECS: u64 = 1;
+const MAX_DIVIDEND_CACHE_TTL_SECS: u64 = 86400;
 
 /// Parse a raw `RWA_POLL_INTERVAL_SECS` value (`None` = unset, use default).
 pub fn parse_poll_interval(raw: Option<&str>) -> Result<Duration, String> {
@@ -30,6 +33,29 @@ pub fn parse_poll_interval(raw: Option<&str>) -> Result<Duration, String> {
 /// or invalid (invalid values are rejected at startup by `main`).
 pub fn poll_interval() -> Duration {
     parse_poll_interval(std::env::var(POLL_INTERVAL_VAR).ok().as_deref()).unwrap_or(POLL_INTERVAL)
+}
+
+/// Parse a raw `RWA_DIVIDEND_CACHE_TTL_SECS` value (`None` = unset, use default).
+pub fn parse_dividend_cache_ttl(raw: Option<&str>) -> Result<Duration, String> {
+    let Some(raw) = raw else {
+        return Ok(DEFAULT_DIVIDEND_CACHE_TTL);
+    };
+    let secs: u64 = raw.trim().parse().map_err(|_| {
+        format!("{DIVIDEND_CACHE_TTL_VAR} must be a whole number of seconds, got {raw:?}")
+    })?;
+    if !(MIN_DIVIDEND_CACHE_TTL_SECS..=MAX_DIVIDEND_CACHE_TTL_SECS).contains(&secs) {
+        return Err(format!(
+            "{DIVIDEND_CACHE_TTL_VAR} must be between {MIN_DIVIDEND_CACHE_TTL_SECS} and {MAX_DIVIDEND_CACHE_TTL_SECS}, got {secs}"
+        ));
+    }
+    Ok(Duration::from_secs(secs))
+}
+
+/// Dividend cache TTL from the environment; falls back to the default when unset
+/// or invalid (invalid values are rejected at startup by `main`).
+pub fn dividend_cache_ttl() -> Duration {
+    parse_dividend_cache_ttl(std::env::var(DIVIDEND_CACHE_TTL_VAR).ok().as_deref())
+        .unwrap_or(DEFAULT_DIVIDEND_CACHE_TTL)
 }
 
 const TESTNET_RPC: &str = "https://soroban-testnet.stellar.org";
@@ -65,6 +91,9 @@ pub fn validate_with<F: Fn(&str) -> Option<String>>(get: F) -> Result<(), Vec<St
     }
 
     if let Err(e) = parse_poll_interval(get(POLL_INTERVAL_VAR).as_deref()) {
+        errs.push(e);
+    }
+    if let Err(e) = parse_dividend_cache_ttl(get(DIVIDEND_CACHE_TTL_VAR).as_deref()) {
         errs.push(e);
     }
 
@@ -144,6 +173,20 @@ mod tests {
         for bad in ["abc", "0", "-1", "99999", ""] {
             let err = parse_poll_interval(Some(bad)).unwrap_err();
             assert!(err.contains("RWA_POLL_INTERVAL_SECS"), "{err}");
+        }
+    }
+
+    #[test]
+    fn parses_dividend_cache_ttl() {
+        assert_eq!(parse_dividend_cache_ttl(Some("30")).unwrap(), Duration::from_secs(30));
+        assert_eq!(parse_dividend_cache_ttl(None).unwrap(), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn rejects_invalid_dividend_cache_ttl() {
+        for bad in ["abc", "0", "-1", "99999", ""] {
+            let err = parse_dividend_cache_ttl(Some(bad)).unwrap_err();
+            assert!(err.contains("RWA_DIVIDEND_CACHE_TTL_SECS"), "{err}");
         }
     }
 }

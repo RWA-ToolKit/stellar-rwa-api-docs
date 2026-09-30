@@ -97,6 +97,7 @@ fn sample_asset(id: u64) -> Asset {
         compliance_contract: format!("CC{:054}", id),
         created_at_ledger: 1_000_000,
         indexed_at_ledger: 1_000_100,
+        dividends_indexed_at_ledger: Some(1_000_200),
         index_error: None,
     }
 }
@@ -179,6 +180,7 @@ fn asset_detail_serialises_correctly() {
         compliance_contract: "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU".to_string(),
         created_at_ledger: 2_000_000,
         indexed_at_ledger: 2_000_500,
+        dividends_indexed_at_ledger: Some(2_000_600),
         index_error: None,
     };
 
