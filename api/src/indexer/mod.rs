@@ -362,6 +362,8 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub metrics: PrometheusHandle,
     pub abi: Arc<AbiExpectation>,
+    /// Bounded poll-history ring buffer backing `GET /poll-history`.
+    poll_history: Arc<Mutex<PollHistory>>,
 }
 
 impl AppState {
@@ -371,6 +373,7 @@ impl AppState {
             config: Arc::new(config),
             metrics,
             abi: Arc::new(AbiExpectation::default_ranges()),
+            poll_history: Arc::new(Mutex::new(PollHistory::new())),
         }
     }
 
@@ -439,6 +442,7 @@ impl AppState {
             config: Arc::new(config),
             metrics,
             abi: Arc::new(AbiExpectation::default_ranges()),
+            poll_history: Arc::new(Mutex::new(PollHistory::new())),
         }
     }
 
