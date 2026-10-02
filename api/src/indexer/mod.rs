@@ -86,7 +86,19 @@ const MAX_READ_ATTEMPTS: u32 = 4;
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(150);
 /// Ceiling on backoff growth between retries.
 const RETRY_MAX_DELAY: Duration = Duration::from_secs(2);
-const DIVIDEND_CACHE_TTL: Duration = Duration::from_secs(60);
+/// Default TTL for the per-asset dividend cache.
+///
+/// Distributions are fetched at most once per this window; a fresh RPC read
+/// is made after the TTL expires.  The value can be overridden at runtime via
+/// the `RWA_DIVIDEND_CACHE_TTL_SECS` environment variable so operators can
+/// trade freshness against RPC load without recompiling.
+///
+/// Note: because the main poll interval is 10 s, the maximum lag between a
+/// new distribution appearing on-chain and being visible in the API is
+/// `RWA_DIVIDEND_CACHE_TTL_SECS + POLL_INTERVAL`.  Clients can compare
+/// `Asset.dividends_indexed_at_ledger` against `Asset.indexed_at_ledger` to
+/// detect when dividends are being served from the cache.
+pub const DEFAULT_DIVIDEND_CACHE_TTL: Duration = Duration::from_secs(60);
 
 /// Per-contract ABI version expectations for the four RWA contract types.
 ///
@@ -363,6 +375,7 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub metrics: PrometheusHandle,
     pub abi: Arc<AbiExpectation>,
+    poll_history: Arc<Mutex<PollHistory>>,
 }
 
 impl AppState {
@@ -372,6 +385,7 @@ impl AppState {
             config: Arc::new(config),
             metrics,
             abi: Arc::new(AbiExpectation::default_ranges()),
+            poll_history: Arc::new(Mutex::new(PollHistory::new())),
         }
     }
 
@@ -440,6 +454,7 @@ impl AppState {
             config: Arc::new(config),
             metrics,
             abi: Arc::new(AbiExpectation::default_ranges()),
+            poll_history: Arc::new(Mutex::new(PollHistory::new())),
         }
     }
 
@@ -1071,7 +1086,13 @@ fn normalize_status(v: &serde_json::Value) -> String {
 
 /// Cache of the most recent successful dividend read per asset token,
 /// keyed by contract address.
-type DividendCache = HashMap<String, (Instant, Vec<Distribution>, Option<String>)>;
+///
+/// Tuple fields: `(fetched_at, ledger_at_fetch, distributions, index_error)`.
+/// `ledger_at_fetch` records the `latest_ledger` returned by the RPC call
+/// that populated this cache entry.  It is exposed as
+/// `Asset.dividends_indexed_at_ledger` so clients can tell whether
+/// dividend data lags behind the main `indexed_at_ledger`.
+type DividendCache = HashMap<String, (Instant, u32, Vec<Distribution>, Option<String>)>;
 
 pub struct Indexer {
     rpc: Rpc,
@@ -1356,7 +1377,7 @@ impl Indexer {
             // known distributions from the previous snapshot rather than
             // resetting to empty, so a transient RPC hiccup doesn't make the
             // API silently report "no dividends" for an asset.
-            let (dists, dividend_err) = match self
+            let (dists, dividends_ledger, dividend_err) = match self
                 .index_dividends(raw.id, &raw.token_contract)
                 .await
             {
@@ -1364,8 +1385,12 @@ impl Indexer {
                 Err(e) => {
                     record_asset_read_error(raw.id, "dividends");
                     tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; keeping previous distributions");
+                    let prev_ledger = prev
+                        .asset(raw.id)
+                        .and_then(|a| a.dividends_indexed_at_ledger);
                     (
                         prev.dividends.get(&raw.id).cloned().unwrap_or_default(),
+                        prev_ledger,
                         Some(e.to_string()),
                     )
                 }
@@ -1394,6 +1419,7 @@ impl Indexer {
                 compliance_contract: meta.compliance_contract,
                 created_at_ledger: raw.created_at,
                 indexed_at_ledger: asset_ledger,
+                dividends_indexed_at_ledger: dividends_ledger,
                 index_error: dividend_err.or(compliance_err),
             };
 
@@ -1662,14 +1688,26 @@ impl Indexer {
     }
 
     /// Read distributions at most once per cache window.
+    ///
+    /// Returns `(distributions, dividends_indexed_at_ledger, index_error)`.
+    /// `dividends_indexed_at_ledger` is the `latest_ledger` from the RPC call
+    /// that last populated the cache, so callers can surface it in the
+    /// `Asset` response and let clients detect cache lag.
+    ///
+    /// The TTL is read from `RWA_DIVIDEND_CACHE_TTL_SECS` at each call,
+    /// defaulting to [`DEFAULT_DIVIDEND_CACHE_TTL`].  An operator can reduce
+    /// it to improve freshness at the cost of additional RPC calls.
     async fn index_dividends(
         &self,
         asset_id: u64,
         token_contract: &str,
-    ) -> Result<(Vec<Distribution>, Option<String>), IndexError> {
-        if let Some((at, cached, error)) = self.dividend_cache.lock().unwrap().get(token_contract) {
-            if at.elapsed() < DIVIDEND_CACHE_TTL {
-                return Ok((cached.clone(), error.clone()));
+    ) -> Result<(Vec<Distribution>, Option<u32>, Option<String>), IndexError> {
+        let ttl = crate::config_env::dividend_cache_ttl();
+        if let Some((at, ledger, cached, error)) =
+            self.dividend_cache.lock().unwrap().get(token_contract)
+        {
+            if at.elapsed() < ttl {
+                return Ok((cached.clone(), Some(*ledger), error.clone()));
             }
         }
         let read = self
@@ -1680,6 +1718,7 @@ impl Indexer {
                 vec![address_scval(token_contract)?],
             )
             .await?;
+        let fetch_ledger = read.latest_ledger;
         let entries: Vec<serde_json::Value> = serde_json::from_value(read.value)?;
         let mut failures = 0;
         let result = entries
@@ -1724,9 +1763,9 @@ impl Indexer {
         let error = (failures > 0).then(|| format!("skipped {failures} malformed distribution(s)"));
         self.dividend_cache.lock().unwrap().insert(
             token_contract.to_string(),
-            (Instant::now(), result.clone(), error.clone()),
+            (Instant::now(), fetch_ledger, result.clone(), error.clone()),
         );
-        Ok((result, error))
+        Ok((result, Some(fetch_ledger), error))
     }
 
     /// Fetch recent contract events from Soroban RPC and merge them into a
@@ -1862,6 +1901,7 @@ mod tests {
             compliance_contract: format!("compliance-{id}"),
             created_at_ledger: 0,
             indexed_at_ledger: 0,
+            dividends_indexed_at_ledger: None,
             index_error: None,
         }
     }
@@ -2650,6 +2690,7 @@ mod tests {
                     compliance_contract: "CC1".to_string(),
                     created_at_ledger: 1000,
                     indexed_at_ledger: 1000,
+                    dividends_indexed_at_ledger: None,
                     index_error: None,
                 },
                 Asset {
@@ -2670,6 +2711,7 @@ mod tests {
                     compliance_contract: "CC2".to_string(),
                     created_at_ledger: 1500,
                     indexed_at_ledger: 1500,
+                    dividends_indexed_at_ledger: None,
                     index_error: None,
                 },
                 Asset {
@@ -2690,6 +2732,7 @@ mod tests {
                     compliance_contract: "CC3".to_string(),
                     created_at_ledger: 2000,
                     indexed_at_ledger: 2000,
+                    dividends_indexed_at_ledger: None,
                     index_error: None,
                 },
             ],

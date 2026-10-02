@@ -40,6 +40,7 @@ pub(crate) fn asset(id: u64) -> Asset {
         compliance_contract: "COMPLIANCE".to_string(),
         created_at_ledger: 1,
         indexed_at_ledger: 1,
+        dividends_indexed_at_ledger: None,
         index_error: None,
     }
 }
