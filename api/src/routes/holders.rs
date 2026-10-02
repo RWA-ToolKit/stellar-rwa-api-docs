@@ -306,6 +306,46 @@ mod tests {
         assert_eq!(holdings[1].asset_id, 2);
     }
 
+    #[tokio::test]
+    async fn address_holding_lookup_sorts_by_share_percentage_then_asset_id() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        snap.assets.push(asset(2));
+        snap.assets.push(asset(3));
+        snap.holders.insert(
+            1,
+            vec![crate::models::Holder {
+                address: "GADDRESS".to_string(),
+                balance: "250".to_string(),
+                share_percent: 10.0,
+            }],
+        );
+        snap.holders.insert(
+            2,
+            vec![crate::models::Holder {
+                address: "GADDRESS".to_string(),
+                balance: "100".to_string(),
+                share_percent: 30.0,
+            }],
+        );
+        snap.holders.insert(
+            3,
+            vec![crate::models::Holder {
+                address: "GADDRESS".to_string(),
+                balance: "200".to_string(),
+                share_percent: 30.0,
+            }],
+        );
+        let state = state_with(snap);
+
+        let holdings = by_address(State(state), Path("GADDRESS".to_string()))
+            .await
+            .expect("address lookup should succeed")
+            .0;
+
+        assert_eq!(holdings.iter().map(|h| h.asset_id).collect::<Vec<_>>(), vec![2, 3, 1]);
+    }
+
     // -------------------------------------------------------------------------
     // #457 – by_address_compliance uses real on-chain records
     // -------------------------------------------------------------------------
