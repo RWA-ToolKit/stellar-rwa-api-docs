@@ -11,10 +11,10 @@ export const metadata = {
 
 The API exposes a compact event stream for clients that need to react to state changes without polling the full asset list. The payload is a JSON array ordered newest-first.
 
-<ApiEndpoint method="GET" path="/events" description="Most recent contract events captured by the indexer.">
+<ApiEndpoint method="GET" path="/v1/events" description="Most recent contract events captured by the indexer.">
 
 ```bash
-curl "$API_BASE_URL/events?limit=20"
+curl "$API_BASE_URL/v1/events?limit=20"
 ```
 
 ```json

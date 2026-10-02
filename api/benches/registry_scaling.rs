@@ -53,6 +53,7 @@ fn make_snapshot(n_assets: usize, holders_per_asset: usize) -> Snapshot {
             compliance_contract: format!("CC{:054}", id),
             created_at_ledger: 1_000_000 + i as u32,
             indexed_at_ledger: 1_000_000 + i as u32,
+            dividends_indexed_at_ledger: None,
             index_error: None,
         });
 

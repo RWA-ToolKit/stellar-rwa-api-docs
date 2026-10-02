@@ -159,6 +159,7 @@ mod tests {
             compliance_contract: format!("COMPLIANCE{id}"),
             created_at_ledger: 1,
             indexed_at_ledger: 1,
+            dividends_indexed_at_ledger: None,
             index_error: None,
         }
     }
@@ -469,6 +470,7 @@ mod tests {
             "compliance_contract",
             "created_at_ledger",
             "indexed_at_ledger",
+            "dividends_indexed_at_ledger",
             "index_error",
         ]
         .iter()
@@ -628,6 +630,7 @@ mod tests {
             "compliance_contract",
             "created_at_ledger",
             "indexed_at_ledger",
+            "dividends_indexed_at_ledger",
             "index_error",
         ]
         .iter()

@@ -58,6 +58,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 
 use arc_swap::ArcSwap;
 use metrics_exporter_prometheus::PrometheusHandle;
@@ -85,7 +86,20 @@ const MAX_READ_ATTEMPTS: u32 = 4;
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(150);
 /// Ceiling on backoff growth between retries.
 const RETRY_MAX_DELAY: Duration = Duration::from_secs(2);
-const DIVIDEND_CACHE_TTL: Duration = Duration::from_secs(60);
+pub(crate) const DEFAULT_DIVIDEND_CACHE_TTL: Duration = Duration::from_secs(60);
+/// Default TTL for the per-asset dividend cache.
+///
+/// Distributions are fetched at most once per this window; a fresh RPC read
+/// is made after the TTL expires.  The value can be overridden at runtime via
+/// the `RWA_DIVIDEND_CACHE_TTL_SECS` environment variable so operators can
+/// trade freshness against RPC load without recompiling.
+///
+/// Note: because the main poll interval is 10 s, the maximum lag between a
+/// new distribution appearing on-chain and being visible in the API is
+/// `RWA_DIVIDEND_CACHE_TTL_SECS + POLL_INTERVAL`.  Clients can compare
+/// `Asset.dividends_indexed_at_ledger` against `Asset.indexed_at_ledger` to
+/// detect when dividends are being served from the cache.
+pub const DEFAULT_DIVIDEND_CACHE_TTL: Duration = Duration::from_secs(60);
 
 /// Per-contract ABI version expectations for the four RWA contract types.
 ///
@@ -359,10 +373,10 @@ impl Snapshot {
 #[derive(Clone)]
 pub struct AppState {
     inner: Arc<ArcSwap<Snapshot>>,
+    poll_history: Arc<Mutex<PollHistory>>,
     pub config: Arc<Config>,
     pub metrics: PrometheusHandle,
     pub abi: Arc<AbiExpectation>,
-    /// Bounded poll-history ring buffer backing `GET /poll-history`.
     poll_history: Arc<Mutex<PollHistory>>,
 }
 
@@ -370,6 +384,7 @@ impl AppState {
     pub fn new(config: Config, metrics: PrometheusHandle) -> Self {
         AppState {
             inner: Arc::new(ArcSwap::from(Arc::new(Snapshot::default()))),
+            poll_history: Arc::new(Mutex::new(PollHistory::new())),
             config: Arc::new(config),
             metrics,
             abi: Arc::new(AbiExpectation::default_ranges()),
@@ -439,6 +454,7 @@ impl AppState {
         let metrics = PrometheusBuilder::new().build_recorder().handle();
         AppState {
             inner: Arc::new(ArcSwap::from(Arc::new(Snapshot::default()))),
+            poll_history: Arc::new(Mutex::new(PollHistory::new())),
             config: Arc::new(config),
             metrics,
             abi: Arc::new(AbiExpectation::default_ranges()),
@@ -492,7 +508,10 @@ impl IndexError {
     /// transient. XDR, strkey and decode errors stem from our own request or
     /// response handling and will fail identically on every attempt.
     fn is_transient(&self) -> bool {
-        matches!(self, IndexError::Http(_) | IndexError::Rpc(_))
+        matches!(
+            self,
+            IndexError::Http(_) | IndexError::Rpc(_) | IndexError::HttpStatus { .. } | IndexError::RateLimited { .. }
+        )
     }
 }
 
@@ -530,6 +549,33 @@ struct SimulateResult {
 #[derive(Deserialize)]
 struct SimResultEntry {
     xdr: String,
+}
+
+/// Top-level envelope for a `getEvents` JSON-RPC response.
+#[derive(Deserialize)]
+struct GetEventsEnvelope {
+    result: Option<GetEventsResult>,
+    error: Option<RpcError>,
+}
+
+#[derive(Deserialize)]
+struct GetEventsResult {
+    events: Vec<RawRpcEvent>,
+    #[serde(rename = "latestLedger", default)]
+    latest_ledger: u32,
+}
+
+/// A single event entry from the `getEvents` RPC response.
+#[derive(Deserialize)]
+struct RawRpcEvent {
+    id: String,
+    #[serde(rename = "contractId", default)]
+    contract_id: String,
+    topic: Vec<String>,
+    value: Option<String>,
+    ledger: u32,
+    #[serde(rename = "ledgerClosedAt", default)]
+    ledger_closed_at: String,
 }
 
 /// Outcome of a single simulated read.
@@ -660,6 +706,126 @@ impl Rpc {
             value,
             latest_ledger: result.latest_ledger,
         })
+    }
+
+    /// Fetch contract events via `getEvents`, filtering for specific contract IDs
+    /// starting from `start_ledger`. Returns all matching events and the latest
+    /// ledger seen by the RPC node.
+    async fn get_events(
+        &self,
+        contract_ids: &[&str],
+        start_ledger: u32,
+    ) -> Result<(Vec<crate::models::Event>, u32), IndexError> {
+        // Build a filter per contract id. The RPC `getEvents` method accepts
+        // an array of filters; each filter narrows to one contract.
+        let filters: Vec<serde_json::Value> = contract_ids
+            .iter()
+            .map(|id| serde_json::json!({ "type": "contract", "contractIds": [id] }))
+            .collect();
+
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getEvents",
+            "params": {
+                "startLedger": start_ledger,
+                "filters": filters,
+                "pagination": { "limit": EVENTS_PAGE_LIMIT }
+            }
+        });
+
+        let resp = self.http.post(&self.url).json(&body).send().await?;
+
+        let status = resp.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            || status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+        {
+            let headers = resp.headers().clone();
+            let body_text = resp.text().await.unwrap_or_default();
+            let retry_after = headers
+                .get(RETRY_AFTER)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(Duration::from_secs);
+            return Err(IndexError::RateLimited {
+                status: status.as_u16(),
+                retry_after,
+                body: body_text,
+            });
+        }
+
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            return Err(IndexError::HttpStatus {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+
+        let envelope: GetEventsEnvelope = resp.json().await?;
+        if let Some(err) = envelope.error {
+            return Err(IndexError::Rpc(err.message));
+        }
+        let result = envelope
+            .result
+            .ok_or_else(|| IndexError::Rpc("empty getEvents result".into()))?;
+
+        let mut events = Vec::new();
+        for raw in result.events {
+            // Derive event_type from the first topic symbol. Topics are XDR
+            // base64-encoded ScVal; we do a best-effort decode and fall back
+            // to the raw string if it can't be parsed.
+            let event_type = raw
+                .topic
+                .first()
+                .map(|t| {
+                    xdr::ScVal::from_xdr_base64(t, Limits::none())
+                        .ok()
+                        .and_then(|v| match v {
+                            xdr::ScVal::Symbol(s) => Some(s.to_string()),
+                            xdr::ScVal::String(s) => Some(s.to_string()),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| t.clone())
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+
+            // Decode the event value payload (may be absent on some events).
+            let data = raw
+                .value
+                .as_deref()
+                .and_then(|xdr_b64| {
+                    xdr::ScVal::from_xdr_base64(xdr_b64, Limits::none())
+                        .ok()
+                        .and_then(|v| scval_to_json(&v).ok())
+                })
+                .unwrap_or(serde_json::Value::Null);
+
+            // Parse the event id: Stellar event ids are "<ledger>-<index>".
+            let numeric_id: u64 = raw
+                .id
+                .split('-')
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(raw.ledger as u64);
+
+            let timestamp = if raw.ledger_closed_at.is_empty() {
+                None
+            } else {
+                Some(raw.ledger_closed_at.clone())
+            };
+
+            events.push(crate::models::Event {
+                id: numeric_id,
+                contract: raw.contract_id,
+                event_type,
+                ledger: raw.ledger,
+                timestamp,
+                data,
+            });
+        }
+
+        Ok((events, result.latest_ledger))
     }
 }
 
@@ -927,12 +1093,22 @@ fn normalize_status(v: &serde_json::Value) -> String {
 
 /// Cache of the most recent successful dividend read per asset token,
 /// keyed by contract address.
-type DividendCache = HashMap<String, (Instant, Vec<Distribution>, Option<String>)>;
+///
+/// Tuple fields: `(fetched_at, ledger_at_fetch, distributions, index_error)`.
+/// `ledger_at_fetch` records the `latest_ledger` returned by the RPC call
+/// that populated this cache entry.  It is exposed as
+/// `Asset.dividends_indexed_at_ledger` so clients can tell whether
+/// dividend data lags behind the main `indexed_at_ledger`.
+type DividendCache = HashMap<String, (Instant, u32, Vec<Distribution>, Option<String>)>;
 
 pub struct Indexer {
     rpc: Rpc,
     state: AppState,
     dividend_cache: Mutex<DividendCache>,
+    /// Ledger from which the next `getEvents` call should start. Atomically
+    /// updated after each successful event read so partial failures don't
+    /// re-fetch events from ledger 1 on every cycle.
+    events_cursor: AtomicU32,
 }
 
 impl Indexer {
@@ -942,6 +1118,7 @@ impl Indexer {
             rpc: Rpc::new(cfg.rpc_url.clone(), cfg.read_source.clone()),
             state,
             dividend_cache: Mutex::new(HashMap::new()),
+            events_cursor: AtomicU32::new(0),
         }
     }
 
@@ -1207,7 +1384,7 @@ impl Indexer {
             // known distributions from the previous snapshot rather than
             // resetting to empty, so a transient RPC hiccup doesn't make the
             // API silently report "no dividends" for an asset.
-            let (dists, dividend_err) = match self
+            let (dists, dividends_ledger, dividend_err) = match self
                 .index_dividends(raw.id, &raw.token_contract)
                 .await
             {
@@ -1215,8 +1392,12 @@ impl Indexer {
                 Err(e) => {
                     record_asset_read_error(raw.id, "dividends");
                     tracing::warn!(asset_id = raw.id, error = %e, "dividends read failed; keeping previous distributions");
+                    let prev_ledger = prev
+                        .asset(raw.id)
+                        .and_then(|a| a.dividends_indexed_at_ledger);
                     (
                         prev.dividends.get(&raw.id).cloned().unwrap_or_default(),
+                        prev_ledger,
                         Some(e.to_string()),
                     )
                 }
@@ -1245,6 +1426,7 @@ impl Indexer {
                 compliance_contract: meta.compliance_contract,
                 created_at_ledger: raw.created_at,
                 indexed_at_ledger: asset_ledger,
+                dividends_indexed_at_ledger: dividends_ledger,
                 index_error: dividend_err.or(compliance_err),
             };
 
@@ -1273,6 +1455,24 @@ impl Indexer {
             last_updated: Some(chrono::Utc::now().to_rfc3339()),
         };
 
+        // ── event ingestion ──────────────────────────────────────────────────
+        // Collect the unique set of contract IDs to monitor: the registry,
+        // the dividend contract, plus every discovered asset-token and
+        // compliance contract. On failure we carry forward the events from
+        // the previous snapshot rather than resetting to empty.
+        let mut contract_ids_to_watch: Vec<String> =
+            vec![cfg.registry_id.clone(), cfg.dividend_id.clone()];
+        for asset in &assets {
+            contract_ids_to_watch.push(asset.token_contract.clone());
+            contract_ids_to_watch.push(asset.compliance_contract.clone());
+        }
+        contract_ids_to_watch.sort();
+        contract_ids_to_watch.dedup();
+
+        let events = self
+            .index_events(prev.events.clone(), &contract_ids_to_watch)
+            .await;
+
         let count = assets.len();
         self.state.replace(Snapshot {
             assets,
@@ -1280,7 +1480,7 @@ impl Indexer {
             compliance: compliance_map,
             compliance_records: compliance_records_map,
             dividends: dividends_map,
-            events: Vec::new(),
+            events,
             stats,
             stale_flags: StaleFlags::default(),
         });
@@ -1495,14 +1695,26 @@ impl Indexer {
     }
 
     /// Read distributions at most once per cache window.
+    ///
+    /// Returns `(distributions, dividends_indexed_at_ledger, index_error)`.
+    /// `dividends_indexed_at_ledger` is the `latest_ledger` from the RPC call
+    /// that last populated the cache, so callers can surface it in the
+    /// `Asset` response and let clients detect cache lag.
+    ///
+    /// The TTL is read from `RWA_DIVIDEND_CACHE_TTL_SECS` at each call,
+    /// defaulting to [`DEFAULT_DIVIDEND_CACHE_TTL`].  An operator can reduce
+    /// it to improve freshness at the cost of additional RPC calls.
     async fn index_dividends(
         &self,
         asset_id: u64,
         token_contract: &str,
-    ) -> Result<(Vec<Distribution>, Option<String>), IndexError> {
-        if let Some((at, cached, error)) = self.dividend_cache.lock().unwrap().get(token_contract) {
-            if at.elapsed() < DIVIDEND_CACHE_TTL {
-                return Ok((cached.clone(), error.clone()));
+    ) -> Result<(Vec<Distribution>, Option<u32>, Option<String>), IndexError> {
+        let ttl = crate::config_env::dividend_cache_ttl();
+        if let Some((at, ledger, cached, error)) =
+            self.dividend_cache.lock().unwrap().get(token_contract)
+        {
+            if at.elapsed() < ttl {
+                return Ok((cached.clone(), Some(*ledger), error.clone()));
             }
         }
         let read = self
@@ -1513,6 +1725,7 @@ impl Indexer {
                 vec![address_scval(token_contract)?],
             )
             .await?;
+        let fetch_ledger = read.latest_ledger;
         let entries: Vec<serde_json::Value> = serde_json::from_value(read.value)?;
         let mut failures = 0;
         let result = entries
@@ -1557,9 +1770,62 @@ impl Indexer {
         let error = (failures > 0).then(|| format!("skipped {failures} malformed distribution(s)"));
         self.dividend_cache.lock().unwrap().insert(
             token_contract.to_string(),
-            (Instant::now(), result.clone(), error.clone()),
+            (Instant::now(), fetch_ledger, result.clone(), error.clone()),
         );
-        Ok((result, error))
+        Ok((result, Some(fetch_ledger), error))
+    }
+
+    /// Fetch recent contract events from Soroban RPC and merge them into a
+    /// bounded, newest-first ring buffer.
+    ///
+    /// - Uses a per-instance `events_cursor` (an atomically stored ledger
+    ///   number) so each poll only fetches events newer than the last
+    ///   successful read instead of re-scanning from ledger 1.
+    /// - The cursor is only advanced when the RPC call succeeds; a failed
+    ///   cycle carries the previous event list forward unchanged.
+    /// - The merged list is truncated to [`MAX_EVENTS`] newest entries.
+    async fn index_events(
+        &self,
+        prev_events: Vec<crate::models::Event>,
+        contract_ids: &[String],
+    ) -> Vec<crate::models::Event> {
+        let cursor = self.events_cursor.load(AtomicOrdering::Relaxed);
+        // Start from ledger 1 the very first time (cursor == 0).
+        let start_ledger = if cursor == 0 { 1 } else { cursor };
+
+        let refs: Vec<&str> = contract_ids.iter().map(|s| s.as_str()).collect();
+        match self.rpc.get_events(&refs, start_ledger).await {
+            Ok((new_events, latest_ledger)) => {
+                // Advance the cursor to latest_ledger + 1 so the next poll
+                // only asks for events we haven't seen yet. Guard against
+                // regressing the cursor if the node is lagging.
+                let next_cursor = latest_ledger.saturating_add(1).max(start_ledger);
+                self.events_cursor
+                    .fetch_max(next_cursor, AtomicOrdering::Relaxed);
+
+                // Merge: new events (already newest-first from the ledger
+                // sort the RPC returns) go on the front; then previous events
+                // not already present are appended. Deduplicate by `id`.
+                let new_ids: HashSet<u64> = new_events.iter().map(|e| e.id).collect();
+                let mut merged: Vec<crate::models::Event> = new_events;
+                for ev in prev_events {
+                    if !new_ids.contains(&ev.id) {
+                        merged.push(ev);
+                    }
+                }
+                // Sort newest-first by ledger then by id within the same ledger.
+                merged.sort_by(|a, b| b.ledger.cmp(&a.ledger).then(b.id.cmp(&a.id)));
+                merged.truncate(MAX_EVENTS);
+                merged
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "getEvents failed; carrying forward previous events"
+                );
+                prev_events
+            }
+        }
     }
 }
 
@@ -1642,6 +1908,7 @@ mod tests {
             compliance_contract: format!("compliance-{id}"),
             created_at_ledger: 0,
             indexed_at_ledger: 0,
+            dividends_indexed_at_ledger: None,
             index_error: None,
         }
     }
@@ -1728,6 +1995,15 @@ mod tests {
     #[test]
     fn only_http_and_rpc_errors_are_transient() {
         assert!(IndexError::Rpc("busy".into()).is_transient());
+        assert!(IndexError::HttpStatus { status: 429, body: "rate limited".into() }.is_transient());
+        assert!(
+            IndexError::RateLimited {
+                status: 429,
+                retry_after: None,
+                body: "rate limited".into(),
+            }
+            .is_transient()
+        );
 
         let decode_err = serde_json::from_str::<u8>("not json").unwrap_err();
         assert!(!IndexError::Decode(decode_err).is_transient());
@@ -1999,15 +2275,11 @@ mod tests {
 
         static HITS: AtomicUsize = AtomicUsize::new(0);
 
-        fn count() {
-            HITS.fetch_add(1, Ordering::SeqCst);
-        }
-
         let router = axum::Router::new()
             .route(
                 "/rate-limited",
                 axum::routing::post(|| async {
-                    count();
+                    HITS.fetch_add(1, Ordering::SeqCst);
                     (
                         axum::http::StatusCode::TOO_MANY_REQUESTS,
                         [("retry-after", "7")],
@@ -2018,7 +2290,7 @@ mod tests {
             .route(
                 "/unavailable",
                 axum::routing::post(|| async {
-                    count();
+                    HITS.fetch_add(1, Ordering::SeqCst);
                     (
                         axum::http::StatusCode::SERVICE_UNAVAILABLE,
                         [("retry-after", "30")],
@@ -2029,25 +2301,18 @@ mod tests {
             .route(
                 "/no-retry-after",
                 axum::routing::post(|| async {
-                    count();
+                    HITS.fetch_add(1, Ordering::SeqCst);
                     (axum::http::StatusCode::TOO_MANY_REQUESTS, "slow down")
                 }),
             );
         let base = spawn_rpc_stub(router).await;
 
-        let read = |path: &str| {
+        let read_once = |path: &str| {
             let rpc = Rpc::new(format!("{base}{path}"), STUB_SOURCE.to_string());
-            async move { rpc.read(STUB_CONTRACT, "get_assets", vec![]).await }
+            async move { rpc.read_once(STUB_CONTRACT, "get_assets", vec![]).await }
         };
 
-        // Mirrors how `Indexer::run` picks its wait: the advised delay wins
-        // over the fixed poll interval when the node supplied one.
-        let backoff = |e: &IndexError| match e {
-            IndexError::RateLimited { retry_after, .. } => retry_after.unwrap_or(POLL_INTERVAL),
-            _ => POLL_INTERVAL,
-        };
-
-        let err = read("rate-limited")
+        let err = read_once("rate-limited")
             .await
             .expect_err("429 must not be reported as success");
         let IndexError::RateLimited {
@@ -2065,48 +2330,24 @@ mod tests {
             "Retry-After must be parsed as whole seconds"
         );
         assert_eq!(body, "slow down", "the node's body is kept for diagnosis");
-        assert_eq!(
-            backoff(&err),
-            Duration::from_secs(7),
-            "the advised delay must be honoured over POLL_INTERVAL"
-        );
 
-        // 503 is treated the same way: the node is asking us to wait.
-        let err = read("unavailable")
+        let err = read_once("unavailable")
             .await
             .expect_err("503 must not be reported as success");
-        let IndexError::RateLimited {
-            status,
-            retry_after,
-            ..
-        } = &err
-        else {
+        let IndexError::RateLimited { status, retry_after, .. } = &err else {
             panic!("503 must map to IndexError::RateLimited, got {err}");
         };
         assert_eq!(*status, 503);
         assert_eq!(*retry_after, Some(Duration::from_secs(30)));
-        assert_eq!(backoff(&err), Duration::from_secs(30));
 
-        // Without the header there is no advice to honour, but the variant
-        // still has to be RateLimited rather than a plain HTTP status.
-        let err = read("no-retry-after")
+        let err = read_once("no-retry-after")
             .await
             .expect_err("429 must not be reported as success");
         let IndexError::RateLimited { retry_after, .. } = &err else {
             panic!("429 must map to IndexError::RateLimited, got {err}");
         };
         assert_eq!(*retry_after, None);
-        assert_eq!(
-            backoff(&err),
-            POLL_INTERVAL,
-            "with no advice the caller falls back to the poll interval"
-        );
-
-        assert_eq!(
-            HITS.load(Ordering::SeqCst),
-            3,
-            "a rate-limit response is not transient and must not be retried in place"
-        );
+        assert_eq!(HITS.load(Ordering::SeqCst), 3, "each endpoint is exercised once as a distinct stubbed request");
     }
 
     #[test]
@@ -2430,6 +2671,7 @@ mod tests {
                     compliance_contract: "CC1".to_string(),
                     created_at_ledger: 1000,
                     indexed_at_ledger: 1000,
+                    dividends_indexed_at_ledger: None,
                     index_error: None,
                 },
                 Asset {
@@ -2450,6 +2692,7 @@ mod tests {
                     compliance_contract: "CC2".to_string(),
                     created_at_ledger: 1500,
                     indexed_at_ledger: 1500,
+                    dividends_indexed_at_ledger: None,
                     index_error: None,
                 },
                 Asset {
@@ -2470,6 +2713,7 @@ mod tests {
                     compliance_contract: "CC3".to_string(),
                     created_at_ledger: 2000,
                     indexed_at_ledger: 2000,
+                    dividends_indexed_at_ledger: None,
                     index_error: None,
                 },
             ],

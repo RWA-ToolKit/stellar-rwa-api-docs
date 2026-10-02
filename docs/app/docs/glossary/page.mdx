@@ -1,0 +1,109 @@
+export const metadata = {
+  title: "Glossary",
+  description: "Short definitions of the Stellar, Soroban and RWA terms used across these docs.",
+  canonical: "/docs/glossary",
+};
+
+# Glossary
+
+Terms are grouped by where they come from: Stellar, Soroban, and this toolkit's
+own domain vocabulary.
+
+## Stellar
+
+**Ledger** — One closed block of the Stellar network, roughly every 5 seconds. Each ledger has a
+sequence number that increases by one.
+
+**Ledger sequence** — The `u32` counter identifying a ledger. The contracts use it as their only
+clock; see [Time & Ledgers](/docs/time-and-ledgers).
+
+**Network passphrase** — A string that identifies a Stellar network and is mixed into every
+transaction signature. A transaction signed for Testnet is invalid on any other network.
+
+**Testnet** — Stellar's public test network, where the toolkit is deployed. Its assets have no
+real value.
+
+**Stroop** — The smallest unit of XLM, one ten-millionth (`0.0000001`) of a lumen. Fees are quoted
+in stroops.
+
+**Strkey** — The base32 text encoding for Stellar keys and ids: account addresses start with `G`
+and contract ids start with `C`.
+
+**Freighter** — A browser wallet for Stellar that the web app uses to sign transactions.
+
+**XDR** — The binary format Stellar uses for transactions and ledger data. Clients usually see it
+base64-encoded.
+
+## Soroban
+
+**Soroban** — Stellar's smart-contract platform. Contracts are compiled to WebAssembly and run by
+the network's host.
+
+**Soroban RPC** — The JSON-RPC service used to simulate and submit contract calls and to read
+contract state and events.
+
+**Host function** — A function the Soroban runtime exposes to contracts, such as reading storage or
+calling another contract.
+
+**ScVal** — The XDR type for any value passed to or returned from a contract. Client libraries
+convert it with helpers like `nativeToScVal` and `scValToNative`.
+
+**Simulation** — A dry run of a contract call through `simulateTransaction`. It returns the result,
+the resource footprint and the fee without changing state, and is how read-only calls are made.
+
+**Footprint** — The list of ledger entries a transaction will read and write. It must be attached
+to a transaction before submission, which `assembleTransaction` does from a simulation.
+
+**TTL (time to live)** — How many ledgers a piece of contract storage stays live before it expires
+and is archived. Entries must be extended to be kept.
+
+**Persistent storage** — The contract storage type for data that must survive, such as KYC
+records. It is archived rather than deleted when its TTL runs out.
+
+**Cross-contract call** — One contract invoking another. The asset token calls the compliance
+contract this way on every transfer.
+
+## Toolkit and domain
+
+**RWA (real-world asset)** — An off-chain asset, such as property or an invoice, represented by an
+on-chain token.
+
+**Asset token** — The fungible token contract that represents ownership of one RWA. It is
+compliance-gated. See [Asset Token](/docs/contracts/asset-token).
+
+**Registry** — The contract that lists every tokenized asset and gives it a numeric asset id.
+Listing is self-attestation, not a compliance control.
+
+**Allowlist** — The set of addresses the compliance contract has a KYC record for. Only addresses
+that pass `is_allowed` may hold or receive the asset.
+
+**KYC record** — The compliance contract's per-address entry: status, jurisdiction, `verified_at`
+and `expires_at`.
+
+**Approved / Pending / Rejected / Suspended** — The four KYC statuses. Only `Approved` can pass
+`is_allowed`, and only while unexpired and outside a blocked jurisdiction.
+
+**Jurisdiction** — A two-letter ISO country code stored on a KYC record, such as `US` or `KE`.
+Issuers can block a whole jurisdiction at once. See the
+[Compliance Guide](/docs/compliance-guide#jurisdiction-model-and-its-limitation).
+
+**Transfer gate** — The check the asset token runs on every transfer and mint: `is_allowed` must
+be true for the sender and the recipient.
+
+**Expiry (`expires_at`)** — The ledger at which a KYC approval lapses. `0` means it never lapses.
+See [KYC expiry semantics](/docs/compliance-guide#kyc-expiry-semantics).
+
+**Valuation** — The issuer-reported value of the underlying asset, stored in the registry in USD
+cents. It is not a market price.
+
+**Distribution** — A dividend payout announced through the dividend contract for holders of an
+asset token, which holders then claim.
+
+**Claim** — A holder's call to collect their share of a distribution. Balances are read at claim
+time.
+
+**Indexer** — The API's background poller that reads contract state from Soroban RPC about every
+10 seconds and builds the snapshot the REST endpoints serve.
+
+**Snapshot** — The indexer's in-memory copy of contract state. Responses carry an `ETag` derived
+from its latest ledger.

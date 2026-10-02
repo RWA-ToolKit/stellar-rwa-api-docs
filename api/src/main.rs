@@ -6,6 +6,7 @@
 //! signs nothing, and never mutates on-chain state.
 
 use stellar_rwa_api::config_env;
+use stellar_rwa_api::indexer;
 use stellar_rwa_api::indexer::{AppState, Config, Indexer};
 use stellar_rwa_api::routes;
 use stellar_rwa_api::request_id;
