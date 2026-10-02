@@ -44,7 +44,17 @@ pub struct Asset {
     pub created_at_ledger: u32,
     /// Ledger number at which this asset was last successfully indexed.
     pub indexed_at_ledger: u32,
-    /// Ledger number at which dividends for this asset were last successfully refreshed.
+    /// Ledger number at which the dividend distributions for this asset were
+    /// last actually read from the chain.
+    ///
+    /// Unlike `indexed_at_ledger` (which advances every poll cycle),
+    /// `dividends_indexed_at_ledger` only advances when the
+    /// `DIVIDEND_CACHE_TTL` window expires and a fresh RPC call is made.
+    /// If this value lags behind `indexed_at_ledger` by more than the
+    /// poll interval, dividends are being served from the cache.
+    ///
+    /// `None` when the asset has never had its dividends successfully fetched
+    /// (e.g. the very first poll after startup, or after a long outage).
     pub dividends_indexed_at_ledger: Option<u32>,
     /// Non-null when the most recent per-asset index attempt failed.  The
     /// global fields on [`Stats`] still reflect the last successful full

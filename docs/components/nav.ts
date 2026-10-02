@@ -1,5 +1,7 @@
 /** Documentation navigation tree, shared by the sidebar and page metadata. */
 
+import navData from "./nav-data.json";
+
 export interface NavItem {
   title: string;
   href: string;
@@ -10,6 +12,11 @@ export interface NavSection {
   items: NavItem[];
 }
 
+export interface FlatNavItem extends NavItem {
+  section: string;
+}
+
+export const NAV: NavSection[] = navData;
 export const NAV: NavSection[] = [
   {
     title: "Introduction",
@@ -23,6 +30,7 @@ export const NAV: NavSection[] = [
     items: [
       { title: "Compliance Guide", href: "/docs/compliance-guide" },
       { title: "Time & Ledgers", href: "/docs/time-and-ledgers" },
+      { title: "Glossary", href: "/docs/glossary" },
       { title: "Security Considerations", href: "/docs/security-considerations" },
     ],
   },
@@ -31,6 +39,7 @@ export const NAV: NavSection[] = [
     items: [
       { title: "Integration", href: "/docs/integration" },
       { title: "Web App Guide", href: "/docs/web-app" },
+      { title: "Troubleshooting", href: "/docs/troubleshooting" },
       { title: "FAQ", href: "/docs/faq" },
     ],
   },
@@ -59,4 +68,6 @@ export const NAV: NavSection[] = [
 ];
 
 /** Flattened, ordered list of all pages — used for prev/next navigation. */
-export const FLAT_NAV: NavItem[] = NAV.flatMap((s) => s.items);
+export const FLAT_NAV: FlatNavItem[] = NAV.flatMap((section) =>
+  section.items.map((item) => ({ ...item, section: section.title })),
+);

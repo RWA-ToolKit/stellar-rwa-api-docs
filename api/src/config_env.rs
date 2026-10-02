@@ -1,9 +1,10 @@
 //! Environment-driven runtime configuration that is not part of
-//! `indexer::Config`: currently the indexer poll interval.
+//! `indexer::Config`: currently the indexer poll interval and dividend cache TTL.
 
 use std::time::Duration;
 
 use crate::indexer::{POLL_INTERVAL, DEFAULT_DIVIDEND_CACHE_TTL};
+use crate::indexer::{DEFAULT_DIVIDEND_CACHE_TTL, POLL_INTERVAL};
 
 /// Env var holding the poll interval in whole seconds.
 pub const POLL_INTERVAL_VAR: &str = "RWA_POLL_INTERVAL_SECS";
@@ -36,6 +37,12 @@ pub fn poll_interval() -> Duration {
 }
 
 /// Parse a raw `RWA_DIVIDEND_CACHE_TTL_SECS` value (`None` = unset, use default).
+/// Env var holding the dividend cache TTL in whole seconds.
+pub const DIVIDEND_CACHE_TTL_VAR: &str = "RWA_DIVIDEND_CACHE_TTL_SECS";
+const MIN_DIVIDEND_CACHE_SECS: u64 = 0;
+const MAX_DIVIDEND_CACHE_SECS: u64 = 3600;
+
+/// Parse a raw `RWA_DIVIDEND_CACHE_TTL_SECS` value.
 pub fn parse_dividend_cache_ttl(raw: Option<&str>) -> Result<Duration, String> {
     let Some(raw) = raw else {
         return Ok(DEFAULT_DIVIDEND_CACHE_TTL);
@@ -46,6 +53,9 @@ pub fn parse_dividend_cache_ttl(raw: Option<&str>) -> Result<Duration, String> {
     if !(MIN_DIVIDEND_CACHE_TTL_SECS..=MAX_DIVIDEND_CACHE_TTL_SECS).contains(&secs) {
         return Err(format!(
             "{DIVIDEND_CACHE_TTL_VAR} must be between {MIN_DIVIDEND_CACHE_TTL_SECS} and {MAX_DIVIDEND_CACHE_TTL_SECS}, got {secs}"
+    if !(MIN_DIVIDEND_CACHE_SECS..=MAX_DIVIDEND_CACHE_SECS).contains(&secs) {
+        return Err(format!(
+            "{DIVIDEND_CACHE_TTL_VAR} must be between {MIN_DIVIDEND_CACHE_SECS} and {MAX_DIVIDEND_CACHE_SECS}, got {secs}"
         ));
     }
     Ok(Duration::from_secs(secs))
@@ -53,6 +63,8 @@ pub fn parse_dividend_cache_ttl(raw: Option<&str>) -> Result<Duration, String> {
 
 /// Dividend cache TTL from the environment; falls back to the default when unset
 /// or invalid (invalid values are rejected at startup by `main`).
+/// Dividend cache TTL from the environment; falls back to the default when
+/// unset or invalid (invalid values are rejected at startup by `main`).
 pub fn dividend_cache_ttl() -> Duration {
     parse_dividend_cache_ttl(std::env::var(DIVIDEND_CACHE_TTL_VAR).ok().as_deref())
         .unwrap_or(DEFAULT_DIVIDEND_CACHE_TTL)
@@ -93,6 +105,10 @@ pub fn validate_with<F: Fn(&str) -> Option<String>>(get: F) -> Result<(), Vec<St
     if let Err(e) = parse_poll_interval(get(POLL_INTERVAL_VAR).as_deref()) {
         errs.push(e);
     }
+    if let Err(e) = parse_dividend_cache_ttl(get(DIVIDEND_CACHE_TTL_VAR).as_deref()) {
+        errs.push(e);
+    }
+
     if let Err(e) = parse_dividend_cache_ttl(get(DIVIDEND_CACHE_TTL_VAR).as_deref()) {
         errs.push(e);
     }

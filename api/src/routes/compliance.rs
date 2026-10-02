@@ -36,6 +36,12 @@ pub async fn summary(
 /// the blocked set.  The blocked-jurisdiction set is not currently read from
 /// the chain, so the API defaults to an empty set; future work can expose the
 /// `is_jurisdiction_blocked` contract query here.
+///
+/// Entries are sorted by `share_percent` descending then `asset_id` ascending.
+/// Raw base-unit balances are not comparable across assets with different
+/// `decimals`; `share_percent` is the only normalized cross-asset ordering key.
+/// The secondary `asset_id` sort makes the response fully deterministic even
+/// when two entries share the same `share_percent`.
 pub async fn for_address(
     State(state): State<AppState>,
     Path(address): Path<String>,
@@ -46,47 +52,62 @@ pub async fn for_address(
     // empty so we don't incorrectly gate anyone, and document this clearly.
     let blocked: HashSet<String> = HashSet::new();
 
-    let mut records = Vec::new();
+    // Iterate in asset_id order so the secondary sort key is stable from the start.
+    let mut asset_ids: Vec<u64> = snap.compliance_records.keys().copied().collect();
+    asset_ids.sort_unstable();
 
-    for (asset_id, asset_records) in &snap.compliance_records {
+    let mut records: Vec<(f64, u64, AddressCompliance)> = Vec::new();
+
+    for asset_id in asset_ids {
+        let asset_records = &snap.compliance_records[&asset_id];
         if let Some(rec) = asset_records.get(&address) {
-            if let Some(asset) = snap.asset(*asset_id) {
+            if let Some(asset) = snap.asset(asset_id) {
                 let balance = snap
                     .holders
-                    .get(asset_id)
+                    .get(&asset_id)
                     .and_then(|holders| holders.iter().find(|h| h.address == address))
                     .map(|h| h.balance.clone())
                     .unwrap_or_else(|| "0".to_string());
 
+                let share_percent = snap
+                    .holders
+                    .get(&asset_id)
+                    .and_then(|holders| holders.iter().find(|h| h.address == address))
+                    .map(|h| h.share_percent)
+                    .unwrap_or(0.0);
+
                 let allowed = derive_allowed(rec, latest_ledger, &blocked);
-                records.push(AddressCompliance {
-                    address: address.clone(),
-                    asset_id: *asset_id,
-                    asset_name: asset.name.clone(),
-                    symbol: asset.symbol.clone(),
-                    balance,
-                    status: rec.status.clone(),
-                    allowed,
-                    jurisdiction: Some(rec.jurisdiction.clone()),
-                    expires_at: if rec.expires_at == 0 {
-                        None
-                    } else {
-                        Some(rec.expires_at)
+                records.push((
+                    share_percent,
+                    asset_id,
+                    AddressCompliance {
+                        address: address.clone(),
+                        asset_id,
+                        asset_name: asset.name.clone(),
+                        symbol: asset.symbol.clone(),
+                        balance,
+                        status: rec.status.clone(),
+                        allowed,
+                        jurisdiction: Some(rec.jurisdiction.clone()),
+                        expires_at: if rec.expires_at == 0 {
+                            None
+                        } else {
+                            Some(rec.expires_at)
+                        },
                     },
-                });
+                ));
             }
         }
     }
 
-    records.sort_by(|a, b| {
-        b.balance
-            .parse::<i128>()
-            .unwrap_or_default()
-            .cmp(&a.balance.parse::<i128>().unwrap_or_default())
-            .then_with(|| a.asset_id.cmp(&b.asset_id))
+    // Primary: share_percent descending. Secondary: asset_id ascending (deterministic).
+    records.sort_by(|(sp_a, id_a, _), (sp_b, id_b, _)| {
+        sp_b.partial_cmp(sp_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| id_a.cmp(id_b))
     });
 
-    Ok(Json(records))
+    Ok(Json(records.into_iter().map(|(_, _, r)| r).collect()))
 }
 
 #[cfg(test)]

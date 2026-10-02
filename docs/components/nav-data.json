@@ -1,0 +1,63 @@
+[
+  {
+    "title": "Introduction",
+    "items": [
+      { "title": "Getting Started", "href": "/docs/getting-started" },
+      { "title": "Architecture Overview", "href": "/docs/architecture" }
+    ]
+  },
+  {
+    "title": "Concepts",
+    "items": [
+      { "title": "Compliance Guide", "href": "/docs/compliance-guide" },
+      { "title": "Time & Ledgers", "href": "/docs/time-and-ledgers" },
+      { "title": "Security Considerations", "href": "/docs/security-considerations" }
+    ]
+  },
+  {
+    "title": "Guides",
+    "items": [
+      { "title": "Integration", "href": "/docs/integration" },
+      { "title": "Web App Guide", "href": "/docs/web-app" },
+      { "title": "FAQ", "href": "/docs/faq" },
+      { "title": "Deployment", "href": "/docs/deployment" },
+      { "title": "Metrics", "href": "/docs/metrics" }
+    ]
+  },
+  {
+    "title": "Contract Reference",
+    "items": [
+      { "title": "Asset Token", "href": "/docs/contracts/asset-token" },
+      { "title": "Compliance", "href": "/docs/contracts/compliance" },
+      { "title": "Registry", "href": "/docs/contracts/registry" },
+      { "title": "Dividend", "href": "/docs/contracts/dividend" }
+    ]
+  },
+  {
+    "title": "API Reference",
+    "items": [
+      { "title": "Overview", "href": "/docs/api/overview" },
+      { "title": "Assets", "href": "/docs/api/assets" },
+      { "title": "Assets Query", "href": "/docs/api/assets-query" },
+      { "title": "Holders", "href": "/docs/api/holders" },
+      { "title": "Holder Position", "href": "/docs/api/holder-position" },
+      { "title": "Compliance", "href": "/docs/api/compliance" },
+      { "title": "Dividends", "href": "/docs/api/dividends" },
+      { "title": "Events", "href": "/docs/api/events" },
+      { "title": "Field Selection", "href": "/docs/api/field-selection" },
+      { "title": "Rate Limits & Caching", "href": "/docs/api/rate-limits" },
+      { "title": "Request IDs", "href": "/docs/api/request-ids" },
+      { "title": "Health", "href": "/docs/api/health" },
+      { "title": "Errors", "href": "/docs/api/errors" },
+      { "title": "OpenAPI", "href": "/docs/api/openapi" },
+      { "title": "Versioning", "href": "/docs/api/versioning" },
+      { "title": "Changelog", "href": "/docs/changelog" }
+    ]
+  },
+  {
+    "title": "Architecture",
+    "items": [
+      { "title": "Snapshot Memory", "href": "/docs/snapshot-memory" }
+    ]
+  }
+]
