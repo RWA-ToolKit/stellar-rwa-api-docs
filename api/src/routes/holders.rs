@@ -49,20 +49,38 @@ pub async fn list(
     Ok(Json(holders))
 }
 
-/// Portfolio of assets held by a single address, sorted by balance descending.
+/// Portfolio of assets held by a single address, sorted by share_percent
+/// descending then asset_id ascending.
+///
+/// Raw base-unit balances are not comparable across assets with different
+/// `decimals` (e.g. 10000 base units of a 2-decimal asset is 100.00 tokens,
+/// while 50000000 base units of a 7-decimal asset is only 5.0 tokens).
+/// `share_percent` is already normalized to the [0, 100] range for each
+/// asset, making it the only meaningful cross-asset ordering key.
+///
+/// A secondary sort on `asset_id` ensures a fully deterministic response
+/// even when two holdings have equal `share_percent`, eliminating the
+/// non-determinism that previously arose from iterating the underlying
+/// `HashMap` and comparing equal-balance entries.
 pub async fn by_address(
     State(state): State<AppState>,
     Path(address): Path<String>,
 ) -> Result<Json<Vec<AddressHolding>>, ApiError> {
     let snap = state.snapshot();
-    let mut holdings = Vec::new();
 
-    for (asset_id, holders) in &snap.holders {
+    // Collect into a Vec sorted by asset_id first so we don't depend on
+    // HashMap iteration order before the stable secondary key is applied.
+    let mut asset_ids: Vec<u64> = snap.holders.keys().copied().collect();
+    asset_ids.sort_unstable();
+
+    let mut holdings = Vec::new();
+    for asset_id in asset_ids {
+        let holders = &snap.holders[&asset_id];
         if let Some(holder) = holders.iter().find(|h| h.address == address) {
-            if let Some(asset) = snap.asset(*asset_id) {
+            if let Some(asset) = snap.asset(asset_id) {
                 holdings.push(AddressHolding {
                     address: holder.address.clone(),
-                    asset_id: *asset_id,
+                    asset_id,
                     asset_name: asset.name.clone(),
                     symbol: asset.symbol.clone(),
                     balance: holder.balance.clone(),
@@ -72,11 +90,13 @@ pub async fn by_address(
         }
     }
 
+    // Primary: share_percent descending (meaningful cross-asset comparison).
+    // Secondary: asset_id ascending (fully deterministic tie-breaking).
     holdings.sort_by(|a, b| {
-        b.balance
-            .parse::<i128>()
-            .unwrap_or_default()
-            .cmp(&a.balance.parse::<i128>().unwrap_or_default())
+        b.share_percent
+            .partial_cmp(&a.share_percent)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.asset_id.cmp(&b.asset_id))
     });
 
     Ok(Json(holdings))
@@ -87,6 +107,12 @@ pub async fn by_address(
 ///
 /// `status` and `allowed` reflect the real on-chain KYC record persisted in
 /// the snapshot — not a hardcoded constant.  An unknown address returns `[]`.
+///
+/// Entries are sorted by `share_percent` descending then `asset_id` ascending.
+/// Raw base-unit balances are not comparable across assets with different
+/// `decimals`; `share_percent` is the only normalized cross-asset ordering key.
+/// The secondary `asset_id` sort makes the response fully deterministic even
+/// when two entries share the same `share_percent`.
 pub async fn by_address_compliance(
     State(state): State<AppState>,
     Path(address): Path<String>,
@@ -97,46 +123,63 @@ pub async fn by_address_compliance(
     // empty so we don't incorrectly gate anyone.
     let blocked: HashSet<String> = HashSet::new();
 
-    let mut entries = Vec::new();
+    // Iterate in asset_id order so the secondary sort key is stable from the start.
+    let mut asset_ids: Vec<u64> = snap.compliance_records.keys().copied().collect();
+    asset_ids.sort_unstable();
 
-    for (asset_id, asset_records) in &snap.compliance_records {
+    let mut entries = Vec::new();
+    for asset_id in asset_ids {
+        let asset_records = &snap.compliance_records[&asset_id];
         if let Some(rec) = asset_records.get(&address) {
-            if let Some(asset) = snap.asset(*asset_id) {
+            if let Some(asset) = snap.asset(asset_id) {
                 let balance = snap
                     .holders
-                    .get(asset_id)
+                    .get(&asset_id)
                     .and_then(|holders| holders.iter().find(|h| h.address == address))
                     .map(|h| h.balance.clone())
                     .unwrap_or_else(|| "0".to_string());
 
+                // share_percent for compliance entries: look up the matching
+                // Holder if present, otherwise 0.0 (zero-balance entries).
+                let share_percent = snap
+                    .holders
+                    .get(&asset_id)
+                    .and_then(|holders| holders.iter().find(|h| h.address == address))
+                    .map(|h| h.share_percent)
+                    .unwrap_or(0.0);
+
                 let allowed = derive_allowed(rec, latest_ledger, &blocked);
-                entries.push(crate::models::AddressCompliance {
-                    address: address.clone(),
-                    asset_id: *asset_id,
-                    asset_name: asset.name.clone(),
-                    symbol: asset.symbol.clone(),
-                    balance,
-                    status: rec.status.clone(),
-                    allowed,
-                    jurisdiction: Some(rec.jurisdiction.clone()),
-                    expires_at: if rec.expires_at == 0 {
-                        None
-                    } else {
-                        Some(rec.expires_at)
+                entries.push((
+                    share_percent,
+                    asset_id,
+                    crate::models::AddressCompliance {
+                        address: address.clone(),
+                        asset_id,
+                        asset_name: asset.name.clone(),
+                        symbol: asset.symbol.clone(),
+                        balance,
+                        status: rec.status.clone(),
+                        allowed,
+                        jurisdiction: Some(rec.jurisdiction.clone()),
+                        expires_at: if rec.expires_at == 0 {
+                            None
+                        } else {
+                            Some(rec.expires_at)
+                        },
                     },
-                });
+                ));
             }
         }
     }
 
-    entries.sort_by(|a, b| {
-        b.balance
-            .parse::<i128>()
-            .unwrap_or_default()
-            .cmp(&a.balance.parse::<i128>().unwrap_or_default())
+    // Primary: share_percent descending. Secondary: asset_id ascending (deterministic).
+    entries.sort_by(|(sp_a, id_a, _), (sp_b, id_b, _)| {
+        sp_b.partial_cmp(sp_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| id_a.cmp(id_b))
     });
 
-    Ok(Json(entries))
+    Ok(Json(entries.into_iter().map(|(_, _, e)| e).collect()))
 }
 
 #[cfg(test)]
