@@ -121,12 +121,15 @@ product working — the gate is doing its job.
 | `RecipientNotCompliant (8)` | The `to` address failed `is_allowed` |
 | `Paused (6)` | Transfers are globally halted by the issuer |
 
-## Jurisdiction restrictions
+## Jurisdiction model and its limitation
 
-Beyond per-address control, issuers can block entire **jurisdictions**. Calling
+Beyond per-address control, issuers can block entire **jurisdictions**. Each KYC
+record stores a two-letter ISO country code (input is trimmed and uppercased; anything
+that is not exactly two letters is rejected with `InvalidJurisdiction (6)`). Calling
 `block_jurisdiction("US")` makes every approved address whose record says `US` fail
-`is_allowed` immediately — without editing a single individual record. Unblocking
-with `unblock_jurisdiction("US")` restores them.
+`is_allowed` immediately, without editing a single individual record. Unblocking
+with `unblock_jurisdiction("US")` restores them. Blocking an already-blocked
+jurisdiction is a no-op, and so is unblocking one that is not blocked.
 
 This models a common real-world requirement: a regulatory change, sanction, or
 offering restriction that must apply to a whole country at once. Because the check
@@ -138,26 +141,92 @@ The API's [`/assets/:id/compliance`](/docs/api/compliance) endpoint surfaces the
 jurisdiction distribution (as counts) so issuers can audit their geographic
 exposure before making such a change.
 
-## KYC expiry and suspension
+<CalloutBox variant="warning" title="Known limitation: blocked jurisdictions with no approved address are invisible">
+The API and other clients learn jurisdictions **only from the `jurisdiction` field of
+allowlist KYC records**. The set of blocked jurisdictions is stored separately, as
+per-code flags in the compliance contract. A client that infers "which jurisdictions
+are blocked" from the allowlist will therefore never see a blocked jurisdiction that
+has no address on the allowlist: no record carries its code, so it appears in no
+breakdown. Blocking `KP` before anyone from `KP` is approved, for example, leaves no
+trace in `/assets/:id/compliance`.
+</CalloutBox>
 
-Approvals are not forever. Two mechanisms let issuers keep the allowlist current:
+**Why it happens.** Blocking is a property of a country code, not of an address, so
+the contract does not need any record to exist in order to block a code. The API
+indexes per-address records and reports what they contain; it has no record to
+derive an empty jurisdiction from. The gate itself is unaffected: `is_allowed` still
+checks the flag, so an address later approved with that code fails immediately. Only
+*visibility* is limited.
 
-- **Expiry.** `add_to_allowlist` takes an `expires_at` ledger. Once the current
-  ledger reaches it, `is_allowed` returns `false` automatically — the holder can no
-  longer transfer, and cannot receive more, until re-approved. An `expires_at` of
-  `0` means the approval never expires. Because time is measured in **ledger
-  sequence numbers** (~5 seconds each), a one-year approval is roughly
-  `+6,300,000` ledgers from now.
+**What to do about it.**
 
-- **Suspension.** `suspend(address)` sets the status to `Suspended` while keeping
-  the record. This is the right tool for a temporary hold — a pending re-review, a
-  compliance flag — because it is reversible with `add_to_allowlist` and preserves
-  the audit trail. Use `remove` only when an address should be erased entirely.
+- To ask about a specific code, call `is_jurisdiction_blocked(code)` on the
+  compliance contract. It is authoritative regardless of who is on the allowlist.
+- The compliance contract also exposes `get_blocked_jurisdictions()`, which returns
+  every currently blocked code in the order it was first blocked. This is the direct
+  read that closes the gap. It is present on the contracts repository's main branch;
+  check that your deployed compliance contract includes it, and note that the REST
+  API's compliance summary does not yet report it. Until the API does, read the
+  blocked set from the contract rather than from the API.
+- Do not treat the API's `jurisdictions` array as the list of what is blocked, or as
+  proof that a jurisdiction is unblocked.
+
+## KYC expiry semantics
+
+Approvals are not forever. Expiry is stored per record as `expires_at`, a **ledger
+sequence number** (`u32`), and evaluated against the current ledger sequence every
+time `is_allowed` runs.
+
+| Stored `expires_at` | Behaviour |
+|---------------------|-----------|
+| `0` | **Sentinel: the approval never expires.** No ledger number ever lapses it. |
+| Non-zero `N` | Valid while the current ledger is `N - 1` or earlier. Lapsed from ledger `N` onward. |
+
+**The boundary is exclusive.** `is_allowed` treats a record as expired when
+`expires_at != 0 && current_ledger >= expires_at`. With `expires_at = 100`:
+
+| Current ledger | `is_allowed` (status `Approved`, jurisdiction not blocked) |
+|----------------|--------------------------------------------------------------|
+| 99 | `true` |
+| 100 | `false` |
+| 101 | `false` |
+
+So `expires_at` is the **first ledger at which the approval no longer holds**, not the
+last ledger at which it does. This is pinned by the compliance contract's tests
+(`test_expiry_boundary_one_before_is_allowed`,
+`test_expiry_boundary_exactly_at_expiry_is_expired`,
+`test_expiry_boundary_one_after_is_expired` and `test_zero_expiry_never_lapses`).
+
+**Setting an expiry.** `add_to_allowlist` (and the batch variant) rejects a non-zero
+`expires_at` that is less than or equal to the current ledger with `InvalidExpiry (4)`,
+which matches the read-time rule: an approval that would already be expired cannot be
+created. `0` is always accepted. Because time is measured in ledgers (~5 seconds
+each), a one-year approval is roughly `+6,300,000` ledgers from now.
+
+**What lapsing does and does not do.**
+
+- The stored `status` stays `Approved`. Only `is_allowed` changes, so the holder can
+  no longer send or receive until re-approved with a new expiry (the API's `approved`
+  count still includes them; see [API Compliance](/docs/api/compliance)).
+- Nothing runs on a timer. The check is evaluated live, so an approval that lapsed at
+  ledger `N` fails the very next transaction included in ledger `N` or later.
+- The record stays in storage until the admin calls `prune_expired`, which removes
+  expired records from the allowlist. Pruning is housekeeping and does not change what
+  `is_allowed` returns.
+- Reading `is_allowed` for an expired record publishes an `expired` event. Do not rely
+  on that event as the only signal, since it only fires when `is_allowed` is evaluated.
+
+## Suspension
+
+`suspend(address)` sets the status to `Suspended` while keeping the record. This is
+the right tool for a temporary hold — a pending re-review, a compliance flag —
+because it is reversible (`reinstate`, or `add_to_allowlist`) and preserves the audit
+trail. Use `remove` only when an address should be erased entirely.
 
 <CalloutBox variant="warning" title="Expiry is enforced on read, not on a timer">
 There is no background job expiring records. The check is evaluated live against
-the current ledger every time `is_allowed` runs. An approval that lapsed one second
-ago fails the very next transfer — no cron, no lag.
+the current ledger every time `is_allowed` runs. An approval whose `expires_at` has
+been reached fails the very next transfer — no cron, no lag.
 </CalloutBox>
 
 ## Worked scenarios
@@ -193,7 +262,9 @@ will revert if either party fails the gate.
    at **claim** time. If you need a clean snapshot, consider pausing the token
    around a distribution window. See the [Dividend contract](/docs/contracts/dividend#security-considerations).
 6. **Use jurisdiction blocks deliberately.** They are immediate and affect every
-   holder in the region. Review the jurisdiction breakdown from the API first.
+   holder in the region. Review the jurisdiction breakdown from the API first, and
+   remember it cannot show blocked jurisdictions that have no approved address
+   (see the [limitation](#jurisdiction-model-and-its-limitation)).
 7. **Treat registry listing as self-attestation.** Anyone can register an asset;
    the *binding* control is the compliance contract, not the registry entry.
 
