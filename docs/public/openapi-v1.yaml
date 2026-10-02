@@ -72,9 +72,24 @@ paths:
     get:
       operationId: listEvents
       summary: List indexed events
+      description: >
+        Returns the most recent contract events captured by the indexer,
+        ordered newest-first. The indexer polls Soroban RPC getEvents every
+        10 seconds and retains up to 200 events in a bounded in-memory buffer.
+        A failed RPC cycle carries the previous event list forward unchanged.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of events to return (default 50, max 200).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
       responses:
         "200":
-          description: OK
+          description: Array of event objects, newest-first
           content:
             application/json:
               schema:
