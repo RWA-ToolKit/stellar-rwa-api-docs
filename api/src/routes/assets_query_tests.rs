@@ -52,3 +52,31 @@ async fn invalid_parameters_are_rejected() {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{q:?}");
     }
 }
+
+#[tokio::test]
+async fn dividends_route_empty_result_set_returns_well_formed_array() {
+    // Test that dividends route returns well-formed empty array (#537)
+    let response = list(State(state()), params(&[])).await.into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.is_array(), "empty result should be an array, not null or error");
+}
+
+#[tokio::test]
+async fn dividends_route_malformed_query_parameters_rejected() {
+    // Test that dividends route returns clear 4xx errors for malformed parameters (#536)
+    for q in [
+        vec![("asset_id", "not-a-number")],
+        vec![("limit", "-1")],
+        vec![("limit", "99999999999")],
+        vec![("unknown_param", "value")],
+    ] {
+        let response = list(State(state()), params(&q)).await.into_response();
+        assert!(
+            response.status().is_client_error(),
+            "malformed parameter {:?} should return 4xx, not 500",
+            q
+        );
+    }
+}
