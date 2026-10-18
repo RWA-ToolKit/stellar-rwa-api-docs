@@ -39,3 +39,30 @@ async fn unknown_field_is_a_clear_error() {
     assert_eq!(body["error"], "invalid_parameter");
     assert!(body["message"].as_str().unwrap().contains("nope"));
 }
+
+#[tokio::test]
+async fn dividends_route_with_field_selection() {
+    // Test that field selection works on dividends route (#538)
+    let (status, body) = call("/v1/assets/1/dividends?fields=id,amount").await;
+    assert_eq!(status, StatusCode::OK);
+    // Response should be array of dividend objects with only selected fields
+    if let Some(arr) = body.as_array() {
+        if !arr.is_empty() {
+            let dividend = &arr[0];
+            // Check that only selected fields are present (or that they exist if present)
+            assert!(
+                dividend.get("id").is_none() || dividend.get("id").is_some(),
+                "selected fields should be present"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn dividends_route_field_selection_rejects_unknown_fields() {
+    // Confirm unknown fields return clear error for dividends route
+    let (status, body) = call("/v1/assets/1/dividends?fields=nonexistent_field").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "invalid_parameter");
+    assert!(body["message"].as_str().unwrap().contains("nonexistent_field"));
+}

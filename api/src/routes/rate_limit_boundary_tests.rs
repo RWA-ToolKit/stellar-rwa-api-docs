@@ -82,3 +82,31 @@ async fn limit_is_tracked_per_client_ip() {
         StatusCode::OK
     );
 }
+
+#[tokio::test]
+async fn compliance_route_at_rate_limit_boundary_returns_429_with_shared_error_body() {
+    // Test rate limiter boundary for compliance route (#535)
+    let burst = 2;
+    let app = router_with_limits(1, burst);
+
+    // Consume the burst
+    for n in 1..=burst {
+        let response = get_from(&app, [10, 0, 0, 5], "/v1/compliance/GXXX").await;
+        assert_eq!(response.status(), StatusCode::OK | StatusCode::NOT_FOUND, "request {n} within burst");
+    }
+
+    // Next request hits the limit
+    let throttled = get_from(&app, [10, 0, 0, 5], "/v1/compliance/GXXX").await;
+    assert_eq!(throttled.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // Verify response has body with shared error shape
+    let body = to_bytes(throttled.into_body(), usize::MAX).await.unwrap();
+    assert!(!body.is_empty(), "429 response must have error body");
+
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.get("error").is_some(), "error response must have 'error' field");
+    assert!(
+        json.get("message").is_some(),
+        "error response must have 'message' field"
+    );
+}
