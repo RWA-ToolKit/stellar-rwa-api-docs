@@ -120,3 +120,48 @@ async fn non_data_routes_are_not_cached() {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(response.headers().get(header::ETAG).is_none());
 }
+
+#[tokio::test]
+async fn events_route_sets_cache_control_and_etag() {
+    // Test that events route properly supports conditional requests (#544)
+    let response = get(app(), "/v1/events", None).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        header_str(&response, header::CACHE_CONTROL),
+        format!("public, max-age={}", POLL_INTERVAL.as_secs())
+    );
+    assert_eq!(
+        header_str(&response, header::ETAG),
+        format!("\"ledger-{LEDGER}\"")
+    );
+}
+
+#[tokio::test]
+async fn events_route_if_none_match_returns_304() {
+    // Verify If-None-Match matching ETag returns 304 Not Modified
+    let etag = format!("\"ledger-{LEDGER}\"");
+    let response = get(app(), "/v1/events", Some(&etag)).await;
+
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert!(body.is_empty(), "304 Not Modified must not carry a body");
+}
+
+#[tokio::test]
+async fn events_route_stale_etag_returns_full_response() {
+    // Verify stale ETag returns full response with updated ETag
+    let response = get(app(), "/v1/events", Some("\"ledger-1\"")).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        header_str(&response, header::ETAG),
+        format!("\"ledger-{LEDGER}\"")
+    );
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json.is_array(),
+        "stale ETag must yield the full events array"
+    );
+}
