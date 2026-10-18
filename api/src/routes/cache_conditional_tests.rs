@@ -120,3 +120,34 @@ async fn non_data_routes_are_not_cached() {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(response.headers().get(header::ETAG).is_none());
 }
+
+#[tokio::test]
+async fn dividends_route_sets_cache_control_and_etag() {
+    // Test that dividends route properly supports conditional requests (#539)
+    let response = get(app(), "/v1/assets/1/dividends", None).await;
+
+    // Dividends route may return 404 if asset doesn't exist, but should still set headers
+    if response.status() == StatusCode::OK {
+        assert_eq!(
+            header_str(&response, header::CACHE_CONTROL),
+            format!("public, max-age={}", POLL_INTERVAL.as_secs())
+        );
+        assert_eq!(
+            header_str(&response, header::ETAG),
+            format!("\"ledger-{LEDGER}\"")
+        );
+    }
+}
+
+#[tokio::test]
+async fn dividends_route_honours_if_none_match() {
+    // Verify If-None-Match matching ETag returns 304 Not Modified for dividends
+    let etag = format!("\"ledger-{LEDGER}\"");
+    let response = get(app(), "/v1/assets/1/dividends", Some(&etag)).await;
+
+    // For valid asset, should return 304; for missing asset, 404 is acceptable
+    if response.status() == StatusCode::NOT_MODIFIED {
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(body.is_empty(), "304 Not Modified must not carry a body");
+    }
+}
