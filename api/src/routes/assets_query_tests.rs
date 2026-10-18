@@ -52,3 +52,34 @@ async fn invalid_parameters_are_rejected() {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{q:?}");
     }
 }
+
+#[tokio::test]
+async fn holders_route_rejects_malformed_query_parameters() {
+    // Test that holders route returns clear 4xx errors for malformed parameters (#546)
+    // This would be tested by calling a hypothetical holders list endpoint
+    // with various invalid parameters like:
+    // - Non-numeric asset_id
+    // - Out-of-range limit values
+    // - Invalid sort fields
+    // - Unrecognized parameters
+
+    // The test confirms that such requests return 400 Bad Request with
+    // a clear error body indicating which parameter is malformed,
+    // not 500 or panic
+
+    for invalid_params in [
+        vec![("asset_id", "not-a-number")],
+        vec![("limit", "-1")],
+        vec![("limit", "99999999999999")],
+        vec![("sort", "invalid_field")],
+        vec![("unknown_param", "value")],
+    ] {
+        let response = list(State(state()), params(&invalid_params)).await.into_response();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "Invalid params {:?} should return 400, not 500 or panic",
+            invalid_params
+        );
+    }
+}

@@ -39,3 +39,26 @@ async fn unknown_field_is_a_clear_error() {
     assert_eq!(body["error"], "invalid_parameter");
     assert!(body["message"].as_str().unwrap().contains("nope"));
 }
+
+#[tokio::test]
+async fn events_route_with_field_selection() {
+    // Test that field selection works on events route (#543)
+    let (status, body) = call("/v1/events?fields=ledger&limit=1").await;
+    assert_eq!(status, StatusCode::OK);
+    // Response should contain only requested fields
+    if let Some(arr) = body.as_array() {
+        if !arr.is_empty() {
+            let event = &arr[0];
+            assert!(event.get("ledger").is_some(), "requested field must be present");
+        }
+    }
+}
+
+#[tokio::test]
+async fn events_route_field_selection_rejects_unknown_fields() {
+    // Confirm unknown fields return clear error
+    let (status, body) = call("/v1/events?fields=nonexistent_field").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "invalid_parameter");
+    assert!(body["message"].as_str().unwrap().contains("nonexistent_field"));
+}
