@@ -58,6 +58,22 @@ Adds (or re-approves) an address, setting its status to `Approved`. If
 - **Auth:** `admin`
 - **Errors:** `Unauthorized (5)`, `InvalidExpiry (4)` if `expires_at != 0 && expires_at <= now`.
 
+### `add_to_allowlist_batch`
+
+```rust
+fn add_to_allowlist_batch(
+    env: Env, admin: Address, addresses: Vec<Address>,
+    jurisdiction: String, expires_at: u32,
+) -> u32
+```
+
+Adds (or re-approves) many addresses in a single call, applying the same
+`jurisdiction` and `expires_at` to each. Returns the number of records written.
+Use this to onboard a batch of investors without one transaction per address.
+
+- **Auth:** `admin`
+- **Errors:** `Unauthorized (5)`, `InvalidExpiry (4)` if `expires_at != 0 && expires_at <= now`.
+
 ### `suspend`
 
 ```rust
@@ -102,6 +118,17 @@ fn get_allowlist(env: Env) -> Vec<Address>
 `get_record` returns `None` for an unknown address. `get_allowlist` returns every
 address currently on the allowlist (any status except removed).
 
+### `get_allowlist_page`
+
+```rust
+fn get_allowlist_page(env: Env, start: u32, limit: u32) -> Vec<Address>
+```
+
+Paginated variant of `get_allowlist`. Returns up to `limit` addresses beginning at
+index `start`. Iterate with `start += limit` until a page returns fewer than
+`limit` entries. Use this for large allowlists where the full `Vec` would exceed
+response limits. Public read.
+
 ### `block_jurisdiction` / `unblock_jurisdiction` / `is_jurisdiction_blocked`
 
 ```rust
@@ -135,14 +162,55 @@ optional storage-maintenance operation: expiry already makes an address fail
 `is_allowed` immediately, so pruning does not change transfer authorization.
 **Auth:** `admin`. Use a bounded limit and repeat the call for large allowlists.
 
+### `set_min_holding_period` / `min_holding_period`
+
+```rust
+fn set_min_holding_period(env: Env, admin: Address, ledgers: u32)
+fn min_holding_period(env: Env) -> u32
+```
+
+Sets (and reads) a minimum holding period, in ledgers, that a holder must wait
+after acquiring the asset before transferring it. `0` disables the check. The
+asset-token contract consults this value on transfers. **Auth:** `admin` for
+`set_min_holding_period`; `min_holding_period` is a public read.
+
+### `set_dividend_deadline` / `reclaim_dividend` / `cancel_dividend`
+
+```rust
+fn set_dividend_deadline(env: Env, admin: Address, dividend_id: u64, deadline: u32)
+fn reclaim_dividend(env: Env, admin: Address, dividend_id: u64) -> i128
+fn cancel_dividend(env: Env, admin: Address, dividend_id: u64)
+```
+
+Manage the lifecycle of a declared dividend. `set_dividend_deadline` sets the
+ledger after which unclaimed funds may be reclaimed. `reclaim_dividend` returns
+unclaimed funds to the treasury after the deadline and returns the amount
+reclaimed. `cancel_dividend` cancels a dividend before distribution. **Auth:**
+`admin` for all three.
+
+### `transfer_admin` / `accept_admin`
+
+```rust
+fn transfer_admin(env: Env, admin: Address, new_admin: Address)
+fn accept_admin(env: Env, new_admin: Address)
+```
+
+Two-step admin handover. `transfer_admin` nominates a `new_admin`; the nominee
+must then call `accept_admin` to complete the handover. Until accepted, the
+current admin remains in control. **Auth:** current `admin` for `transfer_admin`;
+`new_admin` for `accept_admin`.
+
 ### Authority summary
 
 | Method | Authority |
 |---|---|
 | `initialize` | The supplied admin signs once |
-| `add_to_allowlist`, `suspend`, `remove` | Stored admin |
+| `add_to_allowlist`, `add_to_allowlist_batch`, `suspend`, `remove` | Stored admin |
 | `block_jurisdiction`, `unblock_jurisdiction`, `prune_expired` | Stored admin |
-| `is_allowed`, `get_record`, `status_of`, `get_allowlist`, `is_jurisdiction_blocked` | Public read |
+| `set_min_holding_period`, `set_dividend_deadline`, `reclaim_dividend`, `cancel_dividend` | Stored admin |
+| `transfer_admin` | Stored admin |
+| `accept_admin` | Nominated new admin |
+| `is_allowed`, `get_record`, `status_of`, `get_allowlist`, `get_allowlist_page`, `is_jurisdiction_blocked`, `min_holding_period` | Public read |
 
 `ComplianceStatus` values are `Approved` (passes when unexpired and not blocked),
 `Pending` (verification is incomplete), `Rejected` (not approved), and
@@ -163,15 +231,33 @@ const op = compliance.call(
 );
 ```
 
+Onboard a batch of investors in one call:
+
+```ts
+const op = compliance.call(
+  "add_to_allowlist_batch",
+  new Address(admin).toScVal(),
+  xdr.ScVal.scvVec(investors.map((a) => new Address(a).toScVal())),
+  nativeToScVal("US", { type: "string" }),
+  nativeToScVal(currentLedger + 6_300_000, { type: "u32" }),
+);
+```
+
 ## Events
 
 | Topic | Data | Emitted by |
 |-------|------|------------|
-| `("approved", address)` | `(jurisdiction, expires_at)` | `add_to_allowlist` |
+| `("approved", address)` | `(jurisdiction, expires_at)` | `add_to_allowlist`, `add_to_allowlist_batch` |
 | `("suspend", address)` | `()` | `suspend` |
 | `("removed", address)` | `()` | `remove` |
 | `("blockjur",)` | `jurisdiction` | `block_jurisdiction` |
 | `("unblkjur",)` | `jurisdiction` | `unblock_jurisdiction` |
+| `("minhold",)` | `ledgers` | `set_min_holding_period` |
+| `("divdeadline", dividend_id)` | `deadline` | `set_dividend_deadline` |
+| `("divreclaim", dividend_id)` | `amount` | `reclaim_dividend` |
+| `("divcancel", dividend_id)` | `()` | `cancel_dividend` |
+| `("adminxfer",)` | `new_admin` | `transfer_admin` |
+| `("adminacc",)` | `new_admin` | `accept_admin` |
 
 ## Error codes
 
@@ -189,6 +275,8 @@ const op = compliance.call(
 
 - **Admin is the compliance authority.** Whoever holds the admin key decides who
   can hold the asset. Protect it with multisig and clear operational controls.
+- **Admin handover is two-step.** `transfer_admin` only nominates; the new admin
+  must call `accept_admin`. This prevents handing control to a mistyped address.
 - **Expiry is enforced at read time** against the current ledger — an expired
   approval fails the gate immediately, with no cron job required.
 - **Jurisdiction blocks are retroactive and immediate:** blocking `US` instantly
