@@ -13,6 +13,7 @@ use axum::{
     response::Response,
     Router,
 };
+use serde_json::Value;
 use tower::ServiceExt as _;
 
 use crate::indexer::AppState;
@@ -80,5 +81,46 @@ async fn limit_is_tracked_per_client_ip() {
     assert_eq!(
         get_from(&app, [10, 0, 0, 4], "/version").await.status(),
         StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn indexer_route_is_throttled_at_the_burst_boundary() {
+    let burst = 2;
+    let app = router_with_limits(1, burst);
+
+    for n in 1..=burst {
+        let response = get_from(&app, [10, 0, 0, 5], "/indexer").await;
+        assert_eq!(response.status(), StatusCode::OK, "request {n} within burst");
+    }
+
+    let throttled = get_from(&app, [10, 0, 0, 5], "/indexer").await;
+    assert_eq!(throttled.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn indexer_throttled_response_uses_the_shared_error_body_shape() {
+    let app = router_with_limits(1, 1);
+
+    assert_eq!(
+        get_from(&app, [10, 0, 0, 6], "/indexer").await.status(),
+        StatusCode::OK
+    );
+    let throttled = get_from(&app, [10, 0, 0, 6], "/indexer").await;
+
+    assert_eq!(throttled.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body = to_bytes(throttled.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).expect("429 body is JSON");
+    let error = json
+        .get("error")
+        .and_then(Value::as_object)
+        .expect("429 body carries the shared `error` object");
+    assert!(
+        error.get("code").and_then(Value::as_str).is_some(),
+        "shared error body has a string `code`"
+    );
+    assert!(
+        error.get("message").and_then(Value::as_str).is_some(),
+        "shared error body has a string `message`"
     );
 }

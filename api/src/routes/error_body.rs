@@ -164,4 +164,22 @@ mod tests {
         let response = get(&app, "/metrics", "GET").await;
         assert_error_shape(response, StatusCode::UNAUTHORIZED, "unauthorized").await;
     }
+
+    #[tokio::test]
+    async fn indexer_rate_limit_boundary_uses_shared_shape() {
+        let app = router(AppState::for_test_empty());
+        // Drive the indexer route up to its configured rate-limit boundary.
+        // Requests within the limit succeed; the first request past the
+        // boundary is rejected with 429 and must use the shared error body.
+        let mut limited: Option<Response> = None;
+        for _ in 0..=crate::indexer::TEST_RATE_LIMIT {
+            let response = get(&app, "/v1/indexer", "GET").await;
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                limited = Some(response);
+                break;
+            }
+        }
+        let response = limited.expect("indexer should hit its rate-limit boundary");
+        assert_error_shape(response, StatusCode::TOO_MANY_REQUESTS, "too_many_requests").await;
+    }
 }
