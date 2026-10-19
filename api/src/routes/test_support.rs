@@ -111,3 +111,36 @@ pub(crate) async fn assert_conditional_get(router: axum::Router, uri: &str) -> S
 
     etag
 }
+
+/// Assert that `router` rejects a request with a clear 4xx status (never a
+/// 500 or panic) and that the response body uses the shared error shape.
+///
+/// The shared error body is a JSON object with an `error` field (see
+/// `crate::routes::error_body`). Callers pass the malformed `uri` to exercise
+/// query-parameter parsing on a given route.
+pub(crate) async fn assert_malformed_query_rejected(router: axum::Router, uri: &str) {
+    let response = send(
+        router,
+        Request::builder()
+            .uri(uri)
+            .body(Body::empty())
+            .expect("build request"),
+    )
+    .await;
+
+    let status = response.status();
+    assert!(
+        status.is_client_error(),
+        "malformed query `{uri}` should yield a 4xx, got {status}"
+    );
+    assert_ne!(status, StatusCode::INTERNAL_SERVER_ERROR, "must not be a 500");
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read body");
+    let body: serde_json::Value = serde_json::from_slice(&bytes).expect("error body should be JSON");
+    assert!(
+        body.get("error").is_some(),
+        "error body should use the shared shape with an `error` field, got {body}"
+    );
+}
