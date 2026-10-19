@@ -159,9 +159,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn malformed_query_parameters_are_clear_4xx() {
+        let app = router(AppState::for_test_empty());
+        // Malformed and out-of-range query parameters must surface as a clear
+        // 4xx using the shared error body, never a 500 or a panic.
+        let cases = [
+            "/v1/assets?limit=abc",
+            "/v1/assets?limit=-1",
+            "/v1/assets?limit=999999999999999999999",
+            "/v1/assets?offset=notanumber",
+            "/v1/assets?offset=-5",
+        ];
+        for uri in cases {
+            let response = get(&app, uri, "GET").await;
+            let status = response.status();
+            assert!(
+                status.is_client_error(),
+                "{uri} should be a 4xx, got {status}"
+            );
+            assert_error_shape(response, status, code_for(status)).await;
+        }
+    }
+
+    #[tokio::test]
     async fn metrics_auth_failure_uses_shared_shape() {
         let app = router(AppState::for_test_empty());
         let response = get(&app, "/metrics", "GET").await;
         assert_error_shape(response, StatusCode::UNAUTHORIZED, "unauthorized").await;
+    }
+
+    #[tokio::test]
+    async fn indexer_rate_limit_boundary_uses_shared_shape() {
+        let app = router(AppState::for_test_empty());
+        // Drive the indexer route up to its configured rate-limit boundary.
+        // Requests within the limit succeed; the first request past the
+        // boundary is rejected with 429 and must use the shared error body.
+        let mut limited: Option<Response> = None;
+        for _ in 0..=crate::indexer::TEST_RATE_LIMIT {
+            let response = get(&app, "/v1/indexer", "GET").await;
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                limited = Some(response);
+                break;
+            }
+        }
+        let response = limited.expect("indexer should hit its rate-limit boundary");
+        assert_error_shape(response, StatusCode::TOO_MANY_REQUESTS, "too_many_requests").await;
     }
 }

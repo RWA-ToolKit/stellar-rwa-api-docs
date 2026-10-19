@@ -12,6 +12,7 @@ fn app() -> Router {
     Router::new()
         .route("/assets", get(super::assets_query::list))
         .route("/assets/:id", get(super::assets::detail))
+        .route("/indexer", get(super::indexer::list))
         .layer(middleware::from_fn(field_select))
         .with_state(state)
 }
@@ -35,6 +36,21 @@ async fn projects_list_and_detail() {
 #[tokio::test]
 async fn unknown_field_is_a_clear_error() {
     let (status, body) = call("/assets?fields=id,nope").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "invalid_parameter");
+    assert!(body["message"].as_str().unwrap().contains("nope"));
+}
+
+#[tokio::test]
+async fn indexer_projects_selected_fields() {
+    let (status, body) = call("/indexer?fields=id,symbol").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, serde_json::json!([{"id": 1, "symbol": "TST"}, {"id": 2, "symbol": "TST"}]));
+}
+
+#[tokio::test]
+async fn indexer_unknown_field_is_a_clear_error() {
+    let (status, body) = call("/indexer?fields=id,nope").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"], "invalid_parameter");
     assert!(body["message"].as_str().unwrap().contains("nope"));
