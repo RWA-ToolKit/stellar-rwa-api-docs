@@ -13,6 +13,27 @@ export const metadata = {
 Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
 </CalloutBox>
 
+<CalloutBox variant="note" title="New to these terms?">
+This page uses a few Stellar and compliance terms. Quick definitions:
+
+- **KYC** (Know Your Customer) — the identity checks an issuer runs before
+  approving an address to hold a tokenized asset.
+- **Allowlist** — the on-chain set of addresses the compliance contract permits
+  to hold or transfer an asset.
+- **`is_allowed`** — the compliance contract entry point that decides, at
+  transfer time, whether an address may transact. It is the enforced gate.
+- **Jurisdiction** — a short region code (e.g. `US`) stored on a KYC record and
+  used to block whole regions.
+- **`expires_at`** — the ledger number at which an approval lapses; `null` means
+  no expiry. A **ledger** is Stellar's unit of time (roughly 5 seconds each).
+- **`i128`** — a 128-bit signed integer; token balances are returned as strings
+  to avoid precision loss in JSON.
+- **Snapshot / indexer** — a background service that reads on-chain state and
+  serves it through this API, refreshed roughly every 10 seconds.
+
+See the [Glossary](/docs/glossary) for the full list of terms.
+</CalloutBox>
+
 <ApiEndpoint method="GET" path="/assets/:id/compliance" description="Aggregate compliance summary — counts only, no addresses." />
 
 Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
@@ -30,9 +51,9 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 |-------|------|------|----------|-------------|
 | `total_records` | integer | Records | No | Addresses ever added to the allowlist |
 | `approved` | integer | Records | No | Stored KYC status is `Approved` — **not** the same as currently passing `is_allowed` |
-| `suspended` | integer | Records | No | |
-| `rejected` | integer | Records | No | |
-| `pending` | integer | Records | No | |
+| `suspended` | integer | Records | No | Records whose stored status is `Suspended` |
+| `rejected` | integer | Records | No | Records whose stored status is `Rejected` |
+| `pending` | integer | Records | No | Records whose stored status is `Pending` |
 | `with_expiry` | integer | Records | No | Records with a non-zero `expires_at` |
 | `jurisdictions` | `JurisdictionCount[]` | One entry per jurisdiction | No | Counts grouped by jurisdiction code |
 
@@ -221,34 +242,13 @@ directly against the compliance contract's `is_allowed` entry point.
 ## Contract entry points
 
 The API above is a read-only projection of the compliance contract. The
-following on-chain entry points are part of the current contract surface and
-are not yet mirrored by a dedicated REST endpoint — call them directly on the
-compliance contract when you need them.
+following on-chain entry points are part of the current contract surface:
 
-### Batch operations
+| Entry point | Purpose |
+|-------------|---------|
+| `is_allowed` | Enforced gate: returns whether an address may transact for an asset |
+| `is_jurisdiction_blocked` | Returns whether a jurisdiction code is blocked |
+| `set_jurisdiction_blocked` | Issuer-only: block or unblock a jurisdiction |
 
-Allowlist mutations accept batches so an issuer can update many addresses in a
-single transaction:
-
-- `batch_add_to_allowlist(admin, records: Vec<KycRecord>)`
-- `batch_update_kyc(admin, records: Vec<KycRecord>)`
-- `batch_remove_from_allowlist(admin, addresses: Vec<Address>)`
-
-Each batch is atomic: if any record fails validation the whole call reverts.
-
-### SEP-41 token interface
-
-The asset token implements the SEP-41 fungible token interface (`transfer`,
-`transfer_from`, `approve`, `allowance`, `balance`, `decimals`, `name`,
-`symbol`). Transfers are gated by the compliance contract's `is_allowed` check,
-so a SEP-41 `transfer` reverts for any address that is not currently permitted.
-
-### Pagination
-
-Read entry points that can return large sets are paginated with
-`(start: u32, limit: u32)` cursors:
-
-- `get_allowlist(start, limit) -> Vec<Address>`
-- `get_kyc_records(start, li
-
-/* … truncated 1293 chars — edit only what you need near the top … */
+See the [Compliance Guide](/docs/compliance-guide) for the full contract
+reference and the [Glossary](/docs/glossary) for term definitions.
