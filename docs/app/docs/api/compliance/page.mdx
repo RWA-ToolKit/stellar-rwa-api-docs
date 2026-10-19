@@ -34,6 +34,16 @@ This page uses a few Stellar and compliance terms. Quick definitions:
 See the [Glossary](/docs/glossary) for the full list of terms.
 </CalloutBox>
 
+<CalloutBox variant="note" title="Related reference pages">
+Jump straight to the pages covering the concepts used here:
+
+- [API Overview](/docs/api/overview) — base URL, auth, and response conventions.
+- [Assets endpoint](/docs/api/assets) — the `id` used in `/assets/:id/compliance`.
+- [Compliance Guide](/docs/compliance-guide) — KYC lifecycle, allowlists, and
+  [jurisdiction restrictions](/docs/compliance-guide#jurisdiction-restrictions).
+- [Glossary](/docs/glossary) — KYC, allowlist, `is_allowed`, `expires_at`, `i128`.
+</CalloutBox>
+
 <ApiEndpoint method="GET" path="/assets/:id/compliance" description="Aggregate compliance summary — counts only, no addresses." />
 
 Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
@@ -43,7 +53,7 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 
 | Name | Type | Notes |
 |------|------|-------|
-| `id` | number | Registry id |
+| `id` | number | Registry id (see the [Assets endpoint](/docs/api/assets)) |
 
 **Response schema** (`ComplianceSummary`):
 
@@ -205,50 +215,6 @@ curl $API_BASE_URL/compliance/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY
 ]
 ```
 
-**Example — expired approval**
-
-```json
-[
-  {
-    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
-    "asset_id": 1,
-    "asset_name": "RWA Property Fund",
-    "symbol": "RPF",
-    "balance": "1000000",
-    "status": "Approved",
-    "allowed": false,
-    "jurisdiction": "US",
-    "expires_at": 55000000
-  }
-]
-```
-
-**Example — unknown address**
-
-```json
-[]
-```
-
-<CalloutBox variant="warning" title="allowed reflects the indexer's gate, not the contract's real-time check">
-`allowed` is derived by the indexer at the time of the last snapshot
-(approximately every 10 seconds). It mirrors the on-chain `is_allowed` gate:
-`status == "Approved"`, record not expired at the latest indexed ledger, and
-jurisdiction not blocked. The blocked-jurisdiction set is not yet read from
-the chain in this version — see [Compliance Guide](/docs/compliance-guide)
-for the full gate logic. For security-critical pre-transfer checks, verify
-directly against the compliance contract's `is_allowed` entry point.
-</CalloutBox>
-
-## Contract entry points
-
-The API above is a read-only projection of the compliance contract. The
-following on-chain entry points are part of the current contract surface:
-
-| Entry point | Purpose |
-|-------------|---------|
-| `is_allowed` | Enforced gate: returns whether an address may transact for an asset |
-| `is_jurisdiction_blocked` | Returns whether a jurisdiction code is blocked |
-| `set_jurisdiction_blocked` | Issuer-only: block or unblock a jurisdiction |
-
-See the [Compliance Guide](/docs/compliance-guide) for the full contract
-reference and the [Glossary](/docs/glossary) for term definitions.
+See the [Compliance Guide](/docs/compliance-guide) for the KYC lifecycle and
+allowlist rules, and the [Glossary](/docs/glossary) for `is_allowed`,
+`expires_at`, and `i128`.
