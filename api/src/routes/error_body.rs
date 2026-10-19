@@ -159,9 +159,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn indexer_malformed_query_uses_shared_shape() {
+        let app = router(AppState::for_test_empty());
+        // Malformed and out-of-range query parameters must be rejected with a
+        // clear 4xx (never a 500 or panic) and use the shared error body.
+        for uri in [
+            "/v1/indexer?limit=abc",
+            "/v1/indexer?limit=-1",
+            "/v1/indexer?limit=999999999999999999999",
+            "/v1/indexer?offset=notanumber",
+        ] {
+            let response = get(&app, uri, "GET").await;
+            let status = response.status();
+            assert!(
+                status.is_client_error(),
+                "{uri} must return a 4xx, got {status}"
+            );
+            assert_error_shape(response, status, code_for(status)).await;
+        }
+    }
+
+    #[tokio::test]
     async fn metrics_auth_failure_uses_shared_shape() {
         let app = router(AppState::for_test_empty());
         let response = get(&app, "/metrics", "GET").await;
         assert_error_shape(response, StatusCode::UNAUTHORIZED, "unauthorized").await;
+    }
+
+    #[tokio::test]
+    async fn assets_rate_limit_boundary_uses_shared_shape() {
+        let app = router(AppState::for_test_empty());
+        // Drive the assets route up to the configured rate-limit boundary.
+        // Requests within the limit succeed; the first request past the
+        // boundary is rejected with 429 and must use the shared error body.
+        let limit = crate::routes::rate_limit::configured_limit();
+        for _ in 0..limit {
+            let response = get(&app, "/v1/assets", "GET").await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request within the configured limit must not be rate limited"
+            );
+        }
+        let response = get(&app, "/v1/assets", "GET").await;
+        assert_error_shape(response, StatusCode::TOO_MANY_REQUESTS, "too_many_requests").await;
     }
 }
