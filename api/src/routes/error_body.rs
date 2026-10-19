@@ -164,4 +164,23 @@ mod tests {
         let response = get(&app, "/metrics", "GET").await;
         assert_error_shape(response, StatusCode::UNAUTHORIZED, "unauthorized").await;
     }
+
+    #[tokio::test]
+    async fn assets_rate_limit_boundary_uses_shared_shape() {
+        let app = router(AppState::for_test_empty());
+        // Drive the assets route up to the configured rate-limit boundary.
+        // Requests within the limit succeed; the first request past the
+        // boundary is rejected with 429 and must use the shared error body.
+        let limit = crate::routes::rate_limit::configured_limit();
+        for _ in 0..limit {
+            let response = get(&app, "/v1/assets", "GET").await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request within the configured limit must not be rate limited"
+            );
+        }
+        let response = get(&app, "/v1/assets", "GET").await;
+        assert_error_shape(response, StatusCode::TOO_MANY_REQUESTS, "too_many_requests").await;
+    }
 }
