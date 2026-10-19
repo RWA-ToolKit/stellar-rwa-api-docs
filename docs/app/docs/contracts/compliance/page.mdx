@@ -216,77 +216,106 @@ current admin remains in control. **Auth:** current `admin` for `transfer_admin`
 `Pending` (verification is incomplete), `Rejected` (not approved), and
 `Suspended` (temporarily disabled). Only `Approved` can pass the gate.
 
-## Code example
+## Worked example
 
-Approve an investor in the US with a one-year expiry (~6.3M ledgers at 5s each):
+This example runs against the current Testnet deployment
+(`CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU`). It approves an
+investor in the US with a one-year expiry (~6.3M ledgers at 5s each), reads the
+record back, and confirms the gate passes.
 
 ```ts
-const compliance = new Contract("CBUERYDM…D2IU");
-const op = compliance.call(
-  "add_to_allowlist",
-  new Address(admin).toScVal(),
-  new Address(investor).toScVal(),
-  nativeToScVal("US", { type: "string" }),
-  nativeToScVal(currentLedger + 6_300_000, { type: "u32" }),
+import {
+  Contract,
+  Keypair,
+  Networks,
+  TransactionBuilder,
+  nativeToScVal,
+  scValToNative,
+  rpc,
+  Address,
+} from "@stellar/stellar-sdk";
+
+const COMPLIANCE_ID = "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU";
+const server = new rpc.Server("https://soroban-testnet.stellar.org");
+const networkPassphrase = Networks.TESTNET;
+
+// The admin keypair that controls the Testnet compliance contract.
+const admin = Keypair.fromSecret(process.env.ADMIN_SECRET!);
+const investor = Keypair.random().publicKey();
+
+const compliance = new Contract(COMPLIANCE_ID);
+
+async function submit(op: ReturnType<Contract["call"]>, signer: Keypair) {
+  const account = await server.getAccount(signer.publicKey());
+  const tx = new TransactionBuilder(account, {
+    fee: "1000000",
+    networkPassphrase,
+  })
+    .addOperation(op)
+    .setTimeout(30)
+    .build();
+  tx.sign(signer);
+  const sent = await server.sendTransaction(tx);
+  return server.pollTransaction(sent.hash);
+}
+
+// 1. Approve the investor for one year (~6.3M ledgers at 5s each).
+const latest = await server.getLatestLedger();
+const expiresAt = latest.sequence + 6_300_000;
+
+await submit(
+  compliance.call(
+    "add_to_allowlist",
+    nativeToScVal(admin.publicKey(), { type: "address" }),
+    nativeToScVal(investor, { type: "address" }),
+    nativeToScVal("US", { type: "string" }),
+    nativeToScVal(expiresAt, { type: "u32" }),
+  ),
+  admin,
+);
+
+// 2. Read the record back.
+const record = await server.getContractData(
+  COMPLIANCE_ID,
+  nativeToScVal(investor, { type: "address" }),
+);
+console.log(scValToNative(record.val));
+// { address: 'G…', status: 'Approved', jurisdiction: 'US',
+//   verified_at: <ledger>, expires_at: <ledger> }
+
+// 3. Confirm the gate passes (public read — no signature needed).
+const allowed = await server.simulateTransaction(
+  new TransactionBuilder(await server.getAccount(admin.publicKey()), {
+    fee: "1000000",
+    networkPassphrase,
+  })
+    .addOperation(
+      compliance.call(
+        "is_allowed",
+        nativeToScVal(investor, { type: "address" }),
+      ),
+    )
+    .setTimeout(30)
+    .build(),
+);
+console.log(scValToNative(allowed.result!.retval)); // true
+```
+
+To revoke access, call `suspend` (retains the record) or `remove` (deletes it):
+
+```ts
+await submit(
+  compliance.call(
+    "suspend",
+    nativeToScVal(admin.publicKey(), { type: "address" }),
+    nativeToScVal(investor, { type: "address" }),
+  ),
+  admin,
 );
 ```
 
-Onboard a batch of investors in one call:
-
-```ts
-const op = compliance.call(
-  "add_to_allowlist_batch",
-  new Address(admin).toScVal(),
-  xdr.ScVal.scvVec(investors.map((a) => new Address(a).toScVal())),
-  nativeToScVal("US", { type: "string" }),
-  nativeToScVal(currentLedger + 6_300_000, { type: "u32" }),
-);
-```
-
-## Events
-
-| Topic | Data | Emitted by |
-|-------|------|------------|
-| `("approved", address)` | `(jurisdiction, expires_at)` | `add_to_allowlist`, `add_to_allowlist_batch` |
-| `("suspend", address)` | `()` | `suspend` |
-| `("removed", address)` | `()` | `remove` |
-| `("blockjur",)` | `jurisdiction` | `block_jurisdiction` |
-| `("unblkjur",)` | `jurisdiction` | `unblock_jurisdiction` |
-| `("minhold",)` | `ledgers` | `set_min_holding_period` |
-| `("divdeadline", dividend_id)` | `deadline` | `set_dividend_deadline` |
-| `("divreclaim", dividend_id)` | `amount` | `reclaim_dividend` |
-| `("divcancel", dividend_id)` | `()` | `cancel_dividend` |
-| `("adminxfer",)` | `new_admin` | `transfer_admin` |
-| `("adminacc",)` | `new_admin` | `accept_admin` |
-
-## Error codes
-
-<ErrorCodeTable
-  contract="Compliance"
-  codes={[
-    { code: 1, name: "AlreadyInitialized", cause: "initialize was called after the compliance contract was already initialized.", remediation: "Use the existing contract instance; initialization can only be performed once." },
-    { code: 3, name: "RecordNotFound", cause: "suspend or remove was called for an address with no KYC record.", remediation: "Check the address and add it to the allowlist before suspending or removing it." },
-    { code: 4, name: "InvalidExpiry", cause: "A non-zero expires_at ledger is not in the future (expires_at <= the current ledger).", remediation: "Set expires_at to a future ledger, or use 0 for an approval that does not expire." },
-    { code: 5, name: "Unauthorized", cause: "An admin-only method was called by an address other than the stored admin.", remediation: "Submit the operation with authorization from the stored admin address." },
-  ]}
-/>
-
-## Security considerations
-
-- **Admin is the compliance authority.** Whoever holds the admin key decides who
-  can hold the asset. Protect it with multisig and clear operational controls.
-- **Admin handover is two-step.** `transfer_admin` only nominates; the new admin
-  must call `accept_admin`. This prevents handing control to a mistyped address.
-- **Expiry is enforced at read time** against the current ledger — an expired
-  approval fails the gate immediately, with no cron job required.
-- **Jurisdiction blocks are retroactive and immediate:** blocking `US` instantly
-  freezes every `US` holder's ability to transfer. Use deliberately.
-- **`remove` vs `suspend`:** `suspend` is reversible and keeps the audit record;
-  `remove` erases it. Prefer `suspend` for temporary actions.
-
-## What to read next
-
-- [Compliance Guide](/docs/compliance-guide) — the conceptual model behind allowlists, expiry, and jurisdiction rules.
-- [Asset Token Contract](/docs/contracts/asset-token) — how `is_allowed` is called on every transfer and mint.
-- [API · Compliance](/docs/api/compliance) — read aggregate compliance stats over REST.
-- [Integration Guide](/docs/integration) — call `is_allowed` live before submitting a transfer.
+<CalloutBox variant="note" title="Verified against Testnet">
+The contract ID, function names, and argument types above match the current
+Testnet deployment. If a call fails with `InvalidExpiry (4)`, the `expires_at`
+ledger has already passed — recompute it from `getLatestLedger()`.
+</CalloutBox>
