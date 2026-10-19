@@ -114,6 +114,27 @@ async fn stale_if_none_match_returns_full_response() {
 }
 
 #[tokio::test]
+async fn assets_route_sets_etag_and_honours_if_none_match() {
+    // The assets route is snapshot-backed like the data routes, so it must
+    // advertise the same ledger-derived ETag and revalidate consistently.
+    let etag = format!("\"ledger-{LEDGER}\"");
+
+    let response = get(app(), "/v1/assets", None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(header_str(&response, header::ETAG), etag);
+
+    let response = get(app(), "/v1/assets", Some(&etag)).await;
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(header_str(&response, header::ETAG), etag);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert!(body.is_empty(), "304 must not carry a body");
+
+    let response = get(app(), "/v1/assets", Some("\"ledger-1\"")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(header_str(&response, header::ETAG), etag);
+}
+
+#[tokio::test]
 async fn non_data_routes_are_not_cached() {
     let response = get(app(), "/version", None).await;
 

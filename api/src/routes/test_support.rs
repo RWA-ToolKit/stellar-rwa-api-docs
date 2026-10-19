@@ -2,7 +2,11 @@
 //! with a fixed [`Snapshot`] so handlers can be called directly, without
 //! running the indexer or its background poll loop.
 
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use axum::response::Response;
 use metrics_exporter_prometheus::PrometheusBuilder;
+use tower::ServiceExt;
 
 use crate::indexer::{AppState, Config, Snapshot};
 use crate::models::{Asset, Distribution};
@@ -57,4 +61,53 @@ pub(crate) fn distribution(id: u64, created_at_ledger: u32) -> Distribution {
         completed: false,
         created_at_ledger,
     }
+}
+
+/// Send a single request through `router` and return the response.
+///
+/// Shared by route tests that need to exercise the full middleware stack
+/// (e.g. conditional-request handling) rather than calling a handler directly.
+pub(crate) async fn send(router: axum::Router, request: Request<Body>) -> Response {
+    router.oneshot(request).await.expect("router call failed")
+}
+
+/// Assert that `router` sets an `ETag` on a plain `GET` and that replaying
+/// that `ETag` via `If-None-Match` yields `304 Not Modified`.
+///
+/// Returns the `ETag` value observed on the initial response so callers can
+/// make further assertions if needed.
+pub(crate) async fn assert_conditional_get(router: axum::Router, uri: &str) -> String {
+    let first = send(
+        router.clone(),
+        Request::builder()
+            .uri(uri)
+            .body(Body::empty())
+            .expect("build request"),
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK, "initial GET should succeed");
+    let etag = first
+        .headers()
+        .get(axum::http::header::ETAG)
+        .expect("response should set an ETag")
+        .to_str()
+        .expect("ETag should be valid ASCII")
+        .to_string();
+
+    let second = send(
+        router,
+        Request::builder()
+            .uri(uri)
+            .header(axum::http::header::IF_NONE_MATCH, &etag)
+            .body(Body::empty())
+            .expect("build request"),
+    )
+    .await;
+    assert_eq!(
+        second.status(),
+        StatusCode::NOT_MODIFIED,
+        "matching If-None-Match should return 304"
+    );
+
+    etag
 }
