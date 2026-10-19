@@ -161,32 +161,6 @@ curl $API_BASE_URL/compliance/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY
   {
     "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
     "asset_id": 1,
-    "asset_name": "Manhattan Loft",
-    "symbol": "MLOFT",
-    "balance": "1000000",
-    "status": "approved",
-    "allowed": true
-  }
-]
-```
-
-**Response schema** (per record):
-
-| Field | Type | Description |
-|---|---|---|
-| `address` | string | Stellar account address |
-| `asset_id` | number | Registry asset id |
-| `asset_name` | string | Name of the asset |
-| `symbol` | string | Token symbol |
-| `balance` | string | Token balance in **base units** (`i128` string in the asset token's `decimals` base). Divide by `10 ** decimals` to obtain human-readable units. |
-| `status` | string | Stored KYC status (e.g. `approved`, `pending`) |
-| `allowed` | boolean | Current compliance authorization flag (`true` if permitted to transact) |
-
-<CalloutBox variant="tip" title="Balance conversion">
-```typescript
-// Balance is in base units; divide by 10 ** decimals (found in the asset's metadata):
-const displayBalance = Number(BigInt(record.balance)) / (10 ** decimals);
-```
     "asset_name": "RWA Property Fund",
     "symbol": "RPF",
     "balance": "1000000",
@@ -212,4 +186,71 @@ jurisdiction not blocked. The blocked-jurisdiction set is not yet read from
 the chain in this version — see [Compliance Guide](/docs/compliance-guide)
 for the full gate logic. For security-critical pre-transfer checks, verify
 directly against the compliance contract's `is_allowed` entry point.
+</CalloutBox>
+
+## Contract entry points
+
+The API above is a read-only projection of the compliance contract. The
+following on-chain entry points are part of the current contract surface and
+are not yet mirrored by a dedicated REST endpoint — call them directly on the
+compliance contract when you need them.
+
+### Batch operations
+
+Allowlist mutations accept batches so an issuer can update many addresses in a
+single transaction:
+
+- `batch_add_to_allowlist(admin, records: Vec<KycRecord>)`
+- `batch_update_kyc(admin, records: Vec<KycRecord>)`
+- `batch_remove_from_allowlist(admin, addresses: Vec<Address>)`
+
+Each batch is atomic: if any record fails validation the whole call reverts.
+
+### SEP-41 token interface
+
+The asset token implements the SEP-41 fungible token interface (`transfer`,
+`transfer_from`, `approve`, `allowance`, `balance`, `decimals`, `name`,
+`symbol`). Transfers are gated by the compliance contract's `is_allowed` check,
+so a SEP-41 `transfer` reverts for any address that is not currently permitted.
+
+### Pagination
+
+Read entry points that can return large sets are paginated with
+`(start: u32, limit: u32)` cursors:
+
+- `get_allowlist(start, limit) -> Vec<Address>`
+- `get_kyc_records(start, limit) -> Vec<KycRecord>`
+
+Iterate by advancing `start` by `limit` until a short page is returned.
+
+### Admin handover
+
+Ownership of the compliance contract can be transferred in two steps:
+
+- `propose_admin(new_admin)` — current admin nominates a successor
+- `accept_admin()` — nominee accepts and becomes admin
+- `get_admin() -> Address` — read the current admin
+
+### Minimum holding period
+
+The contract can enforce a minimum holding period before a holder may transfer:
+
+- `set_min_holding_period(admin, ledgers: u32)`
+- `get_min_holding_period() -> u32`
+
+A transfer before the period elapses reverts. `0` disables the restriction.
+
+### Dividend deadline, reclaim, and cancel
+
+Dividend rounds carry a claim deadline and support reclaiming unclaimed funds:
+
+- `set_dividend_deadline(admin, round_id: u32, deadline: u64)`
+- `claim_dividend(holder, round_id: u32)`
+- `reclaim_unclaimed(admin, round_id: u32)` — after the deadline, sweep unclaimed funds back to the issuer
+- `cancel_dividend(admin, round_id: u32)` — cancel a round before distribution
+
+<CalloutBox variant="tip" title="Verifying examples">
+The REST examples on this page use the `v1` base path and the sample asset id
+`1`. Replace the asset id and address with values from your own deployment
+before running them.
 </CalloutBox>
