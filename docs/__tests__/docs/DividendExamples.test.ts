@@ -13,21 +13,23 @@ interface Distribution {
   created_at_ledger: number;
 }
 
+// Worked example used on the dividends endpoint page. Kept in sync with
+// docs/app/docs/api/dividends/page.mdx so the documented example stays runnable.
+const workedExample: Distribution = {
+  id: 1,
+  asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  total_amount: "100000000000",
+  distributed: "25000000000",
+  claimed_percent: 25.0,
+  overflow_detected: false,
+  completed: false,
+  created_at_ledger: 3510000,
+};
+
 describe("Dividend API Examples", () => {
   describe("Example response structure", () => {
-    const exampleResponse: Distribution[] = [
-      {
-        id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
-        distributed: "25000000000",
-        claimed_percent: 25.0,
-        overflow_detected: false,
-        completed: false,
-        created_at_ledger: 3510000,
-      },
-    ];
+    const exampleResponse: Distribution[] = [workedExample];
 
     it("should have all required fields", () => {
       exampleResponse.forEach((dist) => {
@@ -90,6 +92,20 @@ describe("Dividend API Examples", () => {
       exampleResponse.forEach((dist) => {
         expect(dist.created_at_ledger).toBeGreaterThan(0);
       });
+    });
+  });
+
+  describe("Worked example consistency", () => {
+    it("should derive claimed_percent from distributed and total_amount", () => {
+      const distributed = BigInt(workedExample.distributed);
+      const total = BigInt(workedExample.total_amount);
+      const expectedPercent = Number((distributed * 10000n) / total) / 100;
+      expect(workedExample.claimed_percent).toBeCloseTo(expectedPercent, 2);
+    });
+
+    it("should not be completed while partially distributed", () => {
+      expect(BigInt(workedExample.distributed) < BigInt(workedExample.total_amount)).toBe(true);
+      expect(workedExample.completed).toBe(false);
     });
   });
 

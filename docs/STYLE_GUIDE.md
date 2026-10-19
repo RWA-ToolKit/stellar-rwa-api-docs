@@ -10,6 +10,15 @@
 - Use the exact names of endpoints, fields and error codes as they appear in the API.
 - Spell out an acronym on first use per page.
 
+## Jargon and glossary
+- Define domain jargon inline on first use per page, or link to the glossary entry
+  when a full definition would interrupt the flow. This applies to terms such as
+  TTL, footprint, ScVal, SAC, passphrase, ledger, and XDR.
+- Prefer a short parenthetical definition ("TTL (time to live — how long a ledger
+  entry stays live)") over assuming the reader already knows the term.
+- When a term has a glossary page, link it once on first use rather than repeating
+  the definition throughout the page.
+
 ## Headings
 
 ### Capitalisation convention: sentence case
