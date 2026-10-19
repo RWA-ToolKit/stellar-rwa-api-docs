@@ -159,6 +159,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn malformed_query_parameters_are_clear_4xx() {
+        let app = router(AppState::for_test_empty());
+        // Malformed and out-of-range query parameters must surface as a clear
+        // 4xx using the shared error body, never a 500 or a panic.
+        let cases = [
+            "/v1/assets?limit=abc",
+            "/v1/assets?limit=-1",
+            "/v1/assets?limit=999999999999999999999",
+            "/v1/assets?offset=notanumber",
+            "/v1/assets?offset=-5",
+        ];
+        for uri in cases {
+            let response = get(&app, uri, "GET").await;
+            let status = response.status();
+            assert!(
+                status.is_client_error(),
+                "{uri} should be a 4xx, got {status}"
+            );
+            assert_error_shape(response, status, code_for(status)).await;
+        }
+    }
+
+    #[tokio::test]
     async fn metrics_auth_failure_uses_shared_shape() {
         let app = router(AppState::for_test_empty());
         let response = get(&app, "/metrics", "GET").await;

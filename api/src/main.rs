@@ -144,3 +144,65 @@ fn init_tracing() {
         .with(fmt::layer())
         .init();
 }
+
+#[cfg(test)]
+mod tests {
+    //! Issue #566 — the server entrypoint must reject malformed or
+    //! out-of-range query parameters with a clear 4xx (never a 500 or a
+    //! panic) and the response must use the shared error body shape.
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use metrics_exporter_prometheus::PrometheusBuilder;
+    use stellar_rwa_api::indexer::{AppState, Config};
+    use stellar_rwa_api::routes;
+    use tower::ServiceExt;
+
+    fn test_state() -> AppState {
+        let config = Config::from_env().expect("test config from env");
+        let handle = PrometheusBuilder::new()
+            .build_recorder()
+            .handle();
+        AppState::new(config, handle)
+    }
+
+    /// Assert the response is a 4xx and carries the shared error body shape
+    /// (an object with a non-empty `error` string field).
+    async fn assert_clear_4xx(uri: &str) {
+        let app = routes::router(test_state());
+        let response = app
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .expect("router should not panic on malformed input");
+
+        let status = response.status();
+        assert!(
+            status.is_client_error(),
+            "expected 4xx for {uri}, got {status}"
+        );
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read body");
+        let body: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("error body should be JSON");
+        let error = body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        assert!(
+            !error.is_empty(),
+            "error body for {uri} should use shared shape with non-empty `error`: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_query_params_return_clear_4xx() {
+        // Non-numeric where a number is expected.
+        assert_clear_4xx("/assets?limit=not-a-number").await;
+        // Out-of-range / negative values.
+        assert_clear_4xx("/assets?limit=-1").await;
+        assert_clear_4xx("/assets?offset=-5").await;
+        // Garbage in a boolean-ish / enum-ish field.
+        assert_clear_4xx("/assets?order=sideways").await;
+    }
+}
