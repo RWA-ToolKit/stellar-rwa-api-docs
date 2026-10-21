@@ -58,3 +58,11 @@ be merged if this command fails.
 ## Style
 
 Follow the [documentation style guide](./STYLE_GUIDE.md).
+
+## Glossary and jargon
+
+When a page introduces a term a newcomer may not know (for example `TTL`,
+`footprint`, `ScVal`, `SAC`, or `passphrase`), define it inline on first use or
+link to the shared glossary. Prefer a short parenthetical definition over an
+unexplained acronym, and keep the glossary entry in sync when the contract or
+API surface changes.

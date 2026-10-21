@@ -22,9 +22,32 @@ inline on first use or link to a glossary entry.
 - **Link to a glossary** when the term recurs across many pages; link the first
   occurrence per page and use the bare term afterwards.
 - **Never assume** the reader knows protocol jargon. Terms that must always be
-define or linked include, but are not limited to: TTL, footprint, ScVal, SAC,
+defined or linked include, but are not limited to: TTL, footprint, ScVal, SAC,
   passphrase, ledger, XDR, sequence number, and network passphrase.
 - Keep definitions short and factual; do not turn a definition into a tutorial.
+
+#### Reference definitions
+
+Use these short definitions when a page needs to define a term inline. Keep them
+consistent across pages.
+
+- **TTL (time to live)** — how many ledgers remain before a ledger entry is
+  archived; extend it to keep the entry live.
+- **Footprint** — the set of ledger entries a Soroban transaction reads and
+  writes; it must be declared up front so the network can validate the call.
+- **ScVal** — Soroban's typed value representation (the on-chain equivalent of a
+  JSON value) used for contract arguments and return values.
+- **SAC (Stellar Asset Contract)** — the built-in Soroban contract that wraps a
+  classic Stellar asset and exposes it to contract calls.
+- **Passphrase / network passphrase** — the string that identifies a Stellar
+  network (for example, the test network passphrase); transactions are signed
+  against it so they cannot be replayed on another network.
+- **Ledger** — a batch of transactions applied atomically; ledgers are ordered
+  and each has a sequence number.
+- **Sequence number** — the per-account counter that orders that account's
+  transactions and prevents replays.
+- **XDR** — External Data Representation, the binary encoding Stellar uses on the
+  wire and in ledger entries.
 
 ## Headings
 
