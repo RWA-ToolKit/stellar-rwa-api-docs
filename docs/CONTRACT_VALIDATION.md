@@ -57,6 +57,19 @@ Description of what the method does...
 
 Run `npm test` to verify they match.
 
+## Worked examples must be runnable
+
+The asset-token reference page (`docs/app/docs/contracts/asset-token/page.mdx`) includes a runnable worked example. To keep it honest, every example must be verified against the current Testnet deployment rather than left as prose.
+
+When you add or refresh a worked example:
+
+1. Confirm the method signatures used in the example match `ASSET_TOKEN_CONTRACT.methods` in `lib/contracts.ts`.
+2. Confirm the contract address used in the example matches the deployed Asset Token address below.
+3. Actually run the example against Testnet (e.g. via `stellar contract invoke` or the Stellar CLI) and confirm it succeeds.
+4. Note in the example that it was verified against the current Testnet deployment.
+
+If a method signature or address changes, update the worked example in the same commit so the page keeps reflecting the current surface.
+
 ## Contracts
 
 - **Asset Token**: `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ`

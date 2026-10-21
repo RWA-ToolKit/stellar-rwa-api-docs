@@ -16,15 +16,26 @@ describe("Asset Token Contract Documentation", () => {
     const documentedMethods = [
       { name: "initialize", params: 9 },
       { name: "transfer", params: 3 },
+      { name: "transfer_from", params: 4 },
+      { name: "approve", params: 4 },
+      { name: "allowance", params: 3 },
       { name: "mint", params: 3 },
       { name: "mint_batch", params: 3 },
       { name: "burn", params: 2 },
+      { name: "burn_batch", params: 3 },
       { name: "balance", params: 1 },
       { name: "total_supply", params: 0 },
+      { name: "decimals", params: 0 },
+      { name: "name", params: 0 },
+      { name: "symbol", params: 0 },
       { name: "pause", params: 1 },
       { name: "unpause", params: 1 },
       { name: "update_valuation", params: 2 },
       { name: "set_compliance", params: 2 },
+      { name: "set_min_holding_period", params: 2 },
+      { name: "get_min_holding_period", params: 0 },
+      { name: "propose_admin", params: 2 },
+      { name: "accept_admin", params: 1 },
       { name: "get_metadata", params: 0 },
     ];
 
@@ -46,6 +57,25 @@ describe("Asset Token Contract Documentation", () => {
     expect(transferMethod).toBeDefined();
     expect(transferMethod?.params).toHaveLength(3);
     expect(transferMethod?.auth).toBe("from");
+  });
+
+  it("should document SEP-41 token interface methods", () => {
+    const sep41Methods = ["transfer", "transfer_from", "approve", "allowance", "balance", "total_supply", "decimals", "name", "symbol"];
+    sep41Methods.forEach((name) => {
+      expect(ASSET_TOKEN_CONTRACT.methods.find((m) => m.name === name)).toBeDefined();
+    });
+  });
+
+  it("should document batch operations", () => {
+    expect(ASSET_TOKEN_CONTRACT.methods.find((m) => m.name === "mint_batch")).toBeDefined();
+    expect(ASSET_TOKEN_CONTRACT.methods.find((m) => m.name === "burn_batch")).toBeDefined();
+  });
+
+  it("should document admin handover and min holding period", () => {
+    expect(ASSET_TOKEN_CONTRACT.methods.find((m) => m.name === "propose_admin")).toBeDefined();
+    expect(ASSET_TOKEN_CONTRACT.methods.find((m) => m.name === "accept_admin")).toBeDefined();
+    expect(ASSET_TOKEN_CONTRACT.methods.find((m) => m.name === "set_min_holding_period")).toBeDefined();
+    expect(ASSET_TOKEN_CONTRACT.methods.find((m) => m.name === "get_min_holding_period")).toBeDefined();
   });
 });
 
@@ -107,6 +137,9 @@ describe("Dividend Contract Documentation", () => {
       { name: "get_distribution", params: 1 },
       { name: "get_distributions_for_asset", params: 1 },
       { name: "has_claimed", params: 2 },
+      { name: "set_claim_deadline", params: 2 },
+      { name: "reclaim_unclaimed", params: 2 },
+      { name: "cancel_distribution", params: 2 },
     ];
 
     const result = validateContractDocumentation(DIVIDEND_CONTRACT, documentedMethods);
@@ -120,6 +153,12 @@ describe("Dividend Contract Documentation", () => {
     expect(DIVIDEND_CONTRACT.address).toBe(
       "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX",
     );
+  });
+
+  it("should document deadline, reclaim, and cancel entry points", () => {
+    expect(DIVIDEND_CONTRACT.methods.find((m) => m.name === "set_claim_deadline")).toBeDefined();
+    expect(DIVIDEND_CONTRACT.methods.find((m) => m.name === "reclaim_unclaimed")).toBeDefined();
+    expect(DIVIDEND_CONTRACT.methods.find((m) => m.name === "cancel_distribution")).toBeDefined();
   });
 });
 

@@ -40,7 +40,7 @@ curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | number | Registry id |
-| `token_contract` | string | Asset-token contract |
+| `token_contract` | string | Asset-token contract (see [Asset Token contract](/docs/contracts/asset-token)) |
 | `issuer` | string | Issuer account |
 | `name` | string | |
 | `symbol` | string | |
@@ -53,7 +53,7 @@ curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 | `holders` | number | Addresses with a positive balance |
 | `active` | boolean | |
 | `paused` | boolean | |
-| `compliance_contract` | string | Gate for this asset |
+| `compliance_contract` | string | Gate for this asset (see [Compliance contract](/docs/contracts/compliance)) |
 | `created_at_ledger` | number | |
 | `indexed_at_ledger` | number | Most recent ledger successfully indexed for this asset |
 | `index_error` | string or null | Per-asset index error, if the latest refresh failed |
@@ -62,7 +62,7 @@ curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 | Field | Type | Unit | Nullable | Description |
 |-------|------|------|----------|-------------|
 | `id` | integer | Registry id | No | |
-| `token_contract` | string | — | No | Asset-token contract address |
+| `token_contract` | string | — | No | Asset-token contract address (see [Asset Token contract](/docs/contracts/asset-token)) |
 | `issuer` | string | — | No | Issuer account address |
 | `name` | string | — | No | |
 | `symbol` | string | — | No | |
@@ -75,7 +75,7 @@ curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 | `holders` | integer | Addresses | No | Addresses with a positive balance |
 | `active` | boolean | — | No | |
 | `paused` | boolean | — | No | |
-| `compliance_contract` | string | — | No | Compliance contract address |
+| `compliance_contract` | string | — | No | Compliance contract address (see [Compliance contract](/docs/contracts/compliance)) |
 | `created_at_ledger` | integer | Ledger sequence | No | |
 | `indexed_at_ledger` | integer | Ledger sequence | No | Most recent ledger successfully indexed for this asset |
 | `index_error` | string | — | Yes | Error from the latest per-asset index attempt; JSON `null` when there is no error |
@@ -164,6 +164,8 @@ const displayUsd = Number(rawCents) / 100;
 
 ## What to read next
 
+- [Asset Token contract](/docs/contracts/asset-token) — the on-chain contract behind `token_contract`.
+- [Compliance contract](/docs/contracts/compliance) — the gate referenced by `compliance_contract`.
 - [API · Holders](/docs/api/holders) — list holders and balances for an asset.
 - [API · Compliance](/docs/api/compliance) — aggregate compliance stats for an asset.
 - [API · Dividends](/docs/api/dividends) — distribution history for an asset.
