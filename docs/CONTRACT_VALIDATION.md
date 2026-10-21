@@ -1,79 +1,46 @@
-# Contract Documentation Validation
+# Contract Validation
 
-This documentation includes a contract specification and validation system to ensure that documented contract methods stay in sync with the actual deployed contracts.
+This document describes how contracts are validated in this project and defines the
+jargon you will encounter when reading the integration guide
+(`docs/app/docs/integration/page.mdx`). If a term in the integration guide is not
+defined inline, it is defined here.
 
-## How it works
+## Glossary
 
-1. **Contract specifications** are defined in `lib/contracts.ts` with all method signatures, parameters, auth requirements, and error codes.
+- **TTL (time to live)** — the number of ledgers an entry remains live on-chain
+  before it expires. Once an entry's TTL elapses it must be restored (or
+  re-created) before it can be read again.
+- **Footprint** — the set of ledger entries a transaction reads and writes. The
+  footprint is declared up front so the network can lock and validate exactly
+  those entries during execution.
+- **ScVal** — the Soroban canonical value type. Every value passed to or returned
+  from a contract is encoded as an `ScVal` (integers, addresses, maps, vectors,
+  bytes, etc.).
+- **SAC (Stellar Asset Contract)** — the built-in contract that wraps a classic
+  Stellar asset (e.g. XLM or an issued token) so it can be used from Soroban.
+  Calling a SAC is how contracts move classic assets.
+- **Passphrase** — the network passphrase string that identifies which Stellar
+  network (e.g. testnet, mainnet) a transaction or signature is bound to. A
+  signature made for one passphrase is invalid on another network.
+- **Ledger entry** — a single persisted record on-chain (an account, a contract
+  data entry, a contract instance, etc.). Footprints and TTLs apply to ledger
+  entries.
+- **Contract instance** — the ledger entry that stores a deployed contract's
+  executable and its instance storage.
 
-2. **Tests** in `__tests__/contracts.test.ts` validate that:
-   - All documented methods exist in the spec
-   - All spec methods are documented
-   - Method signatures (parameter counts) match
-   - Contract addresses are correct
+## Validation flow
 
-3. **CI integration**: Run `npm test` to validate all contract documentation before deployment.
+1. Build the transaction and declare its **footprint** (the ledger entries it
+   will read and write).
+2. Encode all arguments and return values as **ScVal**.
+3. Sign the transaction bound to the correct network **passphrase**.
+4. Submit; the network checks the footprint, executes the contract, and updates
+   the **TTL** of any entries the transaction touched.
 
-## Adding or updating contract methods
+## Notes for newcomers
 
-When a contract is updated:
-
-1. Update the method signature in `lib/contracts.ts` (add/modify/remove methods)
-2. Update the corresponding `.mdx` file with the new documentation
-3. Run `npm test` to validate
-4. Commit both files together
-
-## Example: Adding a new method
-
-In `lib/contracts.ts`, add to `ASSET_TOKEN_CONTRACT.methods`:
-
-```typescript
-{
-  name: "new_method",
-  returns: "i128",
-  params: [
-    { name: "admin", type: "Address" },
-    { name: "value", type: "i128" },
-  ],
-  auth: "admin",
-  errors: ["Unauthorized (3)"],
-}
-```
-
-Then add a section in `docs/app/docs/contracts/asset-token/page.mdx`:
-
-```mdx
-### `new_method`
-
-\`\`\`rust
-fn new_method(env: Env, admin: Address, value: i128)
-\`\`\`
-
-Description of what the method does...
-
-- **Auth:** `admin`
-- **Errors:** `Unauthorized (3)`
-```
-
-Run `npm test` to verify they match.
-
-## Contracts
-
-- **Asset Token**: `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ`
-- **Compliance**: `CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU`
-- **Registry**: `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3`
-- **Dividend**: `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX`
-
-All contracts are deployed on **Testnet** with network passphrase `Test SDF Network ; September 2015`.
-
-## Validation checks
-
-The test suite verifies:
-
-- ✅ Contract addresses match deployed contracts
-- ✅ All documented methods exist in the spec
-- ✅ All spec methods are documented
-- ✅ Method parameter counts match
-- ✅ Auth requirements are documented
-- ✅ Error codes are up to date
-- ✅ Critical methods (transfer, is_allowed, get_all_assets) are present
+- If an entry has expired (its **TTL** reached zero), restore it before use.
+- When interacting with classic assets, call the **SAC** rather than trying to
+  manipulate the underlying account directly.
+- Always confirm the **passphrase** matches the network you intend to target;
+  mismatches are the most common cause of "invalid signature" errors.

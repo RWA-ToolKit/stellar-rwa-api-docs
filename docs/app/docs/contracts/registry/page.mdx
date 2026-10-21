@@ -55,6 +55,22 @@ Registers a new asset and returns its assigned id.
 - **Auth:** `issuer`
 - **Errors:** `NotInitialized (2)`, `InvalidValuation (5)` if `valuation < 0`.
 
+### `register_assets` (batch)
+
+```rust
+fn register_assets(
+    env: Env, issuer: Address, assets: Vec<AssetRegistration>,
+) -> Vec<u64>
+```
+
+Registers several assets in a single call and returns their assigned ids in the
+same order as the input. Each entry carries `token_contract`, `name`,
+`asset_type` and `valuation`; the `issuer` is supplied once for the whole batch.
+
+- **Auth:** `issuer` (signed once for the batch)
+- **Errors:** `NotInitialized (2)`, `InvalidValuation (5)` if any entry has `valuation < 0`.
+- **Events:** one `("register", issuer)` event per registered asset.
+
 ### `get_asset`
 
 ```rust
@@ -119,6 +135,21 @@ fn deactivate_asset(env: Env, admin: Address, asset_id: u64)
 Marks an asset inactive; it is then excluded from TVL. **Auth:** `admin`. Errors:
 `Unauthorized (3)`, `AssetNotFound (4)`.
 
+### `set_admin` (admin handover)
+
+```rust
+fn set_admin(env: Env, new_admin: Address)
+```
+
+Transfers registry administration to `new_admin`. **Auth:** the current stored
+admin. Errors: `NotInitialized (2)`, `Unauthorized (3)`.
+
+<CalloutBox variant="warning">
+Admin handover is immediate and irreversible from the old admin's side. Verify
+the new admin address before submitting — the previous admin loses all
+administrative rights (deactivation, further handover) once this succeeds.
+</CalloutBox>
+
 ### `total_value_locked` / `asset_count`
 
 ```rust
@@ -152,8 +183,8 @@ represents USD 5,000,000.00). It is not a token balance or a live oracle price.
 | Method | Authority |
 |---|---|
 | `initialize` | The supplied admin signs once |
-| `register_asset` | The issuer signs |
-| `deactivate_asset` | Stored admin |
+| `register_asset`, `register_assets` | The issuer signs |
+| `deactivate_asset`, `set_admin` | Stored admin |
 | `get_asset`, `get_assets_by_issuer`, `get_assets_by_type`, `get_all_assets`, `total_value_locked`, `asset_count`, `active_count` | Public read |
 
 ## Code example
@@ -175,8 +206,9 @@ const op = registry.call(
 
 | Topic | Data | Emitted by |
 |-------|------|------------|
-| `("register", issuer)` | `id` | `register_asset` |
+| `("register", issuer)` | `id` | `register_asset`, `register_assets` |
 | `("deactivate",)` | `asset_id` | `deactivate_asset` |
+| `("set_admin",)` | `new_admin` | `set_admin` |
 
 ## Error codes
 
@@ -185,9 +217,9 @@ const op = registry.call(
   codes={[
     { code: 1, name: "AlreadyInitialized", cause: "initialize was called after the registry was already initialized.", remediation: "Use the existing registry instance; initialization can only be performed once." },
     { code: 2, name: "NotInitialized", cause: "register_asset was called before the registry was initialized.", remediation: "Have the registry admin initialize the contract before registering assets." },
-    { code: 3, name: "Unauthorized", cause: "deactivate_asset was called by an address other than the stored admin.", remediation: "Submit the deactivation with authorization from the stored admin address." },
+    { code: 3, name: "Unauthorized", cause: "deactivate_asset or set_admin was called by an address other than the stored admin.", remediation: "Submit the call with authorization from the stored admin address." },
     { code: 4, name: "AssetNotFound", cause: "The requested asset id does not identify an entry in the registry.", remediation: "Check the asset id against the registered assets and retry with a valid id." },
-    { code: 5, name: "InvalidValuation", cause: "register_asset was given a negative valuation.", remediation: "Provide a non-negative valuation in USD cents." },
+    { code: 5, name: "InvalidValuation", cause: "register_asset or register_assets was given a negative valuation.", remediation: "Provide a non-negative valuation in USD cents." },
   ]}
 />
 
@@ -201,6 +233,8 @@ const op = registry.call(
   should treat listing in the registry as *self-attestation*, and rely on the
   compliance contract for the actual holding restrictions.
 - **Deactivation is admin-only** and only affects TVL and listing, not the token.
+- **Admin handover is admin-only** and takes effect immediately; confirm the new
+  admin address before calling `set_admin`.
 
 ## What to read next
 

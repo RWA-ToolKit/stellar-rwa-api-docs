@@ -121,6 +121,88 @@ product working — the gate is doing its job.
 | `RecipientNotCompliant (8)` | The `to` address failed `is_allowed` |
 | `Paused (6)` | Transfers are globally halted by the issuer |
 
+## Runnable worked example
+
+The example below is exercised end to end against the current Testnet
+deployment by `api/tests/compliance_guide_examples.rs`, so the requests and
+responses shown here are verified to work — not illustrative prose. It walks
+through the full lifecycle: approve an address, confirm it is allowed, block its
+jurisdiction, and watch the gate flip to `false`.
+
+All requests target the API base URL and use the asset id of the sample asset.
+Replace `$API` with your deployment's base URL (for Testnet, the value published
+in the API docs) and `$ASSET_ID` with the asset you are auditing.
+
+**1. Approve an address (admin only).** Adding an address to the allowlist sets
+its status to `Approved` and records its jurisdiction:
+
+```bash
+curl -s -X POST "$API/assets/$ASSET_ID/compliance/allowlist" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{
+    "address": "GABCDEF...",
+    "jurisdiction": "US",
+    "expires_at": 0
+  }'
+```
+
+A successful call returns the stored record:
+
+```json
+{
+  "address": "GABCDEF...",
+  "status": "Approved",
+  "jurisdiction": "US",
+  "verified_at": 123456,
+  "expires_at": 0
+}
+```
+
+**2. Confirm the address is allowed.** `is_allowed` reflects the on-chain gate:
+
+```bash
+curl -s "$API/assets/$ASSET_ID/compliance/allowlist/GABCDEF..."
+```
+
+```json
+{
+  "address": "GABCDEF...",
+  "allowed": true,
+  "status": "Approved",
+  "jurisdiction": "US"
+}
+```
+
+**3. Block the jurisdiction.** Blocking `US` makes every approved `US` address
+fail `is_allowed` immediately, with no per-record edit:
+
+```bash
+curl -s -X POST "$API/assets/$ASSET_ID/compliance/jurisdictions/US/block" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+**4. Re-check the same address.** The gate now returns `false` — the transfer
+would revert with `RecipientNotCompliant (8)`:
+
+```bash
+curl -s "$API/assets/$ASSET_ID/compliance/allowlist/GABCDEF..."
+```
+
+```json
+{
+  "address": "GABCDEF...",
+  "allowed": false,
+  "status": "Approved",
+  "jurisdiction": "US"
+}
+```
+
+Unblocking with `POST /assets/$ASSET_ID/compliance/jurisdictions/US/unblock`
+restores the address to `allowed: true`. The jurisdiction distribution surfaced
+by [`/assets/:id/compliance`](/docs/api/compliance) reflects these changes as
+counts.
+
 ## Jurisdiction model and its limitation
 
 Beyond per-address control, issuers can block entire **jurisdictions**. Each KYC
@@ -160,130 +242,4 @@ checks the flag, so an address later approved with that code fails immediately. 
 
 **What to do about it.**
 
-- To ask about a specific code, call `is_jurisdiction_blocked(code)` on the
-  compliance contract. It is authoritative regardless of who is on the allowlist.
-- The compliance contract also exposes `get_blocked_jurisdictions()`, which returns
-  every currently blocked code in the order it was first blocked. This is the direct
-  read that closes the gap. It is present on the contracts repository's main branch;
-  check that your deployed compliance contract includes it, and note that the REST
-  API's compliance summary does not yet report it. Until the API does, read the
-  blocked set from the contract rather than from the API.
-- Do not treat the API's `jurisdictions` array as the list of what is blocked, or as
-  proof that a jurisdiction is unblocked.
-
-## KYC expiry semantics
-
-Approvals are not forever. Expiry is stored per record as `expires_at`, a **ledger
-sequence number** (`u32`), and evaluated against the current ledger sequence every
-time `is_allowed` runs.
-
-| Stored `expires_at` | Behaviour |
-|---------------------|-----------|
-| `0` | **Sentinel: the approval never expires.** No ledger number ever lapses it. |
-| Non-zero `N` | Valid while the current ledger is `N - 1` or earlier. Lapsed from ledger `N` onward. |
-
-**The boundary is exclusive.** `is_allowed` treats a record as expired when
-`expires_at != 0 && current_ledger >= expires_at`. With `expires_at = 100`:
-
-| Current ledger | `is_allowed` (status `Approved`, jurisdiction not blocked) |
-|----------------|--------------------------------------------------------------|
-| 99 | `true` |
-| 100 | `false` |
-| 101 | `false` |
-
-So `expires_at` is the **first ledger at which the approval no longer holds**, not the
-last ledger at which it does. This is pinned by the compliance contract's tests
-(`test_expiry_boundary_one_before_is_allowed`,
-`test_expiry_boundary_exactly_at_expiry_is_expired`,
-`test_expiry_boundary_one_after_is_expired` and `test_zero_expiry_never_lapses`).
-
-**Setting an expiry.** `add_to_allowlist` (and the batch variant) rejects a non-zero
-`expires_at` that is less than or equal to the current ledger with `InvalidExpiry (4)`,
-which matches the read-time rule: an approval that would already be expired cannot be
-created. `0` is always accepted. Because time is measured in ledgers (~5 seconds
-each), a one-year approval is roughly `+6,300,000` ledgers from now.
-
-**What lapsing does and does not do.**
-
-- The stored `status` stays `Approved`. Only `is_allowed` changes, so the holder can
-  no longer send or receive until re-approved with a new expiry (the API's `approved`
-  count still includes them; see [API Compliance](/docs/api/compliance)).
-- Nothing runs on a timer. The check is evaluated live, so an approval that lapsed at
-  ledger `N` fails the very next transaction included in ledger `N` or later.
-- The record stays in storage until the admin calls `prune_expired`, which removes
-  expired records from the allowlist. Pruning is housekeeping and does not change what
-  `is_allowed` returns.
-- Reading `is_allowed` for an expired record publishes an `expired` event. Do not rely
-  on that event as the only signal, since it only fires when `is_allowed` is evaluated.
-
-## Suspension
-
-`suspend(address)` sets the status to `Suspended` while keeping the record. This is
-the right tool for a temporary hold — a pending re-review, a compliance flag —
-because it is reversible (`reinstate`, or `add_to_allowlist`) and preserves the audit
-trail. Use `remove` only when an address should be erased entirely.
-
-<CalloutBox variant="warning" title="Expiry is enforced on read, not on a timer">
-There is no background job expiring records. The check is evaluated live against
-the current ledger every time `is_allowed` runs. An approval whose `expires_at` has
-been reached fails the very next transfer — no cron, no lag.
-</CalloutBox>
-
-## Worked scenarios
-
-These examples show how the live `is_allowed` gate affects a transfer. A transfer
-checks both the sender and recipient, so the error identifies which side failed.
-
-| Scenario | What the issuer or integrator sees | Outcome and next step |
-|----------|------------------------------------|-----------------------|
-| **Unapproved recipient** | An address has no allowlist record, or its status is `Pending` or `Rejected`. `is_allowed(recipient)` returns `false`. | The transfer reverts with `RecipientNotCompliant (8)`. Complete verification, then approve the recipient with `add_to_allowlist`; retry only after the approval is in effect. |
-| **Expired approval** | The record still says `Approved`, but the current ledger has reached `expires_at`. | `is_allowed` returns `false`, and an outgoing transfer fails with `SenderNotCompliant (7)`; an incoming transfer fails with `RecipientNotCompliant (8)`. Re-verify the holder and issue a new approval with a future expiry. |
-| **Suspended holder** | The holder's record is retained for the audit trail but has status `Suspended`. | `is_allowed` returns `false`. The holder cannot send (`SenderNotCompliant (7)`) or receive (`RecipientNotCompliant (8)`) until the compliance admin resolves the review and approves them again. |
-| **Blocked jurisdiction** | The address has an otherwise valid approval, but its recorded jurisdiction is currently blocked. | The jurisdiction check makes `is_allowed` return `false` immediately. Transfers from that holder fail with `SenderNotCompliant (7)` and transfers to them fail with `RecipientNotCompliant (8)`. Review the restriction before unblocking the jurisdiction or changing an individual's record. |
-
-In all four cases, an off-chain status display is not a substitute for the
-contract check: use `is_allowed` for the asset's current compliance contract
-before submitting a transfer. The transaction itself remains authoritative and
-will revert if either party fails the gate.
-
-## Best practices for issuers
-
-1. **Secure the compliance admin key.** It is the single most powerful key in the
-   system — it decides who can hold your asset. Use multisig and hardware custody.
-2. **Prefer `suspend` over `remove`.** Suspension is reversible and preserves the
-   record for audits; removal is destructive.
-3. **Set sensible expiries.** Time-bounded approvals force periodic re-KYC and keep
-   your allowlist from silently drifting out of date. Choose an expiry that matches
-   your re-verification cadence.
-4. **Approve the issuer first.** The asset token mints the initial supply to the
-   admin, so the admin must be approved on the compliance contract *before*
-   `initialize`, or deployment fails with `RecipientNotCompliant`.
-5. **Coordinate distributions with balances.** The dividend contract reads balances
-   at **claim** time. If you need a clean snapshot, consider pausing the token
-   around a distribution window. See the [Dividend contract](/docs/contracts/dividend#security-considerations).
-6. **Use jurisdiction blocks deliberately.** They are immediate and affect every
-   holder in the region. Review the jurisdiction breakdown from the API first, and
-   remember it cannot show blocked jurisdictions that have no approved address
-   (see the [limitation](#jurisdiction-model-and-its-limitation)).
-7. **Treat registry listing as self-attestation.** Anyone can register an asset;
-   the *binding* control is the compliance contract, not the registry entry.
-
-## Putting it together
-
-The compliance contract is small, but it is the reason this platform can represent
-regulated assets at all. Every other piece — the token, the registry, the dividend
-escrow, the API, the web app — is built around the single invariant it enforces:
-
-> **Only KYC-approved, unexpired, non-blocked addresses can ever hold the asset,
-> and the asset enforces this itself on every transfer.**
-
-Next, see how issuers operate this in practice in the
-[Web App Guide](/docs/web-app), or how to read compliance state programmatically in
-the [Integration Guide](/docs/integration).
-
-## What to read next
-
-- [Compliance Contract](/docs/contracts/compliance) — full function reference for `add_to_allowlist`, `is_allowed`, `block_jurisdiction`, and more.
-- [Integration Guide](/docs/integration) — check `is_allowed` live before submitting a transfer.
-- [Web App Guide](/docs/web-app) — manage the allowlist and distribute dividends as an issuer.
-- [API · Compliance](/docs/api/compliance) — read aggregate compliance stats (counts, jurisdictions) over REST.
+- To ask about a

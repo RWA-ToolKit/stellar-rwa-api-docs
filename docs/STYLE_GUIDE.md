@@ -22,7 +22,7 @@ inline on first use or link to a glossary entry.
 - **Link to a glossary** when the term recurs across many pages; link the first
   occurrence per page and use the bare term afterwards.
 - **Never assume** the reader knows protocol jargon. Terms that must always be
-define or linked include, but are not limited to: TTL, footprint, ScVal, SAC,
+defined or linked include, but are not limited to: TTL, footprint, ScVal, SAC,
   passphrase, ledger, XDR, sequence number, and network passphrase.
 - Keep definitions short and factual; do not turn a definition into a tutorial.
 
