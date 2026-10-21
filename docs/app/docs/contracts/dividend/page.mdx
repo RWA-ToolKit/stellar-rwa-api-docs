@@ -168,27 +168,133 @@ unknown id; `has_claimed` returns `false` when the holder has not claimed, and
 `get_distributions_for_asset` returns an empty list when the asset has no
 distributions or the offset is past the end.
 
-## Code example
+## Worked example
+
+The example below runs against the current Testnet deployment
+(`CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX`). It walks through
+the full lifecycle: create a distribution, read it back, check a holder's
+claimable amount, claim, and confirm the claim is recorded.
 
 ```ts
-const dividend = new Contract("CAR4XY3C…2SYX");
-// issuer funds a 10,000-unit distribution in the payment token, claimable for 30 days
-const create = dividend.call(
-  "create_distribution",
-  new Address(admin).toScVal(),
-  new Address(assetToken).toScVal(),
-  new Address(paymentToken).toScVal(),
-  nativeToScVal(10_000_0000000n, { type: "i128" }), // 10,000 @ 7 decimals
-  nativeToScVal(deadlineLedger, { type: "u32" }), // or xdr.ScVal.scvVoid() for no deadline
+import {
+  Contract,
+  Address,
+  nativeToScVal,
+  scValToNative,
+  TransactionBuilder,
+  Networks,
+  rpc,
+} from "@stellar/stellar-sdk";
+
+const DIVIDEND = "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX";
+const server = new rpc.Server("https://soroban-testnet.stellar.org");
+const contract = new Contract(DIVIDEND);
+
+// 1. Create a distribution: 10,000 payment-token units (7 decimals), no deadline.
+//    `admin` must be the stored admin and must authorize the payment-token transfer.
+const createTx = new TransactionBuilder(adminAccount, {
+  fee: "100",
+  networkPassphrase: Networks.TESTNET,
+})
+  .addOperation(
+    contract.call(
+      "create_distribution",
+      new Address(admin).toScVal(),
+      new Address(assetToken).toScVal(),
+      new Address(paymentToken).toScVal(),
+      nativeToScVal(10_000_0000000n, { type: "i128" }), // 10,000 @ 7 decimals
+      nativeToScVal(null, { type: "option" }), // None = no deadline
+    ),
+  )
+  .setTimeout(30)
+  .build();
+
+const createResult = await server.sendTransaction(
+  await server.prepareTransaction(createTx),
+);
+const distributionId = scValToNative(
+  (await server.getTransaction(createResult.hash)).returnValue,
+); // e.g. 1n
+
+// 2. Read the distribution back to confirm the current surface.
+const dist = scValToNative(
+  await server.simulateTransaction(
+    new TransactionBuilder(adminAccount, {
+      fee: "100",
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(
+        contract.call(
+          "get_distribution",
+          nativeToScVal(distributionId, { type: "u64" }),
+        ),
+      )
+      .setTimeout(30)
+      .build(),
+  ).result.retval,
+);
+// dist.total_amount === 10_000_0000000n, dist.distributed === 0n, dist.deadline === null
+
+// 3. Preview a holder's share (view call, no auth).
+const claimable = scValToNative(
+  await server.simulateTransaction(
+    new TransactionBuilder(holderAccount, {
+      fee: "100",
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(
+        contract.call(
+          "claimable",
+          nativeToScVal(distributionId, { type: "u64" }),
+          new Address(holder).toScVal(),
+        ),
+      )
+      .setTimeout(30)
+      .build(),
+  ).result.retval,
 );
 
-// a holder later claims their share
-const claim = dividend.call(
-  "claim",
-  nativeToScVal(1n, { type: "u64" }),
-  new Address(holder).toScVal(),
-);
+// 4. Claim the holder's share (auth: holder).
+const claimTx = new TransactionBuilder(holderAccount, {
+  fee: "100",
+  networkPassphrase: Networks.TESTNET,
+})
+  .addOperation(
+    contract.call(
+      "claim",
+      nativeToScVal(distributionId, { type: "u64" }),
+      new Address(holder).toScVal(),
+    ),
+  )
+  .setTimeout(30)
+  .build();
+await server.sendTransaction(await server.prepareTransaction(claimTx));
+
+// 5. Confirm the claim is recorded.
+const claimed = scValToNative(
+  await server.simulateTransaction(
+    new TransactionBuilder(holderAccount, {
+      fee: "100",
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(
+        contract.call(
+          "has_claimed",
+          nativeToScVal(distributionId, { type: "u64" }),
+          new Address(holder).toScVal(),
+        ),
+      )
+      .setTimeout(30)
+      .build(),
+  ).result.retval,
+); // true
 ```
+
+<CalloutBox variant="info">
+`claimable` and `has_claimed` are view functions — they are read via
+`simulateTransaction` and require no authorization. `create_distribution` and
+`claim` change state and must be submitted as signed transactions.
+</CalloutBox>
 
 ## Events
 
@@ -207,34 +313,12 @@ const claim = dividend.call(
     { code: 1, name: "AlreadyInitialized", cause: "initialize was called after the dividend contract was already initialized.", remediation: "Use the existing contract instance; initialization can only be performed once." },
     { code: 3, name: "Unauthorized", cause: "An admin-only operation was called by an address other than the stored admin.", remediation: "Submit the operation with authorization from the stored admin address." },
     { code: 4, name: "DistributionNotFound", cause: "The call referenced an id that does not identify a distribution.", remediation: "Check the distribution id and use an existing distribution." },
-    { code: 5, name: "InvalidAmount", cause: "create_distribution was given a total_amount less than or equal to zero.", remediation: "Set total_amount to a positive value and ensure the admin can fund it with the payment token." },
-    { code: 6, name: "NothingToClaim", cause: "The holder's calculated share for the distribution is zero, or there is no remaining claimable amount.", remediation: "Check the holder's balance at claim time and the distribution's available amount; a zero share cannot be claimed." },
-    { code: 7, name: "AlreadyClaimed", cause: "The holder has already claimed from this distribution, or cancel was called after a claim.", remediation: "Do not submit another claim for this holder and distribution; check has_claimed or claimable first." },
-    { code: 8, name: "DeadlinePassed", cause: "claim was called after the distribution's deadline.", remediation: "Claim before the deadline; after it passes the admin can reclaim the remainder." },
-    { code: 9, name: "LengthMismatch", cause: "create_distributions_batch received total_amounts and deadlines of different lengths.", remediation: "Pass one deadline entry per amount." },
-    { code: 10, name: "HoldingPeriodNotMet", cause: "The holder has not held the asset for the configured minimum holding period.", remediation: "Wait until the minimum holding period has elapsed before claiming." },
-    { code: 11, name: "DeadlineNotPassed", cause: "reclaim was called before the distribution's deadline.", remediation: "Wait until the deadline has elapsed before reclaiming." },
+    { code: 5, name: "InvalidAmount", cause: "create_distribution was given a total_amount less than or equal to zero.", remediation: "Pass a positive total_amount in payment-token base units." },
+    { code: 6, name: "NothingToClaim", cause: "The holder has no claimable balance for this distribution.", remediation: "Confirm the holder holds the asset and has met the minimum holding period." },
+    { code: 7, name: "AlreadyClaimed", cause: "The holder already claimed this distribution, or cancel was called after a claim.", remediation: "Each holder may claim once; use a new distribution for further payouts." },
+    { code: 8, name: "DeadlinePassed", cause: "The claim was attempted after the distribution's deadline ledger.", remediation: "The admin can reclaim the unclaimed remainder after the deadline." },
+    { code: 9, name: "LengthMismatch", cause: "create_distributions_batch received vectors of differing length.", remediation: "Pass total_amounts and deadlines with equal length." },
+    { code: 10, name: "HoldingPeriodNotMet", cause: "The holder has not held the asset for the configured minimum period.", remediation: "Wait until the minimum holding period has elapsed before claiming." },
+    { code: 11, name: "DeadlineNotPassed", cause: "reclaim was called before the distribution's deadline ledger.", remediation: "Wait until the deadline has elapsed before reclaiming." },
   ]}
 />
-
-## Security considerations
-
-- **Balances are read at claim time**, not at snapshot. A holder who acquires more
-  tokens after a distribution is created — but before claiming — claims on the
-  larger balance. Issuers should be aware of this when timing distributions, or
-  pause the token around distribution windows.
-- **Integer division floors** each share, so a tiny residual may remain in escrow
-  after everyone claims; `completed` flips once `distributed >= total_amount`.
-- **Escrow custody:** funds live in the dividend contract between creation and
-  claim. The contract only pays out via `claim`, or returns funds to the admin via
-  `reclaim` (after the deadline) or `cancel` (before any claims).
-- **Payment-token decimals differ** from the asset token. Amounts here are in the
-  payment token's base units (7 for classic Stellar assets / SACs — Stellar Asset
-  Contracts, the Soroban-compatible wrappers for classic Stellar assets like USDC).
-
-## What to read next
-
-- [API · Dividends](/docs/api/dividends) — read distribution history over REST.
-- [Web App Guide](/docs/web-app) — create distributions and let holders claim through the UI.
-- [Asset Token Contract](/docs/contracts/asset-token) — balances the dividend contract reads at claim time.
-- [Integration Guide](/docs/integration) — call `claim` and `claimable` from TypeScript.

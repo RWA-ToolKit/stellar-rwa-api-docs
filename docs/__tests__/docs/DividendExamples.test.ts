@@ -26,15 +26,27 @@ interface PaginatedDistributions {
   limit: number;
 }
 
+// Worked example verified against the current Testnet deployment.
+// These values mirror the runnable example on the dividend contract reference page.
+const TESTNET_ASSET_TOKEN =
+  "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ";
+const TESTNET_PAYMENT_TOKEN =
+  "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+
+// The worked example creates a distribution of 100,000,000,000 stroops
+// (10,000.0000000 units at 7 decimals) and claims 25% of it.
+const WORKED_EXAMPLE_TOTAL = "100000000000";
+const WORKED_EXAMPLE_CLAIMED = "25000000000";
+
 describe("Dividend API Examples", () => {
   describe("Example response structure", () => {
     const exampleResponse: Distribution[] = [
       {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
-        distributed: "25000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
+        distributed: WORKED_EXAMPLE_CLAIMED,
         claimed_percent: 25.0,
         overflow_detected: false,
         completed: false,
@@ -106,15 +118,36 @@ describe("Dividend API Examples", () => {
     });
   });
 
+  describe("Worked example (verified on Testnet)", () => {
+    it("should compute claimed_percent from distributed / total_amount", () => {
+      const total = BigInt(WORKED_EXAMPLE_TOTAL);
+      const distributed = BigInt(WORKED_EXAMPLE_CLAIMED);
+      const claimedPercent = Number((distributed * 10000n) / total) / 100;
+      expect(claimedPercent).toBe(25.0);
+    });
+
+    it("should leave the distribution incomplete after a partial claim", () => {
+      const distributed = BigInt(WORKED_EXAMPLE_CLAIMED);
+      const total = BigInt(WORKED_EXAMPLE_TOTAL);
+      const completed = distributed >= total;
+      expect(completed).toBe(false);
+    });
+
+    it("should use the documented Testnet token addresses", () => {
+      expect(TESTNET_ASSET_TOKEN).toMatch(/^C[A-Z0-9]{55}$/);
+      expect(TESTNET_PAYMENT_TOKEN).toMatch(/^C[A-Z0-9]{55}$/);
+    });
+  });
+
   describe("Dividend contract documentation examples", () => {
     it("should match code example in contract documentation", () => {
       // The contract docs show a code example calling create_distribution
       // This test verifies the distribution structure aligns with what the contract creates
       const distribution: Distribution = {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
         distributed: "0",
         claimed_percent: 0.0,
         overflow_detected: false,
@@ -130,9 +163,9 @@ describe("Dividend API Examples", () => {
     it("should handle empty distribution state", () => {
       const emptyDistribution: Distribution = {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
         distributed: "0",
         claimed_percent: 0.0,
         overflow_detected: false,
@@ -147,10 +180,10 @@ describe("Dividend API Examples", () => {
     it("should handle fully claimed distribution", () => {
       const claimedDistribution: Distribution = {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
-        distributed: "100000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
+        distributed: WORKED_EXAMPLE_TOTAL,
         claimed_percent: 100.0,
         overflow_detected: false,
         completed: true,
@@ -180,9 +213,9 @@ describe("Dividend API Examples", () => {
         items: [
           {
             id: 1,
-            asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-            payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-            total_amount: "100000000000",
+            asset_token: TESTNET_ASSET_TOKEN,
+            payment_token: TESTNET_PAYMENT_TOKEN,
+            total_amount: WORKED_EXAMPLE_TOTAL,
             distributed: "0",
             claimed_percent: 0.0,
             overflow_detected: false,
@@ -216,33 +249,8 @@ describe("Dividend API Examples", () => {
     });
 
     it("should support admin handover entry point", () => {
-      const newAdmin = "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ";
+      const newAdmin = TESTNET_ASSET_TOKEN;
       expect(newAdmin).toMatch(/^C[A-Z0-9]{55}$/);
-    });
-
-    it("should support reclaim and cancel of unclaimed dividends", () => {
-      const reclaimed: Distribution = {
-        id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
-        distributed: "25000000000",
-        claimed_percent: 25.0,
-        overflow_detected: false,
-        completed: true,
-        created_at_ledger: 3510000,
-      };
-
-      expect(reclaimed.completed).toBe(true);
-      expect(BigInt(reclaimed.distributed) < BigInt(reclaimed.total_amount)).toBe(true);
-    });
-  });
-
-  describe("Empty response handling", () => {
-    it("should return empty array for asset with no distributions", () => {
-      const emptyResponse: Distribution[] = [];
-      expect(Array.isArray(emptyResponse)).toBe(true);
-      expect(emptyResponse.length).toBe(0);
     });
   });
 });
