@@ -167,3 +167,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 Apache-2.0.
+
+## Handsoff notes
+
+<!-- handsoff-issue-610 -->
+- #610: Update the compliance guide for cross-links to related reference pages
