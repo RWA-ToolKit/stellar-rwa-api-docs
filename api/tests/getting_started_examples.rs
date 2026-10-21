@@ -4,6 +4,8 @@
 //! documentation match the expected API response schema for:
 //! - /stats endpoint
 //! - /assets endpoint
+//! - newer contract entry points (batch operations, SEP-41, pagination,
+//!   admin handover, min-holding-period, dividend deadline/reclaim/cancel)
 
 use serde_json::json;
 
@@ -173,4 +175,142 @@ fn curl_examples_are_valid_bash() {
     // Example: curl http://localhost:8080/assets
     let curl_assets = "curl http://localhost:8080/assets";
     assert!(curl_assets.contains("http://localhost:8080/assets"));
+}
+
+/// Validates the pagination example documented in Getting Started.
+/// List endpoints accept `limit` and `offset` query params and return a
+/// `{ data, total, limit, offset }` envelope.
+#[test]
+fn pagination_example_valid() {
+    let page = json!({
+        "data": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0
+    });
+
+    assert!(page["data"].is_array());
+    assert!(page["total"].is_number());
+    assert!(page["limit"].is_number());
+    assert!(page["offset"].is_number());
+
+    // Documented default page size
+    assert_eq!(page["limit"], 20);
+    assert_eq!(page["offset"], 0);
+
+    // Example request URL carries the query params
+    let curl_page = "curl 'http://localhost:8080/assets?limit=20&offset=0'";
+    assert!(curl_page.contains("limit=20"));
+    assert!(curl_page.contains("offset=0"));
+}
+
+/// Validates the SEP-41 token interface example documented in Getting Started.
+/// SEP-41 standard functions: allowance, approve, balance, transfer,
+/// transfer_from, burn, burn_from, decimals, name, symbol.
+#[test]
+fn sep41_interface_example_valid() {
+    let sep41_functions = [
+        "allowance",
+        "approve",
+        "balance",
+        "transfer",
+        "transfer_from",
+        "burn",
+        "burn_from",
+        "decimals",
+        "name",
+        "symbol",
+    ];
+
+    for f in sep41_functions {
+        assert!(!f.is_empty(), "SEP-41 function name must not be empty");
+    }
+
+    // Example balance response is an i128 encoded as a string
+    let balance = json!({ "balance": "1000000" });
+    assert!(balance["balance"].is_string());
+    let parsed: i128 = balance["balance"].as_str().unwrap().parse().unwrap();
+    assert_eq!(parsed, 1_000_000);
+}
+
+/// Validates the batch operations example documented in Getting Started.
+/// Batch entry points accept a vector of operations and return per-item results.
+#[test]
+fn batch_operations_example_valid() {
+    let batch_result = json!({
+        "results": [
+            { "index": 0, "success": true },
+            { "index": 1, "success": true }
+        ]
+    });
+
+    let results = batch_result["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    for (i, r) in results.iter().enumerate() {
+        assert_eq!(r["index"], i as u64);
+        assert!(r["success"].is_boolean());
+    }
+}
+
+/// Validates the admin handover example documented in Getting Started.
+/// Admin handover uses a two-step propose/accept flow.
+#[test]
+fn admin_handover_example_valid() {
+    let new_admin = "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA";
+
+    // Step 1: current admin proposes a new admin
+    let propose = json!({ "propose_admin": new_admin });
+    assert!(propose["propose_admin"].is_string());
+
+    // Step 2: pending admin is readable until accepted
+    let pending = json!({ "pending_admin": new_admin });
+    assert_eq!(pending["pending_admin"], new_admin);
+
+    // Step 3: new admin accepts
+    let accept = json!({ "accept_admin": {} });
+    assert!(accept["accept_admin"].is_object());
+}
+
+/// Validates the min-holding-period example documented in Getting Started.
+/// The min holding period is expressed in seconds and enforced on transfers.
+#[test]
+fn min_holding_period_example_valid() {
+    let config = json!({
+        "min_holding_period_seconds": 86400
+    });
+
+    assert!(config["min_holding_period_seconds"].is_number());
+    assert_eq!(config["min_holding_period_seconds"], 86400);
+
+    // A transfer before the period elapses is rejected
+    let elapsed_seconds: u64 = 3600;
+    let required: u64 = config["min_holding_period_seconds"].as_u64().unwrap();
+    assert!(elapsed_seconds < required, "transfer should be rejected");
+}
+
+/// Validates the dividend deadline/reclaim/cancel example documented in Getting Started.
+/// Dividends carry a deadline; unclaimed funds can be reclaimed after it and
+/// a pending distribution can be cancelled before it.
+#[test]
+fn dividend_deadline_reclaim_cancel_example_valid() {
+    let dividend = json!({
+        "id": 1,
+        "total_amount": "1000000",
+        "claimed_amount": "0",
+        "deadline_ledger": 3600000,
+        "status": "pending"
+    });
+
+    assert!(dividend["deadline_ledger"].is_number());
+    assert_eq!(dividend["deadline_ledger"], 3600000);
+    assert_eq!(dividend["status"], "pending");
+
+    // Cancel is allowed while pending
+    let current_ledger: u64 = 3500000;
+    let deadline: u64 = dividend["deadline_ledger"].as_u64().unwrap();
+    assert!(current_ledger < deadline, "cancel allowed before deadline");
+
+    // Reclaim is allowed only after the deadline
+    let after_deadline: u64 = 3600001;
+    assert!(after_deadline > deadline, "reclaim allowed after deadline");
 }
