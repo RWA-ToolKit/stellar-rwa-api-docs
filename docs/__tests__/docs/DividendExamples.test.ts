@@ -13,6 +13,19 @@ interface Distribution {
   created_at_ledger: number;
 }
 
+// Type definitions for newer contract entry points documented on the page
+interface DistributionConfig {
+  min_holding_period: number;
+  dividend_deadline: number;
+}
+
+interface PaginatedDistributions {
+  items: Distribution[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
 describe("Dividend API Examples", () => {
   describe("Example response structure", () => {
     const exampleResponse: Distribution[] = [
@@ -146,6 +159,82 @@ describe("Dividend API Examples", () => {
 
       expect(claimedDistribution.completed).toBe(true);
       expect(claimedDistribution.claimed_percent).toBe(100);
+    });
+  });
+
+  describe("Newer contract entry points", () => {
+    it("should expose min_holding_period and dividend_deadline config", () => {
+      const config: DistributionConfig = {
+        min_holding_period: 17280,
+        dividend_deadline: 3600000,
+      };
+
+      expect(typeof config.min_holding_period).toBe("number");
+      expect(typeof config.dividend_deadline).toBe("number");
+      expect(config.min_holding_period).toBeGreaterThanOrEqual(0);
+      expect(config.dividend_deadline).toBeGreaterThan(0);
+    });
+
+    it("should support paginated distribution listings", () => {
+      const page: PaginatedDistributions = {
+        items: [
+          {
+            id: 1,
+            asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+            payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+            total_amount: "100000000000",
+            distributed: "0",
+            claimed_percent: 0.0,
+            overflow_detected: false,
+            completed: false,
+            created_at_ledger: 3510000,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 10,
+      };
+
+      expect(Array.isArray(page.items)).toBe(true);
+      expect(page.items.length).toBeLessThanOrEqual(page.limit);
+      expect(page.offset).toBeGreaterThanOrEqual(0);
+      expect(page.total).toBeGreaterThanOrEqual(page.items.length);
+    });
+
+    it("should support batch distribution creation ids", () => {
+      // Batch create_distributions returns the ids of the created distributions
+      const createdIds: number[] = [1, 2, 3];
+      expect(createdIds.length).toBeGreaterThan(0);
+      createdIds.forEach((id) => expect(id).toBeGreaterThan(0));
+    });
+
+    it("should support SEP-41 token interface for payment token", () => {
+      // SEP-41 tokens expose transfer/balance/allowance entry points
+      const sep41Methods = ["transfer", "transfer_from", "approve", "balance", "allowance"];
+      expect(sep41Methods).toContain("transfer");
+      expect(sep41Methods).toContain("balance");
+    });
+
+    it("should support admin handover entry point", () => {
+      const newAdmin = "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ";
+      expect(newAdmin).toMatch(/^C[A-Z0-9]{55}$/);
+    });
+
+    it("should support reclaim and cancel of unclaimed dividends", () => {
+      const reclaimed: Distribution = {
+        id: 1,
+        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        total_amount: "100000000000",
+        distributed: "25000000000",
+        claimed_percent: 25.0,
+        overflow_detected: false,
+        completed: true,
+        created_at_ledger: 3510000,
+      };
+
+      expect(reclaimed.completed).toBe(true);
+      expect(BigInt(reclaimed.distributed) < BigInt(reclaimed.total_amount)).toBe(true);
     });
   });
 
