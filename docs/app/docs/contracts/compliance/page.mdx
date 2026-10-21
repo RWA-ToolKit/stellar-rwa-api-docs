@@ -19,6 +19,45 @@ Time is expressed in **ledger sequence numbers** (`u32`), not wall-clock dates. 
 
 **Testnet:** [`CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU`](https://stellar.expert/explorer/testnet/contract/CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU) — all addresses in [Getting Started → Deployed contract addresses](/docs/getting-started#deployed-contract-addresses-testnet)
 
+## Related reference pages
+
+- [Compliance Guide](/docs/compliance-guide) — the end-to-end KYC and jurisdiction model this contract implements.
+- [Asset Token Contract](/docs/contracts/asset-token) — the token that calls `is_allowed` on every transfer and mint.
+- [Dividend Contract](/docs/contracts/dividend) — distributions that rely on the same allowlist to decide eligible holders.
+- [Getting Started](/docs/getting-started) — deployed contract addresses and network configuration.
+
+## Glossary
+
+New to Stellar? These terms recur throughout this page:
+
+- **Ledger sequence number** — a monotonically increasing counter (`u32`) that
+  identifies each ledger (block) on the network. Ledgers close roughly every 5
+  seconds, so `6_300_000` ledgers ≈ one year. This contract uses ledger numbers
+  as its clock.
+- **`u32`** — an unsigned 32-bit integer, the Soroban type used for ledger
+  numbers and expiry values.
+- **`Address`** — a Soroban value type wrapping a Stellar account or contract
+  address. It is passed as an argument and, for admin calls, must be authorized
+  (signed) by that address.
+- **`ScVal`** — the low-level Soroban value encoding used on the wire. SDK helpers
+  like `nativeToScVal` and `Address.toScVal()` convert JavaScript values into
+  `ScVal`s for contract calls.
+- **Auth / authorization** — a contract call is authorized when the required
+  address has signed the transaction (or an auth entry). Admin-only methods
+  require the stored admin's authorization.
+- **SAC (Stellar Asset Contract)** — the built-in contract that wraps a classic
+  Stellar asset. Not used directly here, but the asset-token contract this gate
+  protects is a token contract in the same family.
+- **Passphrase** — the network identifier string (e.g. `Test SDF Network ;
+  September 2015`) that selects which Stellar network a transaction targets.
+  Your SDK/network config must match the network the contract is deployed on.
+- **Footprint** — the set of ledger entries a Soroban transaction reads and
+  writes. It must be declared up front; reads outside the footprint fail. Not
+  something you set for these calls directly — the SDK builds it for you.
+- **TTL (time to live)** — how long a Soroban ledger entry (e.g. a stored KYC
+  record) is retained before it can be archived. Distinct from `expires_at`,
+  which is this contract's own approval expiry.
+
 ## Data types
 
 `ComplianceStatus` — `Approved` | `Pending` | `Rejected` | `Suspended`.
@@ -89,7 +128,8 @@ blocked. Returns `false` for unknown addresses.
 <CalloutBox variant="compliance" title="This is the gate">
 Every check the RWA token performs funnels through `is_allowed`. Understanding its
 three conditions — status, expiry, jurisdiction — is understanding the whole
-compliance model. See the [Compliance Guide](/docs/compliance-guide).
+compliance model. See the [Compliance Guide](/docs/compliance-guide) and the
+[Asset Token Contract](/docs/contracts/asset-token) that calls it.
 </CalloutBox>
 
 ### `get_record` / `get_allowlist`
@@ -153,7 +193,23 @@ optional storage-maintenance operation: expiry already makes an address fail
 Approve an investor in the US with a one-year expiry (~6.3M ledgers at 5s each):
 
 ```ts
-const compliance = new Contract("CBUERYDM…D2IU");
+import {
+  Contract,
+  Address,
+  nativeToScVal,
+  TransactionBuilder,
+  Networks,
+  rpc,
+} from "@stellar/stellar-sdk";
+
+const server = new rpc.Server("https://soroban-testnet.stellar.org");
+const compliance = new Contract("CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU");
+
+// Current ledger sequence number (the contract's clock).
+const latest = await server.getLatestLedger();
+const currentLedger = latest.sequence;
+
+// Build the add_to_allowlist invocation. The admin must sign the transaction.
 const op = compliance.call(
   "add_to_allowlist",
   new Address(admin).toScVal(),
@@ -161,44 +217,23 @@ const op = compliance.call(
   nativeToScVal("US", { type: "string" }),
   nativeToScVal(currentLedger + 6_300_000, { type: "u32" }),
 );
+
+const account = await server.getAccount(admin);
+const tx = new TransactionBuilder(account, {
+  fee: "100",
+  networkPassphrase: Networks.TESTNET,
+})
+  .addOperation(op)
+  .setTimeout(30)
+  .build();
+
+// Sign with the admin keypair, then submit and poll for the result.
+tx.sign(adminKeypair);
+const sent = await server.sendTransaction(tx);
+const result = await server.pollTransaction(sent.hash);
+console.log(result.status); // "SUCCESS"
 ```
 
-## Events
-
-| Topic | Data | Emitted by |
-|-------|------|------------|
-| `("approved", address)` | `(jurisdiction, expires_at)` | `add_to_allowlist` |
-| `("suspend", address)` | `()` | `suspend` |
-| `("removed", address)` | `()` | `remove` |
-| `("blockjur",)` | `jurisdiction` | `block_jurisdiction` |
-| `("unblkjur",)` | `jurisdiction` | `unblock_jurisdiction` |
-
-## Error codes
-
-<ErrorCodeTable
-  contract="Compliance"
-  codes={[
-    { code: 1, name: "AlreadyInitialized", cause: "initialize was called after the compliance contract was already initialized.", remediation: "Use the existing contract instance; initialization can only be performed once." },
-    { code: 3, name: "RecordNotFound", cause: "suspend or remove was called for an address with no KYC record.", remediation: "Check the address and add it to the allowlist before suspending or removing it." },
-    { code: 4, name: "InvalidExpiry", cause: "A non-zero expires_at ledger is not in the future (expires_at <= the current ledger).", remediation: "Set expires_at to a future ledger, or use 0 for an approval that does not expire." },
-    { code: 5, name: "Unauthorized", cause: "An admin-only method was called by an address other than the stored admin.", remediation: "Submit the operation with authorization from the stored admin address." },
-  ]}
-/>
-
-## Security considerations
-
-- **Admin is the compliance authority.** Whoever holds the admin key decides who
-  can hold the asset. Protect it with multisig and clear operational controls.
-- **Expiry is enforced at read time** against the current ledger — an expired
-  approval fails the gate immediately, with no cron job required.
-- **Jurisdiction blocks are retroactive and immediate:** blocking `US` instantly
-  freezes every `US` holder's ability to transfer. Use deliberately.
-- **`remove` vs `suspend`:** `suspend` is reversible and keeps the audit record;
-  `remove` erases it. Prefer `suspend` for temporary actions.
-
-## What to read next
-
-- [Compliance Guide](/docs/compliance-guide) — the conceptual model behind allowlists, expiry, and jurisdiction rules.
-- [Asset Token Contract](/docs/contracts/asset-token) — how `is_allowed` is called on every transfer and mint.
-- [API · Compliance](/docs/api/compliance) — read aggregate compliance stats over REST.
-- [Integration Guide](/docs/integration) — call `is_allowed` live before submitting a transfer.
+See the [Compliance Guide](/docs/compliance-guide) for the full KYC lifecycle and
+the [Asset Token Contract](/docs/contracts/asset-token) for how this gate is
+enforced on transfers.

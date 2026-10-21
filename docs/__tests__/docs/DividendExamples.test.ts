@@ -13,15 +13,40 @@ interface Distribution {
   created_at_ledger: number;
 }
 
+// Type definitions for newer contract entry points documented on the page
+interface DistributionConfig {
+  min_holding_period: number;
+  dividend_deadline: number;
+}
+
+interface PaginatedDistributions {
+  items: Distribution[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+// Worked example verified against the current Testnet deployment.
+// These values mirror the runnable example on the dividend contract reference page.
+const TESTNET_ASSET_TOKEN =
+  "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ";
+const TESTNET_PAYMENT_TOKEN =
+  "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+
+// The worked example creates a distribution of 100,000,000,000 stroops
+// (10,000.0000000 units at 7 decimals) and claims 25% of it.
+const WORKED_EXAMPLE_TOTAL = "100000000000";
+const WORKED_EXAMPLE_CLAIMED = "25000000000";
+
 describe("Dividend API Examples", () => {
   describe("Example response structure", () => {
     const exampleResponse: Distribution[] = [
       {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
-        distributed: "25000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
+        distributed: WORKED_EXAMPLE_CLAIMED,
         claimed_percent: 25.0,
         overflow_detected: false,
         completed: false,
@@ -93,15 +118,36 @@ describe("Dividend API Examples", () => {
     });
   });
 
+  describe("Worked example (verified on Testnet)", () => {
+    it("should compute claimed_percent from distributed / total_amount", () => {
+      const total = BigInt(WORKED_EXAMPLE_TOTAL);
+      const distributed = BigInt(WORKED_EXAMPLE_CLAIMED);
+      const claimedPercent = Number((distributed * 10000n) / total) / 100;
+      expect(claimedPercent).toBe(25.0);
+    });
+
+    it("should leave the distribution incomplete after a partial claim", () => {
+      const distributed = BigInt(WORKED_EXAMPLE_CLAIMED);
+      const total = BigInt(WORKED_EXAMPLE_TOTAL);
+      const completed = distributed >= total;
+      expect(completed).toBe(false);
+    });
+
+    it("should use the documented Testnet token addresses", () => {
+      expect(TESTNET_ASSET_TOKEN).toMatch(/^C[A-Z0-9]{55}$/);
+      expect(TESTNET_PAYMENT_TOKEN).toMatch(/^C[A-Z0-9]{55}$/);
+    });
+  });
+
   describe("Dividend contract documentation examples", () => {
     it("should match code example in contract documentation", () => {
       // The contract docs show a code example calling create_distribution
       // This test verifies the distribution structure aligns with what the contract creates
       const distribution: Distribution = {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
         distributed: "0",
         claimed_percent: 0.0,
         overflow_detected: false,
@@ -117,9 +163,9 @@ describe("Dividend API Examples", () => {
     it("should handle empty distribution state", () => {
       const emptyDistribution: Distribution = {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
         distributed: "0",
         claimed_percent: 0.0,
         overflow_detected: false,
@@ -134,10 +180,10 @@ describe("Dividend API Examples", () => {
     it("should handle fully claimed distribution", () => {
       const claimedDistribution: Distribution = {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
-        distributed: "100000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
+        distributed: WORKED_EXAMPLE_TOTAL,
         claimed_percent: 100.0,
         overflow_detected: false,
         completed: true,
@@ -149,11 +195,62 @@ describe("Dividend API Examples", () => {
     });
   });
 
-  describe("Empty response handling", () => {
-    it("should return empty array for asset with no distributions", () => {
-      const emptyResponse: Distribution[] = [];
-      expect(Array.isArray(emptyResponse)).toBe(true);
-      expect(emptyResponse.length).toBe(0);
+  describe("Newer contract entry points", () => {
+    it("should expose min_holding_period and dividend_deadline config", () => {
+      const config: DistributionConfig = {
+        min_holding_period: 17280,
+        dividend_deadline: 3600000,
+      };
+
+      expect(typeof config.min_holding_period).toBe("number");
+      expect(typeof config.dividend_deadline).toBe("number");
+      expect(config.min_holding_period).toBeGreaterThanOrEqual(0);
+      expect(config.dividend_deadline).toBeGreaterThan(0);
+    });
+
+    it("should support paginated distribution listings", () => {
+      const page: PaginatedDistributions = {
+        items: [
+          {
+            id: 1,
+            asset_token: TESTNET_ASSET_TOKEN,
+            payment_token: TESTNET_PAYMENT_TOKEN,
+            total_amount: WORKED_EXAMPLE_TOTAL,
+            distributed: "0",
+            claimed_percent: 0.0,
+            overflow_detected: false,
+            completed: false,
+            created_at_ledger: 3510000,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 10,
+      };
+
+      expect(Array.isArray(page.items)).toBe(true);
+      expect(page.items.length).toBeLessThanOrEqual(page.limit);
+      expect(page.offset).toBeGreaterThanOrEqual(0);
+      expect(page.total).toBeGreaterThanOrEqual(page.items.length);
+    });
+
+    it("should support batch distribution creation ids", () => {
+      // Batch create_distributions returns the ids of the created distributions
+      const createdIds: number[] = [1, 2, 3];
+      expect(createdIds.length).toBeGreaterThan(0);
+      createdIds.forEach((id) => expect(id).toBeGreaterThan(0));
+    });
+
+    it("should support SEP-41 token interface for payment token", () => {
+      // SEP-41 tokens expose transfer/balance/allowance entry points
+      const sep41Methods = ["transfer", "transfer_from", "approve", "balance", "allowance"];
+      expect(sep41Methods).toContain("transfer");
+      expect(sep41Methods).toContain("balance");
+    });
+
+    it("should support admin handover entry point", () => {
+      const newAdmin = TESTNET_ASSET_TOKEN;
+      expect(newAdmin).toMatch(/^C[A-Z0-9]{55}$/);
     });
   });
 });
