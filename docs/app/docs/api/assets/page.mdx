@@ -13,6 +13,30 @@ export const metadata = {
 Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
 </CalloutBox>
 
+<CalloutBox variant="tip" title="New to Stellar? Key terms">
+- **Ledger** — a numbered block of transactions on the Stellar network. Ledger sequences increase over time and are used as a clock (e.g. "held for 100 ledgers").
+- **Base units** — the smallest indivisible unit of a token. A token with `decimals = 2` stores `1000000` base units for `10,000.00` display tokens.
+- **`i128`** — a 128-bit signed integer, the on-chain type used for token amounts. The API returns these as decimal strings so JavaScript clients don't lose precision.
+- **Contract address** — the `C…` identifier of a deployed Soroban smart contract (e.g. `token_contract`, `compliance_contract`).
+- **Account address** — the `G…` identifier of a Stellar account (e.g. `issuer`).
+- **SEP-41** — the Stellar standard token interface; contracts implementing it work with standard wallets and tooling.
+- **SAC** — Stellar Asset Contract: the built-in contract that wraps a classic Stellar asset. Asset tokens here are custom contracts, not SACs.
+- **TTL / footprint** — Soroban storage has a time-to-live (TTL) and each transaction declares a footprint (the ledger entries it reads/writes). These are handled by the contract and SDKs; the REST API does not expose them.
+- **Passphrase** — the network identifier string (e.g. `Test SDF Network ; September 2015`) that distinguishes Testnet from Mainnet. It is configured in your SDK/CLI, not sent to this API.
+</CalloutBox>
+
+## Related reference pages
+
+Assets are the entry point to several related resources. Jump straight to the
+page you need:
+
+- [Holders](/docs/api/holders) — per-address balances for an asset (`holders` count here).
+- [Dividends](/docs/api/dividends) — distributions paid to asset holders.
+- [Stats](/docs/api/stats) — aggregate supply, valuation and holder metrics.
+- [Events](/docs/api/events) — on-chain events emitted by the asset-token contract.
+- [Compliance](/docs/api/compliance) — compliance rules enforced via `compliance_contract`.
+- [Field selection](/docs/api/field-selection) — how the `fields` sparse fieldset works.
+
 ## List assets
 
 <ApiEndpoint method="GET" path="/assets" description="All tokenized assets with valuation, supply and holder counts." />
@@ -25,38 +49,16 @@ Returns an array of asset objects.
 |------|------|-------|
 | `asset_type` | string | Filter by class: `real_estate`, `invoice`, `commodity` |
 | `active` | boolean | Filter by active status |
-| `fields` | string | Sparse fieldset: comma-separated list such as `id,name,active`. |
+| `fields` | string | Sparse fieldset: comma-separated list such as `id,name,active`. See [Field selection](/docs/api/field-selection). |
 | `offset` | integer | Skip the first N matching assets. Default: `0`. |
 | `limit` | integer | Page size. Default: `50`; maximum: `100`. |
 
 Results are paginated to keep large collections bounded. Use `offset` and `limit` together to walk the list in chunks.
 
 ```bash
-curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
+curl "$API_BASE_URL/v1/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 ```
 
-**Response schema** (per asset):
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `id` | number | Registry id |
-| `token_contract` | string | Asset-token contract |
-| `issuer` | string | Issuer account |
-| `name` | string | |
-| `symbol` | string | |
-| `asset_type` | string | `real_estate` \| `invoice` \| `commodity` |
-| `description` | string | |
-| `valuation_cents` | string | Valuation in **USD cents** (`i128` string). Divide by 100 to get USD dollars. |
-| `valuation_usd` | number | Valuation in **USD dollars** (`f64` convenience float, equal to `valuation_cents / 100`). |
-| `decimals` | number | Number of decimal places used by this asset token (e.g. `2`). |
-| `total_supply` | string | Total supply in **base units** (`i128` string in the token's `decimals` base). Divide by `10 ** decimals` to get the human-readable token amount. |
-| `holders` | number | Addresses with a positive balance |
-| `active` | boolean | |
-| `paused` | boolean | |
-| `compliance_contract` | string | Gate for this asset |
-| `created_at_ledger` | number | |
-| `indexed_at_ledger` | number | Most recent ledger successfully indexed for this asset |
-| `index_error` | string or null | Per-asset index error, if the latest refresh failed |
 **Response schema** (`Asset`, per asset):
 
 | Field | Type | Unit | Nullable | Description |
@@ -72,18 +74,23 @@ curl "$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50"
 | `valuation_usd` | number | USD | No | Convenience valuation in dollars |
 | `decimals` | integer | Decimal places | No | Token precision for converting base units |
 | `total_supply` | string | Asset-token base units | No | Exact supply (`i128` serialized as a decimal string) |
-| `holders` | integer | Addresses | No | Addresses with a positive balance |
+| `holders` | integer | Addresses | No | Addresses with a positive balance (see [Holders](/docs/api/holders)) |
 | `active` | boolean | — | No | |
 | `paused` | boolean | — | No | |
-| `compliance_contract` | string | — | No | Compliance contract address |
+| `compliance_contract` | string | — | No | Compliance contract address (see [Compliance](/docs/api/compliance)) |
 | `created_at_ledger` | integer | Ledger sequence | No | |
 | `indexed_at_ledger` | integer | Ledger sequence | No | Most recent ledger successfully indexed for this asset |
 | `index_error` | string | — | Yes | Error from the latest per-asset index attempt; JSON `null` when there is no error |
 
-**Example**
+## Worked example
+
+This example is verified against the current Testnet deployment. It walks
+through listing assets, then fetching a single asset by id.
+
+**1. List the active real-estate assets**
 
 ```bash
-curl $API_BASE_URL/v1/assets
+curl "$API_BASE_URL/v1/assets?asset_type=real_estate&active=true&limit=1"
 ```
 
 ```json
@@ -111,6 +118,21 @@ curl $API_BASE_URL/v1/assets
 ]
 ```
 
+**2. Fetch that asset by id**
+
+```bash
+curl "$API_BASE_URL/v1/assets/1?fields=id,name,active,indexed_at_ledger"
+```
+
+```json
+{
+  "id": 1,
+  "name": "Manhattan Loft",
+  "active": true,
+  "indexed_at_ledger": 3502885
+}
+```
+
 ## Get an asset
 
 <ApiEndpoint method="GET" path="/assets/:id" description="Full detail for a single asset by registry id." />
@@ -134,6 +156,8 @@ You can also request a sparse fieldset with `?fields=`; for example:
 ```bash
 curl "$API_BASE_URL/v1/assets/1?fields=id,name,active,indexed_at_ledger"
 ```
+
+See [Field selection](/docs/api/field-selection) for the full syntax.
 
 **Errors**
 
@@ -162,9 +186,33 @@ const displayUsd = Number(rawCents) / 100;
 ```
 </CalloutBox>
 
-## What to read next
+## Contract entry points
 
-- [API · Holders](/docs/api/holders) — list holders and balances for an asset.
-- [API · Compliance](/docs/api/compliance) — aggregate compliance stats for an asset.
-- [API · Dividends](/docs/api/dividends) — distribution history for an asset.
-- [Time & Ledgers](/docs/time-and-ledgers) — understand `created_at_ledger` and `indexed_at_ledger`.
+The asset-token contract exposes the following entry points. They are invoked
+directly on-chain (via the Stellar CLI or an SDK) rather than through the REST
+API; the API only reflects their resulting state (`total_supply`, `holders`,
+`paused`, etc.).
+
+### SEP-41 token interface
+
+Asset tokens implement the [SEP-41](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0041.md)
+token interface, so standard tooling works out of the box:
+
+| Entry point | Description |
+|-------------|-------------|
+| `allowance(from, spender)` | Remaining amount `spender` may transfer on behalf of `from` |
+| `approve(from, spender, amount, expiration_ledger)` | Set an allowance with an expiration ledger |
+| `balance(id)` | Balance of an address in base units |
+| `transfer(from, to, amount)` | Move tokens between addresses |
+| `transfer_from(spender, from, to, amount)` | Move tokens using an existing allowance |
+| `burn(from, amount)` | Burn tokens from an address |
+| `burn_from(spender, from, amount)` | Burn tokens using an existing allowance |
+| `decimals()` | Token precision (matches the API `decimals` field) |
+| `name()` | Token name (matches the API `name` field) |
+| `symbol()` | Token symbol (matches the API `symbol` field) |
+
+### Batch operations
+
+Bat
+
+/* … truncated 1515 chars — edit only what you need near the top … */
