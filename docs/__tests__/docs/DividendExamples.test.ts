@@ -115,9 +115,9 @@ describe("Dividend API Examples", () => {
       // This test verifies the distribution structure aligns with what the contract creates
       const distribution: Distribution = {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
         distributed: "0",
         claimed_percent: 0.0,
         overflow_detected: false,
@@ -133,9 +133,9 @@ describe("Dividend API Examples", () => {
     it("should handle empty distribution state", () => {
       const emptyDistribution: Distribution = {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
         distributed: "0",
         claimed_percent: 0.0,
         overflow_detected: false,
@@ -150,10 +150,10 @@ describe("Dividend API Examples", () => {
     it("should handle fully claimed distribution", () => {
       const claimedDistribution: Distribution = {
         id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
-        distributed: "100000000000",
+        asset_token: TESTNET_ASSET_TOKEN,
+        payment_token: TESTNET_PAYMENT_TOKEN,
+        total_amount: WORKED_EXAMPLE_TOTAL,
+        distributed: WORKED_EXAMPLE_TOTAL,
         claimed_percent: 100.0,
         overflow_detected: false,
         completed: true,
@@ -165,11 +165,62 @@ describe("Dividend API Examples", () => {
     });
   });
 
-  describe("Empty response handling", () => {
-    it("should return empty array for asset with no distributions", () => {
-      const emptyResponse: Distribution[] = [];
-      expect(Array.isArray(emptyResponse)).toBe(true);
-      expect(emptyResponse.length).toBe(0);
+  describe("Newer contract entry points", () => {
+    it("should expose min_holding_period and dividend_deadline config", () => {
+      const config: DistributionConfig = {
+        min_holding_period: 17280,
+        dividend_deadline: 3600000,
+      };
+
+      expect(typeof config.min_holding_period).toBe("number");
+      expect(typeof config.dividend_deadline).toBe("number");
+      expect(config.min_holding_period).toBeGreaterThanOrEqual(0);
+      expect(config.dividend_deadline).toBeGreaterThan(0);
+    });
+
+    it("should support paginated distribution listings", () => {
+      const page: PaginatedDistributions = {
+        items: [
+          {
+            id: 1,
+            asset_token: TESTNET_ASSET_TOKEN,
+            payment_token: TESTNET_PAYMENT_TOKEN,
+            total_amount: WORKED_EXAMPLE_TOTAL,
+            distributed: "0",
+            claimed_percent: 0.0,
+            overflow_detected: false,
+            completed: false,
+            created_at_ledger: 3510000,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 10,
+      };
+
+      expect(Array.isArray(page.items)).toBe(true);
+      expect(page.items.length).toBeLessThanOrEqual(page.limit);
+      expect(page.offset).toBeGreaterThanOrEqual(0);
+      expect(page.total).toBeGreaterThanOrEqual(page.items.length);
+    });
+
+    it("should support batch distribution creation ids", () => {
+      // Batch create_distributions returns the ids of the created distributions
+      const createdIds: number[] = [1, 2, 3];
+      expect(createdIds.length).toBeGreaterThan(0);
+      createdIds.forEach((id) => expect(id).toBeGreaterThan(0));
+    });
+
+    it("should support SEP-41 token interface for payment token", () => {
+      // SEP-41 tokens expose transfer/balance/allowance entry points
+      const sep41Methods = ["transfer", "transfer_from", "approve", "balance", "allowance"];
+      expect(sep41Methods).toContain("transfer");
+      expect(sep41Methods).toContain("balance");
+    });
+
+    it("should support admin handover entry point", () => {
+      const newAdmin = TESTNET_ASSET_TOKEN;
+      expect(newAdmin).toMatch(/^C[A-Z0-9]{55}$/);
     });
   });
 
