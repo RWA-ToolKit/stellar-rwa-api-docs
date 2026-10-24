@@ -53,6 +53,11 @@ consecutive failures reaches the stale-data threshold. The last successfully
 indexed snapshot continues to be served until a compatible version is deployed
 or the indexer is upgraded.
 
+When an ABI-version failure causes a request to fail, the response uses the
+shared error body shape (for example `service_unavailable` while the indexer is
+degraded, or `internal_server_error` for unexpected failures). See
+[Errors](/docs/api/errors) for the canonical shape and the full list of codes.
+
 <CalloutBox variant="warning" title="Upgrading contracts">
 If you deploy a contract with a new `VERSION` constant that falls outside the
 indexer's supported range, the indexer will stop refreshing. You must either:

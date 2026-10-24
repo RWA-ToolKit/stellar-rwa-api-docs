@@ -113,3 +113,81 @@ pub async fn field_select(mut req: Request<Body>, next: Next) -> Response {
     head.headers.remove(header::CONTENT_LENGTH);
     Response::from_parts(head, Body::from(body))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{routing::get, Router};
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    /// Minimal stand-in for the assets route response shape: a JSON array of
+    /// asset records. Exercises the same projection path the real route uses.
+    async fn assets() -> Response {
+        let body = json!([
+            {"asset_id": "a1", "name": "Alpha", "supply": 100},
+            {"asset_id": "a2", "name": "Beta", "supply": 200},
+        ]);
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(&body).expect("serializes")))
+            .expect("static response is well-formed")
+    }
+
+    fn app() -> Router {
+        Router::new()
+            .route("/assets", get(assets))
+            .layer(axum::middleware::from_fn(field_select))
+    }
+
+    async fn body_json(response: Response) -> Value {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body collects");
+        serde_json::from_slice(&bytes).expect("body is json")
+    }
+
+    #[tokio::test]
+    async fn assets_route_projects_selected_fields() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .uri("/assets?fields=asset_id,name")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        assert_eq!(response.status(), StatusCode::OK);
+        let value = body_json(response).await;
+        assert_eq!(
+            value,
+            json!([
+                {"asset_id": "a1", "name": "Alpha"},
+                {"asset_id": "a2", "name": "Beta"},
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn assets_route_unknown_field_is_bad_request() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .uri("/assets?fields=asset_id,nope")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let value = body_json(response).await;
+        let message = value
+            .get("error")
+            .and_then(Value::as_str)
+            .expect("error body has message");
+        assert!(message.contains("unknown field `nope`"), "got: {message}");
+        assert!(message.contains("asset_id"), "got: {message}");
+    }
+}

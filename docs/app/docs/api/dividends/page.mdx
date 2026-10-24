@@ -1,30 +1,35 @@
-export const metadata = {
-  title: "API · Dividends",
-  description: "Distribution history for a tokenized asset.",
-  canonical: "/docs/api/dividends",
-  lastReviewed: "2026-08-29",
-};
+---
+title: Dividends API
+---
 
-# Dividends
+# Dividends API
 
-<LastReviewed date={metadata.lastReviewed} />
+The dividends endpoints expose the on-chain dividend distribution contract. A distribution pays out a `payment_token` (any SEP-41 token) to holders of an `asset_token` proportionally to their balance at the time the distribution was created.
 
-<CalloutBox variant="note">
-Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
-</CalloutBox>
+All amounts are `i128` values serialized as decimal strings to avoid precision loss in JSON.
 
-<ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history for an asset, newest ledger first." />
+## Related reference pages
 
-Returns every dividend distribution created for the asset's token, ordered by
-creation ledger (newest first).
+- [Tokens API](/docs/api/tokens) — SEP-41 token balances and metadata for `payment_token` and `asset_token`.
+- [Assets API](/docs/api/assets) — look up the asset behind an `asset_token` contract address.
+- [Accounts API](/docs/api/accounts) — resolve holder and admin `G...` account addresses.
+- [SEP-41 token interface](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0041.md) — the token standard used for payouts.
+- [Stellar Asset Contract (SAC)](https://developers.stellar.org/docs/tokens/stellar-asset-contract) — how classic assets are wrapped as SEP-41 contracts.
 
-**Path parameters**
+## Glossary
 
-| Name | Type | Notes |
-|------|------|-------|
-| `id` | number | Registry id |
+New to Stellar? These terms appear throughout this page.
 
-**Response schema** (`Distribution`, per distribution):
+- **Ledger** — a single block of transactions on the Stellar network. Ledgers close roughly every 5 seconds, so `17280` ledgers is about one day. Ledger numbers are used here as a clock (e.g. `deadline_ledger`, `created_at_ledger`).
+- **Contract address** — a `C...` string identifying a deployed Soroban smart contract (e.g. `asset_token`, `payment_token`).
+- **Account address** — a `G...` string identifying a Stellar account (e.g. a holder or admin).
+- **SEP-41** — the Stellar token interface standard. Any token implementing it exposes entry points such as `transfer` and `balance`.
+- **SAC (Stellar Asset Contract)** — the built-in SEP-41 contract that wraps a classic Stellar asset so it can be used from Soroban. A SAC address is a valid `payment_token`.
+- **`i128`** — a 128-bit signed integer, the amount type used by SEP-41 tokens. It is sent as a decimal string in JSON because JavaScript numbers cannot represent it exactly.
+- **Entry point** — a function exposed by a contract that can be invoked (e.g. `transfer`, `balance`).
+- **Admin** — the account authorized to change contract settings (e.g. the minimum holding period or admin handover).
+
+## Distribution object
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -73,9 +78,50 @@ curl $API_BASE_URL/v1/assets/1/dividends
 
 An asset with no distributions returns an empty array `[]`.
 
+**Field selection**
+
+Use the `fields` query parameter to return only the distribution fields you need.
+See [Field selection](/docs/api/field-selection) for the full syntax.
+
+```bash
+curl "$API_BASE_URL/v1/assets/1/dividends?fields=id,total_amount,claimed_percent,completed"
+```
+
+```json
+[
+  {
+    "id": 1,
+    "total_amount": "100000000000",
+    "claimed_percent": 25.0,
+    "completed": false
+  }
+]
+```
+
+Unknown field names are rejected with `400`:
+
+```json
+{
+  "error": "invalid_parameter",
+  "message": "unknown field: claimed_percentage"
+}
+```
+
 **Errors**
 
-Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown.
+Returns `404` when the asset id is unknown:
+
+```json
+{
+  "error": "not_found",
+  "message": "asset not found"
+}
+```
+
+Returns `400` with `{ "error": "invalid_parameter", … }` when `fields` contains an
+unknown field name (see [Field selection](/docs/api/field-selection)). See
+[API · Errors](/docs/api/errors) for the canonical error body shape shared by all
+endpoints.
 
 ## Get a single distribution
 
@@ -112,37 +158,215 @@ curl $API_BASE_URL/v1/assets/1/distributions/1
 }
 ```
 
-**Errors**
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | number | Distribution identifier |
+| `asset_token` | string | Contract address of the asset whose holders receive dividends |
+| `payment_token` | string | SEP-41 token contract used for payouts |
+| `total_amount` | string (i128) | Total amount funded for the distribution |
+| `distributed` | string (i128) | Amount claimed so far |
+| `claimed_percent` | number | `distributed / total_amount` as a percentage (0–100) |
+| `overflow_detected` | boolean | Set when a payout overflowed and needs manual reconciliation |
+| `completed` | boolean | True once the distribution is fully claimed or finalized |
+| `created_at_ledger` | number | Ledger at which the distribution was created |
 
-Returns `404` with `{ "error": "not_found", … }` when the asset id or the distribution id is unknown.
+Returns `404` when the asset id or the distribution id is unknown:
 
-<CalloutBox variant="tip" title="Payment-token units and conversion">
-`total_amount` and `distributed` are measured in the **payment token's** base units, not the asset token's. Classic Stellar assets (SACs) such as USDC use 7 decimals, whereas other tokens may specify different decimals.
-
-```typescript
-// Converting distribution amounts for a payment token with 7 decimals (e.g. SAC USDC):
-const paymentDecimals = 7;
-
-// Pool size:
-const rawTotal = BigInt(distribution.total_amount); // "100000000000"
-const displayTotal = Number(rawTotal) / (10 ** paymentDecimals);
-// => 10,000.0 USDC
-
-// Claimed so far:
-const rawDistributed = BigInt(distribution.distributed); // "25000000000"
-const displayDistributed = Number(rawDistributed) / (10 ** paymentDecimals);
-// => 2,500.0 USDC
+```json
+{
+  "error": "not_found",
+  "message": "distribution not found"
+}
 ```
-<CalloutBox variant="note">
-`total_amount` and `distributed` are in the **payment token's** base units, not the
-asset token's. Classic Stellar assets (SACs — Stellar Asset Contracts, the on-chain
-representation of classic Stellar assets like USDC) use 7 decimals, so `100000000000`
-above is `10,000.0` units of the payment token.
-</CalloutBox>
 
-## What to read next
+See [API · Errors](/docs/api/errors) for the canonical error body shape shared by all endpoints.
 
-- [Dividend Contract](/docs/contracts/dividend) — `create_distribution`, `claim`, and the full function surface.
-- [API · Assets](/docs/api/assets) — get the asset's `token_contract` to cross-reference distributions.
-- [Web App Guide](/docs/web-app) — create distributions and let holders claim through the UI.
-- [Time & Ledgers](/docs/time-and-ledgers) — understand `created_at_ledger` values in distribution responses.
+`GET /api/dividends?asset_token={address}&page={page}&limit={limit}`
+
+Returns a paginated list of distributions for an asset. Pagination is cursor-free: `page` is 1-based and `limit` defaults to `20` (max `100`).
+
+```bash
+curl "https://api.example.com/api/dividends?asset_token=CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ&page=1&limit=20"
+```
+
+```json
+{
+  "data": [ /* Distribution objects */ ],
+  "page": 1,
+  "limit": 20,
+  "total": 1
+}
+```
+
+## Get a distribution
+
+`GET /api/dividends/{id}`
+
+Returns a single `Distribution` object, or `404` if it does not exist.
+
+## Create a distribution
+
+`POST /api/dividends`
+
+```json
+{
+  "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  "total_amount": "100000000000",
+  "deadline_ledger": 3600000
+}
+```
+
+`deadline_ledger` is optional. When set, holders can only claim until that ledger; afterwards the creator may reclaim the unclaimed remainder.
+
+## Batch operations
+
+`POST /api/dividends/batch`
+
+Create multiple distributions in a single transaction. Each entry uses the same body as `POST /api/dividends`.
+
+```json
+{
+  "distributions": [
+    {
+      "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+      "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+      "total_amount": "100000000000"
+    }
+  ]
+}
+```
+
+`POST /api/dividends/{id}/claim-batch` claims on behalf of multiple holders in one call:
+
+```json
+{
+  "holders": [
+    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+  ]
+}
+```
+
+## Claim
+
+`POST /api/dividends/{id}/claim`
+
+Claims the caller's share of a distribution. The caller must hold the `asset_token` and satisfy the contract's minimum holding period (see below).
+
+## Minimum holding period
+
+`GET /api/dividends/min-holding-period`
+
+Returns the minimum number of ledgers a holder must have held the asset before claiming.
+
+```json
+{ "min_holding_period": 17280 }
+```
+
+`PUT /api/dividends/min-holding-period` (admin only) updates the value:
+
+```json
+{ "min_holding_period": 17280 }
+```
+
+## Deadline, reclaim, and cancel
+
+- `POST /api/dividends/{id}/reclaim` — after `deadline_ledger` has passed, the creator reclaims the unclaimed remainder.
+- `POST /api/dividends/{id}/cancel` — the creator cancels a distribution before any claims have been made; the full `total_amount` is refunded.
+
+Both return the updated `Distribution` object.
+
+## Admin handover
+
+`POST /api/dividends/admin/transfer`
+
+Initiates a two-step admin handover. The new admin must accept before the change takes effect.
+
+```json
+{ "new_admin": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF" }
+```
+
+`POST /api/dividends/admin/accept` — called by the pending admin to complete the handover.
+
+`GET /api/dividends/admin` returns the current admin and any pending admin:
+
+```json
+{
+  "admin": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+  "pending_admin": null
+}
+```
+
+## SEP-41 payment tokens
+
+Any SEP-41 compliant token can be used as `payment_token`. The contract calls `transfer` on the token when a holder claims, so the token must be deployed and the distribution contract must be funded before claims succeed. Use the token's `balance` entry point to confirm funding — see the [Tokens API](/docs/api/tokens) for the balance endpoint.
+
+## Worked example (Testnet)
+
+This walkthrough runs end-to-end against the current Testnet deployment. Set the base URL and the two contract addresses once, then run each step in order.
+
+```bash
+# Testnet API base URL and the contracts used in this example
+export API="https://api.example.com"
+export ASSET_TOKEN="CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ"
+export PAYMENT_TOKEN="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+```
+
+### 1. Confirm the payment token is funded
+
+Before creating a distribution, verify the distribution contract holds enough `payment_token` to cover payouts. Query the token's `balance` entry point for the distribution contract address (see the [Tokens API](/docs/api/tokens)):
+
+```bash
+curl "$API/api/tokens/$PAYMENT_TOKEN/balance?address=$ASSET_TOKEN"
+```
+
+```json
+{ "balance": "100000000000" }
+```
+
+### 2. Create a distribution
+
+```bash
+curl -X POST "$API/api/dividends" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "asset_token": "'"$ASSET_TOKEN"'",
+    "payment_token": "'"$PAYMENT_TOKEN"'",
+    "total_amount": "100000000000",
+    "deadline_ledger": 3600000
+  }'
+```
+
+A successful create returns the new `Distribution` object. Note the `id` for the following steps:
+
+```json
+{
+  "id": 1,
+  "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  "total_amount": "100000000000",
+  "distributed": "0",
+  "claimed_percent": 0.0,
+  "overflow_detected": false,
+  "completed": false,
+  "created_at_ledger": 3510000
+}
+```
+
+### 3. Read it back
+
+```bash
+curl "$API/api/dividends/1"
+```
+
+Returns the same `Distribution` object. A missing id returns `404`.
+
+### 4. Claim as a holder
+
+A holder of `asset_token` who has satisfied the minimum holding period claims their share:
+
+```bash
+curl -X POST "$API/api/dividends/1/claim"
+```
+
+The response is the updated `Distribution` with `distributed` and `claimed_percent`

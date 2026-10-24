@@ -75,6 +75,30 @@ cannot be merged if it fails.
 Both commands are referenced from `docs/CONTRIBUTING-DOCS.md`, which also covers
 adding pages and updating navigation.
 
+#### Search index
+
+`docs/lib/search-index.json` is a **generated artifact** — do not edit it by
+hand. It is produced by `docs/scripts/build-search-index.mjs`, which scans every
+`.mdx` file under `docs/app/docs/` and writes the index used by the site search.
+
+The index is rebuilt automatically:
+
+- `npm run build` runs it first via the `prebuild` script, and
+- `npm run dev` regenerates it as part of the dev workflow.
+
+If you **add, rename, or remove a page**, run the generator explicitly so the
+committed index stays current:
+
+```bash
+cd docs
+npm run build:search   # regenerate docs/lib/search-index.json only
+# or
+npm run build          # full build, which also regenerates the index
+```
+
+Commit the updated `docs/lib/search-index.json` alongside your page changes.
+=======
+
 ### API (Rust) — Maintainer-only
 
 The API uses standard Rust tooling. While PRs modifying `api/` will not be accepted,
