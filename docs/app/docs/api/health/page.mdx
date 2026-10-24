@@ -42,6 +42,14 @@ successful poll is older than the threshold, every response carries:
 The previous snapshot keeps being served. When a poll succeeds again, the
 headers disappear and the recovery is logged.
 
+## Error responses
+
+`GET /health` returns its own status document even on `503`: the body is the
+same field set shown above with `"status": "degraded"`, not the shared error
+body. Any other error from this route (for example a `500` from an internal
+failure) uses the shared error shape documented in
+[Errors](/docs/api/errors).
+
 ## What to read next
 
 - [API Overview](/docs/api/overview) — full endpoint list and the health endpoint's role.

@@ -2,7 +2,7 @@ export const metadata = {
   title: "API · Field selection",
   description: "Request partial responses with the fields parameter.",
   canonical: "/docs/api/field-selection",
-  lastReviewed: "2026-09-26",
+  lastReviewed: "2026-10-03",
 };
 
 # Field selection
@@ -18,14 +18,50 @@ curl "$API_BASE_URL/v1/assets?fields=id,symbol,valuation_usd"
 curl "$API_BASE_URL/v1/assets/1/holders?fields=address,balance"
 ```
 
-Requesting a field that does not exist returns `400`:
-
-```json
-{"error": "invalid_parameter", "message": "unknown field `nope`; available fields: ..."}
-```
-
 Fields are validated against the first record of a list, so an empty list is
 returned as-is.
+
+## Examples per list endpoint
+
+| Endpoint | Example |
+| --- | --- |
+| `GET /v1/assets` | `curl "$API_BASE_URL/v1/assets?fields=id,symbol,valuation_usd"` |
+| `GET /v1/assets?query=...` (filtered assets) | `curl "$API_BASE_URL/v1/assets?query=USDC&fields=id,symbol,issuer"` |
+| `GET /v1/assets/{id}/holders` | `curl "$API_BASE_URL/v1/assets/1/holders?fields=address,balance,decimals"` |
+| `GET /v1/assets/{id}/dividends` | `curl "$API_BASE_URL/v1/assets/1/dividends?fields=id,amount,asset_code"` |
+| `GET /v1/events` | `curl "$API_BASE_URL/v1/events?fields=id,type,ledger,created_at"` |
+| `GET /v1/compliance` | `curl "$API_BASE_URL/v1/compliance?fields=asset_id,status,updated_at"` |
+
+## Invalid field names
+
+Requesting a field that does not exist returns HTTP `400` with an
+`invalid_parameter` error. The message lists the fields that are available for
+that endpoint:
+
+```bash
+curl -i "$API_BASE_URL/v1/assets?fields=nope"
+```
+
+```json
+{
+  "error": "invalid_parameter",
+  "message": "unknown field `nope`; available fields: ..."
+}
+```
+
+See [API · Errors](/docs/api/errors) for the full error envelope and other
+status codes.
+
+## Empty results
+
+When a query matches nothing, the endpoint still returns `200` with a
+well-formed empty body: an empty array (`[]`) for list endpoints, or an empty
+object (`{}`) for single-record endpoints. It never returns `null` and never
+turns an empty result into an error.
+
+Because `fields` is validated against the first record of a list, validation is
+skipped when the list is empty — an empty list is returned as-is regardless of
+the requested field names.
 
 <CalloutBox variant="note" title="Amount units in partial responses">
 When selecting amount fields like `balance`, remember that values are returned in raw base units. If you plan to format the balance for display, include `decimals` in your field list (or query the parent asset) so you can convert `balance / 10 ** decimals`. Similarly, note that `valuation_cents` is in USD cents while `valuation_usd` is in USD dollars.

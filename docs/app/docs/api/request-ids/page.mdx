@@ -12,11 +12,15 @@ export const metadata = {
 Every response carries an `X-Request-Id` header. Send your own `X-Request-Id`
 (up to 64 characters of letters, digits, `-` and `_`) to have it reused.
 
-JSON error bodies include the same value as `request_id`:
+The request id is carried **only** in the `X-Request-Id` response header (and in
+the server logs described below). It is not included in JSON error bodies —
+those contain exactly `error` and `message`:
 
 ```json
-{ "error": "not_found", "message": "Asset 7 not found", "request_id": "3f9a1c0b7d2e4a86" }
+{ "error": "not_found", "message": "Asset 7 not found" }
 ```
+
+See [API · Error Bodies](/docs/api/errors) for the canonical error shape.
 
 The server logs one structured line per request inside a span carrying
 `request_id`, `method` and `path`, with `status`, `latency_ms`,
@@ -25,7 +29,7 @@ indexer state at that moment. Set `RUST_LOG` to control verbosity.
 
 ## What to read next
 
-- [API · Error Bodies](/docs/api/errors) — the full error schema including the `request_id` field.
+- [API · Error Bodies](/docs/api/errors) — the canonical error schema shared by all endpoints.
 - [API · Health & Indexer Lag](/docs/api/health) — correlate a `503` with `consecutive_failures`.
 - [Indexer Metrics](/docs/metrics) — Prometheus metrics for tracking indexer health over time.
 - [API Overview](/docs/api/overview) — all endpoint conventions.
