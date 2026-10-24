@@ -73,9 +73,50 @@ curl $API_BASE_URL/v1/assets/1/dividends
 
 An asset with no distributions returns an empty array `[]`.
 
+**Field selection**
+
+Use the `fields` query parameter to return only the distribution fields you need.
+See [Field selection](/docs/api/field-selection) for the full syntax.
+
+```bash
+curl "$API_BASE_URL/v1/assets/1/dividends?fields=id,total_amount,claimed_percent,completed"
+```
+
+```json
+[
+  {
+    "id": 1,
+    "total_amount": "100000000000",
+    "claimed_percent": 25.0,
+    "completed": false
+  }
+]
+```
+
+Unknown field names are rejected with `400`:
+
+```json
+{
+  "error": "invalid_parameter",
+  "message": "unknown field: claimed_percentage"
+}
+```
+
 **Errors**
 
-Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown.
+Returns `404` when the asset id is unknown:
+
+```json
+{
+  "error": "not_found",
+  "message": "asset not found"
+}
+```
+
+Returns `400` with `{ "error": "invalid_parameter", … }` when `fields` contains an
+unknown field name (see [Field selection](/docs/api/field-selection)). See
+[API · Errors](/docs/api/errors) for the canonical error body shape shared by all
+endpoints.
 
 ## Get a single distribution
 
@@ -114,7 +155,16 @@ curl $API_BASE_URL/v1/assets/1/distributions/1
 
 **Errors**
 
-Returns `404` with `{ "error": "not_found", … }` when the asset id or the distribution id is unknown.
+Returns `404` when the asset id or the distribution id is unknown:
+
+```json
+{
+  "error": "not_found",
+  "message": "distribution not found"
+}
+```
+
+See [API · Errors](/docs/api/errors) for the canonical error body shape shared by all endpoints.
 
 <CalloutBox variant="tip" title="Payment-token units and conversion">
 `total_amount` and `distributed` are measured in the **payment token's** base units, not the asset token's. Classic Stellar assets (SACs) such as USDC use 7 decimals, whereas other tokens may specify different decimals.

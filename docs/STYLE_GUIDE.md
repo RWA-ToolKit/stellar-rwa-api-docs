@@ -10,6 +10,47 @@
 - Use the exact names of endpoints, fields and error codes as they appear in the API.
 - Spell out an acronym on first use per page.
 
+### Jargon and domain terms
+
+Readers new to Stellar and Soroban should not have to leave the page to understand
+it. For any term that is specific to the platform or protocol, either define it
+inline on first use or link to a glossary entry.
+
+- **Define inline** when the term appears once or twice on a page: give a short
+  parenthetical or a following sentence (e.g. "the ledger entry's TTL (time to
+  live — how many ledgers remain before it is archived)").
+- **Link to a glossary** when the term recurs across many pages; link the first
+  occurrence per page and use the bare term afterwards.
+- **Never assume** the reader knows protocol jargon. Terms that must always be
+defined or linked include, but are not limited to: TTL, footprint, ScVal, SAC,
+  passphrase, ledger, XDR, sequence number, and network passphrase.
+- Keep definitions short and factual; do not turn a definition into a tutorial.
+
+#### Reference definitions
+
+Use these short definitions when a page needs to define a term inline. Keep them
+consistent across pages so newcomers see the same wording everywhere.
+
+- **TTL** — time to live: how many ledgers remain before a ledger entry is
+  archived and must be restored before use.
+- **Footprint** — the set of ledger entries a Soroban transaction reads and
+  writes; it must be declared up front so the network can validate the
+  transaction.
+- **ScVal** — Soroban's canonical value type used to encode contract arguments
+  and return values (the on-chain equivalent of a JSON value).
+- **SAC** — Stellar Asset Contract: the built-in Soroban contract that wraps a
+  classic Stellar asset so it can be used from Soroban code.
+- **Passphrase** — the string that identifies a Stellar network (for example
+  `Test SDF Network ; September 2015`); it is hashed into the network ID and
+  must match the network you are targeting.
+- **Ledger** — a single, ordered batch of transactions applied to the network;
+  ledgers close roughly every 5 seconds and each has a sequence number.
+- **XDR** — External Data Representation: the binary encoding used for Stellar
+  transactions, ledger entries and contract data.
+- **Sequence number** — the per-account counter that orders an account's
+  transactions and prevents replays; each new transaction must use the next
+  value.
+
 ## Headings
 
 ### Capitalisation convention: sentence case

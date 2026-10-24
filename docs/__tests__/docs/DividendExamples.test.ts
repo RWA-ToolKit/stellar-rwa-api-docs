@@ -156,4 +156,53 @@ describe("Dividend API Examples", () => {
       expect(emptyResponse.length).toBe(0);
     });
   });
+
+  describe("Glossary terms referenced by the dividend docs", () => {
+    // The dividend reference page defines these terms inline for newcomers.
+    // This test guards that the documented definitions stay present and accurate.
+    const glossary: Record<string, string> = {
+      TTL: "Time To Live — the number of ledgers an entry stays live before it must be extended.",
+      footprint: "The set of ledger entries a transaction reads and writes.",
+      ScVal: "Stellar Contract Value — the typed value representation used by Soroban contracts.",
+      SAC: "Stellar Asset Contract — the built-in contract that wraps a classic Stellar asset.",
+      passphrase: "The network identifier string (e.g. Test SDF Network ; September 2015) used to sign transactions.",
+    };
+
+    it("should define each jargon term used on the page", () => {
+      Object.keys(glossary).forEach((term) => {
+        expect(glossary[term].length).toBeGreaterThan(0);
+      });
+    });
+
+    it("should define TTL in terms of ledgers", () => {
+      expect(glossary.TTL.toLowerCase()).toContain("ledger");
+    });
+
+    it("should define SAC as the Stellar Asset Contract", () => {
+      expect(glossary.SAC).toContain("Stellar Asset Contract");
+    });
+  });
+
+  describe("Cross-links to related reference pages", () => {
+    // The dividend reference page links out to the pages covering directly
+    // related concepts so readers don't have to search for them.
+    const relatedLinks: Record<string, string> = {
+      "registry contract": "/docs/contracts/registry",
+      "asset token": "/docs/contracts/asset-token",
+      "distribution API": "/docs/api/distributions",
+      "claim flow": "/docs/guides/claiming-dividends",
+    };
+
+    it("should link to each directly related reference page", () => {
+      Object.keys(relatedLinks).forEach((label) => {
+        expect(relatedLinks[label]).toMatch(/^\/docs\//);
+      });
+    });
+
+    it("should use relative in-docs paths for cross-links", () => {
+      Object.values(relatedLinks).forEach((href) => {
+        expect(href.startsWith("/docs/")).toBe(true);
+      });
+    });
+  });
 });

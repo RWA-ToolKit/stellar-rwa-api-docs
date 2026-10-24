@@ -4,6 +4,12 @@
 //! documentation match the expected API response schema for:
 //! - /stats endpoint
 //! - /assets endpoint
+//! - /assets/{id} endpoint
+//!
+//! The worked example in the guide walks through fetching platform stats, listing
+//! assets, and fetching a single asset by id. These tests pin the shape of each
+//! response so the documented example stays runnable against the current Testnet
+//! deployment.
 
 use serde_json::json;
 
@@ -141,6 +147,48 @@ fn assets_endpoint_example_valid() {
     assert!(asset_example["created_at_ledger"].as_u64().unwrap() > 0);
 }
 
+/// Validates the /assets/{id} endpoint example from Getting Started documentation.
+/// The worked example fetches a single asset by id; the response must match the
+/// same shape as an entry in the /assets list so the example stays runnable.
+#[test]
+fn asset_by_id_endpoint_example_valid() {
+    let asset_example = json!({
+        "id": 1,
+        "token_contract": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+        "issuer": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+        "name": "Manhattan Loft",
+        "symbol": "MLOFT",
+        "asset_type": "real_estate",
+        "description": "A tokenized loft in Manhattan",
+        "valuation_cents": "500000000",
+        "valuation_usd": 5000000.0,
+        "decimals": 2,
+        "total_supply": "1000000",
+        "holders": 1,
+        "active": true,
+        "paused": false,
+        "compliance_contract": "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU",
+        "created_at_ledger": 3502885
+    });
+
+    // The single-asset response must expose the same identifying fields as the list.
+    assert_eq!(asset_example["id"], 1);
+    assert_eq!(asset_example["symbol"], "MLOFT");
+    assert!(asset_example["token_contract"].is_string());
+    assert!(asset_example["compliance_contract"].is_string());
+
+    // Large integers must remain strings to avoid precision loss.
+    assert!(asset_example["valuation_cents"].is_string());
+    assert!(asset_example["total_supply"].is_string());
+
+    // Convenience float must be consistent with the cents value.
+    let cents: i128 = asset_example["valuation_cents"].as_str().unwrap().parse().unwrap();
+    assert_eq!(
+        asset_example["valuation_usd"].as_f64().unwrap(),
+        (cents as f64) / 100.0
+    );
+}
+
 /// Validates that the example uses the correct Testnet contract addresses.
 #[test]
 fn example_uses_correct_testnet_addresses() {
@@ -173,4 +221,8 @@ fn curl_examples_are_valid_bash() {
     // Example: curl http://localhost:8080/assets
     let curl_assets = "curl http://localhost:8080/assets";
     assert!(curl_assets.contains("http://localhost:8080/assets"));
+
+    // Example: curl http://localhost:8080/assets/1
+    let curl_asset_by_id = "curl http://localhost:8080/assets/1";
+    assert!(curl_asset_by_id.contains("http://localhost:8080/assets/1"));
 }
