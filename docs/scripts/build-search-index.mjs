@@ -6,8 +6,13 @@
  * cleans body text, segments pages into headed sections with anchor links,
  * and outputs a static search index to `docs/lib/search-index.json`.
  *
- * Runs at build time (`npm run prebuild`) and can be run manually via
- * `npm run build:search`.
+ * Regeneration contract:
+ * - Runs automatically as part of `npm run prebuild`, which is invoked by
+ *   `npm run build`. No manual step is required for normal builds.
+ * - Can be run manually at any time via `npm run build:search`.
+ * - The output `docs/lib/search-index.json` is committed to the repository,
+ *   so it must be regenerated (and the result committed) whenever a page is
+ *   added, renamed, or its headings change.
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";

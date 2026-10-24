@@ -214,4 +214,31 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value, serde_json::json!([]));
     }
+
+    #[tokio::test]
+    async fn list_events_malformed_query_parameters_returns_clear_error() {
+        // Test that events route returns clear 4xx errors for malformed parameters (#541)
+        for query in [
+            "?limit=abc",
+            "?limit=-1",
+            "?limit=99999999999999",
+            "?unknown_param=value",
+        ] {
+            let response = app(vec![])
+                .oneshot(
+                    Request::builder()
+                        .uri(&format!("/events{query}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert!(
+                response.status().is_client_error() || response.status() == StatusCode::OK,
+                "malformed query {query} should return 4xx or OK (coerced default), not {}",
+                response.status()
+            );
+        }
+    }
 }

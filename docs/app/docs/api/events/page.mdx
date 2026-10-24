@@ -34,6 +34,33 @@ curl "$API_BASE_URL/v1/events?limit=20"
 ]
 ```
 
+**Field selection:**
+
+Use the `fields` query parameter to return only the event fields you need. See [Field Selection](/docs/api/field-selection) for the full syntax.
+
+```bash
+curl "$API_BASE_URL/v1/events?limit=20&fields=id,event_type,ledger"
+```
+
+```json
+[
+  {
+    "id": 42,
+    "event_type": "Transfer",
+    "ledger": 3514152
+  }
+]
+```
+
+Requesting a field that does not exist on `Event` returns a `400` error with code `invalid_parameter`:
+
+```json
+{
+  "error": "invalid_parameter",
+  "message": "Unknown field: 'foo'"
+}
+```
+
 </ApiEndpoint>
 
 **Response schema** (`Event`, per event):
@@ -117,6 +144,24 @@ const displayAmount = Number(rawAmount) / (10 ** 2);
 // => 1.00 token
 ```
 </CalloutBox>
+
+## Errors
+
+Every error response uses the shared two-field body shape:
+
+```json
+{
+  "error": "invalid_limit",
+  "message": "limit must be between 1 and 100"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `error` | string | Stable, machine-readable error code |
+| `message` | string | Human-readable description of the problem |
+
+See [Errors](/docs/api/errors) for the canonical error shape, the full list of codes, and the HTTP status codes each one maps to.
 
 **Event types by entry point:**
 

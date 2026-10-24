@@ -145,12 +145,51 @@ curl -s "$API_BASE_URL/v1/assets/1/holders?limit=1"
 }
 ```
 
+**Field selection**
+
+Use the `fields` query parameter to request only the holder fields you need. Pass
+a comma-separated list of field names from the `Holder` schema above:
+
+```bash
+curl "$API_BASE_URL/v1/assets/1/holders?fields=address,balance"
+```
+
+```json
+[
+  {
+    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+    "balance": "1000000"
+  }
+]
+```
+
+Unknown field names are rejected rather than silently ignored. Requesting a field
+that is not part of the `Holder` schema returns `400`:
+
+```json
+{
+  "error": "invalid_parameter",
+  "message": "unknown field: share"
+}
+```
+
 **Errors**
 
-Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown. An
-asset with holders but none currently holding a positive balance returns an empty
-array `[]` (or `{ "data": [], "next_cursor": null, "has_more": false }` when
-paginated). See <a href="/docs/api/errors">Errors</a> for the full error envelope.
+Returns `404` when the asset id is unknown:
+
+```json
+{
+  "error": "not_found",
+  "message": "asset not found"
+}
+```
+
+An asset with holders but none currently holding a positive balance returns an
+empty array `[]` (or `{ "data": [], "next_cursor": null, "has_more": false }`
+when paginated). Returns `400` with `{ "error": "invalid_parameter", … }` when
+`fields` contains a name that is not part of the `Holder` schema. See
+<a href="/docs/api/errors">Errors</a> for the canonical error body shape shared
+by all endpoints.
 
 <CalloutBox variant="tip" title="Balance conversion example">
 Holder balances are raw integers on-chain. To format a balance for end users, query the asset's `decimals` value (see <a href="/docs/api/assets">Assets</a>) and scale the integer:
@@ -232,3 +271,8 @@ security-critical pre-transfer checks, call the compliance contract's
 `is_allowed` entry point directly instead of relying on this cached value. See
 <a href="/docs/api/compliance">Compliance</a> for details.
 </CalloutBox>
+
+## What to read next
+
+- [Holder Position](/docs/api/holder-position) — server-side aggregate of a single
+  holder's full position across an asset.

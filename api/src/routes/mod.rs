@@ -57,6 +57,8 @@ mod field_select_tests;
 #[cfg(test)]
 mod holder_position_tests;
 #[cfg(test)]
+mod stats_tests;
+#[cfg(test)]
 mod holders_tests;
 #[cfg(test)]
 mod test_support;

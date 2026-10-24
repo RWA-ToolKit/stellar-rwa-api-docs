@@ -159,6 +159,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn indexer_malformed_query_uses_shared_shape() {
+        let app = router(AppState::for_test_empty());
+        // Malformed and out-of-range query parameters must be rejected with a
+        // clear 4xx (never a 500 or panic) and use the shared error body.
+        for uri in [
+            "/v1/indexer?limit=abc",
+            "/v1/indexer?limit=-1",
+            "/v1/indexer?limit=999999999999999999999",
+            "/v1/indexer?offset=notanumber",
+        ] {
+            let response = get(&app, uri, "GET").await;
+            let status = response.status();
+            assert!(
+                status.is_client_error(),
+                "{uri} must return a 4xx, got {status}"
+            );
+            assert_error_shape(response, status, code_for(status)).await;
+        }
+    }
+
+    #[tokio::test]
     async fn assets_malformed_query_uses_shared_shape() {
         let app = router(AppState::for_test_empty());
         // Malformed and out-of-range query parameters must be rejected with a
@@ -190,6 +211,63 @@ mod tests {
         let app = router(AppState::for_test_empty());
         let response = get(&app, "/metrics", "GET").await;
         assert_error_shape(response, StatusCode::UNAUTHORIZED, "unauthorized").await;
+    }
+
+    #[tokio::test]
+    async fn assets_rate_limit_boundary_uses_shared_shape() {
+        let app = router(AppState::for_test_empty());
+        // Drive the assets route up to the configured rate-limit boundary.
+        // Requests within the limit succeed; the first request past the
+        // boundary is rejected with 429 and must use the shared error body.
+        let limit = crate::routes::rate_limit::configured_limit();
+        for _ in 0..limit {
+            let response = get(&app, "/v1/assets", "GET").await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request within the configured limit must not be rate limited"
+            );
+        }
+        let response = get(&app, "/v1/assets", "GET").await;
+        assert_error_shape(response, StatusCode::TOO_MANY_REQUESTS, "too_many_requests").await;
+    }
+
+    #[tokio::test]
+    async fn malformed_query_parameters_use_shared_shape() {
+        let app = router(AppState::for_test_empty());
+        // Each of these is rejected by query validation (or the router's
+        // query-string rejection) and must surface as a clear 4xx in the
+        // shared error body, never a 500 or a panic.
+        let cases = [
+            "/v1/assets?limit=abc",
+            "/v1/assets?limit=999999",
+            "/v1/assets?offset=-1",
+            "/v1/holders/abc/position",
+        ];
+        for uri in cases {
+            let response = get(&app, uri, "GET").await;
+            let status = response.status();
+            assert!(
+                status.is_client_error(),
+                "{uri} returned {status}, expected a 4xx"
+            );
+            assert_ne!(status, StatusCode::INTERNAL_SERVER_ERROR, "{uri}");
+            let content_type = response.headers().get(header::CONTENT_TYPE).unwrap();
+            assert!(
+                content_type.to_str().unwrap().starts_with("application/json"),
+                "{uri} did not return JSON"
+            );
+            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                value.as_object().unwrap().len(),
+                2,
+                "{uri} body was not exactly error+message"
+            );
+            let body: ApiErrorBody = serde_json::from_value(value).unwrap();
+            assert!(!body.error.is_empty(), "{uri} had an empty error code");
+            assert!(!body.message.is_empty(), "{uri} had an empty message");
+        }
     }
 
     #[tokio::test]

@@ -23,6 +23,37 @@ made. Distributions created without a deadline remain claimable indefinitely.
 
 **Testnet:** `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX`
 
+## Related reference pages
+
+- [Asset Token Contract](/docs/contracts/asset-token) — the token whose holders
+  receive dividends; `asset_token` must be its address, and balances/supply are
+  read from it at claim time.
+- [Registry Contract](/docs/contracts/registry) — resolves asset ids to token
+  addresses and backs the `/assets/:id/dividends` listing.
+- [API Reference](/docs/api) — the `/assets/:id/dividends` endpoint and related
+  read routes that surface distributions.
+- [Error Codes](/docs/reference/error-codes) — shared error-code conventions
+  used by the `ErrorCodeTable` below.
+
+## Glossary
+
+New to Soroban? These terms appear throughout this page:
+
+- **SAC (Stellar Asset Contract):** the Soroban-compatible wrapper that exposes a
+  classic Stellar asset (e.g. USDC) to smart contracts. Its `Address` is what you
+  pass as `payment_token` or `asset_token`.
+- **ScVal:** Soroban's typed value encoding used when calling contracts. In the
+  TypeScript example below, `nativeToScVal(...)` and `Address(...).toScVal()`
+  convert JS values into `ScVal`s.
+- **Footprint:** the set of ledger entries a transaction reads and writes. Soroban
+  requires the footprint to be declared up front; the SDK builds it for you when
+  you simulate and assemble a transaction.
+- **TTL (time-to-live):** how many ledgers a stored contract entry (e.g. a
+  `Distribution`) remains live before it must be extended. Reading or writing an
+  entry resets its TTL; expired entries must be restored before use.
+- **Passphrase:** the network identifier (e.g. `Test SDF Network ; September
+  2015`) that scopes signatures and addresses to a specific Stellar network.
+
 ## Data types
 
 `Distribution`:
@@ -180,37 +211,18 @@ import {
   Contract,
   Address,
   nativeToScVal,
-  scValToNative,
   TransactionBuilder,
   Networks,
-  rpc,
 } from "@stellar/stellar-sdk";
 
-const DIVIDEND = "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX";
-const server = new rpc.Server("https://soroban-testnet.stellar.org");
-const contract = new Contract(DIVIDEND);
-
-// 1. Create a distribution: 10,000 payment-token units (7 decimals), no deadline.
-//    `admin` must be the stored admin and must authorize the payment-token transfer.
-const createTx = new TransactionBuilder(adminAccount, {
-  fee: "100",
-  networkPassphrase: Networks.TESTNET,
-})
-  .addOperation(
-    contract.call(
-      "create_distribution",
-      new Address(admin).toScVal(),
-      new Address(assetToken).toScVal(),
-      new Address(paymentToken).toScVal(),
-      nativeToScVal(10_000_0000000n, { type: "i128" }), // 10,000 @ 7 decimals
-      nativeToScVal(null, { type: "option" }), // None = no deadline
-    ),
-  )
-  .setTimeout(30)
-  .build();
-
-const createResult = await server.sendTransaction(
-  await server.prepareTransaction(createTx),
+const dividend = new Contract("CAR4XY3C…2SYX");
+// issuer funds a 10,000-unit distribution in the payment token
+const create = dividend.call(
+  "create_distribution",
+  new Address(admin).toScVal(),
+  new Address(assetToken).toScVal(),
+  new Address(paymentToken).toScVal(),
+  nativeToScVal(10_000_0000000n, { type: "i128" }), // 10,000 @ 7 decimals
 );
 const distributionId = scValToNative(
   (await server.getTransaction(createResult.hash)).returnValue,
@@ -254,40 +266,15 @@ const claimable = scValToNative(
   ).result.retval,
 );
 
-// 4. Claim the holder's share (auth: holder).
-const claimTx = new TransactionBuilder(holderAccount, {
+// wrap the operation in a transaction, simulate to build the footprint,
+// then sign and submit. `Networks.TESTNET` is the testnet passphrase.
+const tx = new TransactionBuilder(account, {
   fee: "100",
   networkPassphrase: Networks.TESTNET,
 })
-  .addOperation(
-    contract.call(
-      "claim",
-      nativeToScVal(distributionId, { type: "u64" }),
-      new Address(holder).toScVal(),
-    ),
-  )
+  .addOperation(claim)
   .setTimeout(30)
   .build();
-await server.sendTransaction(await server.prepareTransaction(claimTx));
-
-// 5. Confirm the claim is recorded.
-const claimed = scValToNative(
-  await server.simulateTransaction(
-    new TransactionBuilder(holderAccount, {
-      fee: "100",
-      networkPassphrase: Networks.TESTNET,
-    })
-      .addOperation(
-        contract.call(
-          "has_claimed",
-          nativeToScVal(distributionId, { type: "u64" }),
-          new Address(holder).toScVal(),
-        ),
-      )
-      .setTimeout(30)
-      .build(),
-  ).result.retval,
-); // true
 ```
 
 <CalloutBox variant="info">
@@ -322,3 +309,13 @@ const claimed = scValToNative(
     { code: 11, name: "DeadlineNotPassed", cause: "reclaim was called before the distribution's deadline ledger.", remediation: "Wait until the deadline has elapsed before reclaiming." },
   ]}
 />
+
+## Security considerations
+
+- **Balances are read at claim time**, not at snapshot. A holder who acquires more
+  tokens after a distribution is created — but before claiming — claims on the
+  larger balance. Issuers should be aware of this when timing distributions, or
+  pause the token around distribution windows.
+- **Integer div
+
+/* … truncated 951 chars — edit only what you need near the top … */

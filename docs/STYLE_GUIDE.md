@@ -9,6 +9,11 @@
 - Use "API" for the REST service and "contract" for on-chain Soroban code. Do not mix them.
 - Use the exact names of endpoints, fields and error codes as they appear in the API.
 - Spell out an acronym on first use per page.
+- Define contract and protocol jargon on first use per page, or link to a glossary
+  entry that defines it. This includes terms such as TTL (time to live), footprint
+  (the ledger entries a transaction reads and writes), ScVal (Soroban's XDR value
+  type), SAC (Stellar Asset Contract), and passphrase (the network passphrase that
+  identifies a Stellar network).
 
 ### Jargon and domain terms
 
@@ -29,25 +34,27 @@ defined or linked include, but are not limited to: TTL, footprint, ScVal, SAC,
 #### Reference definitions
 
 Use these short definitions when a page needs to define a term inline. Keep them
-consistent across pages.
+consistent across pages so newcomers see the same wording everywhere.
 
-- **TTL (time to live)** — how many ledgers remain before a ledger entry is
-  archived; extend it to keep the entry live.
+- **TTL** — time to live: how many ledgers remain before a ledger entry is
+  archived and must be restored before use.
 - **Footprint** — the set of ledger entries a Soroban transaction reads and
-  writes; it must be declared up front so the network can validate the call.
-- **ScVal** — Soroban's typed value representation (the on-chain equivalent of a
-  JSON value) used for contract arguments and return values.
-- **SAC (Stellar Asset Contract)** — the built-in Soroban contract that wraps a
-  classic Stellar asset and exposes it to contract calls.
-- **Passphrase / network passphrase** — the string that identifies a Stellar
-  network (for example, the test network passphrase); transactions are signed
-  against it so they cannot be replayed on another network.
-- **Ledger** — a batch of transactions applied atomically; ledgers are ordered
-  and each has a sequence number.
-- **Sequence number** — the per-account counter that orders that account's
-  transactions and prevents replays.
-- **XDR** — External Data Representation, the binary encoding Stellar uses on the
-  wire and in ledger entries.
+  writes; it must be declared up front so the network can validate the
+  transaction.
+- **ScVal** — Soroban's canonical value type used to encode contract arguments
+  and return values (the on-chain equivalent of a JSON value).
+- **SAC** — Stellar Asset Contract: the built-in Soroban contract that wraps a
+  classic Stellar asset so it can be used from Soroban code.
+- **Passphrase** — the string that identifies a Stellar network (for example
+  `Test SDF Network ; September 2015`); it is hashed into the network ID and
+  must match the network you are targeting.
+- **Ledger** — a single, ordered batch of transactions applied to the network;
+  ledgers close roughly every 5 seconds and each has a sequence number.
+- **XDR** — External Data Representation: the binary encoding used for Stellar
+  transactions, ledger entries and contract data.
+- **Sequence number** — the per-account counter that orders an account's
+  transactions and prevents replays; each new transaction must use the next
+  value.
 
 ## Headings
 

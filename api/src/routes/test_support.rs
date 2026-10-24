@@ -72,6 +72,80 @@ pub(crate) async fn send(router: axum::Router, request: Request<Body>) -> Respon
     router.oneshot(request).await.expect("router call failed")
 }
 
+/// Assert that `router` sets an `ETag` on a plain `GET` and that replaying
+/// that `ETag` via `If-None-Match` yields `304 Not Modified`.
+///
+/// Returns the `ETag` value observed on the initial response so callers can
+/// make further assertions if needed.
+pub(crate) async fn assert_conditional_get(router: axum::Router, uri: &str) -> String {
+    let first = send(
+        router.clone(),
+        Request::builder()
+            .uri(uri)
+            .body(Body::empty())
+            .expect("build request"),
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK, "initial GET should succeed");
+    let etag = first
+        .headers()
+        .get(axum::http::header::ETAG)
+        .expect("response should set an ETag")
+        .to_str()
+        .expect("ETag should be valid ASCII")
+        .to_string();
+
+    let second = send(
+        router,
+        Request::builder()
+            .uri(uri)
+            .header(axum::http::header::IF_NONE_MATCH, &etag)
+            .body(Body::empty())
+            .expect("build request"),
+    )
+    .await;
+    assert_eq!(
+        second.status(),
+        StatusCode::NOT_MODIFIED,
+        "matching If-None-Match should return 304"
+    );
+
+    etag
+}
+
+/// Assert that `router` rejects a request with a clear 4xx status (never a
+/// 500 or panic) and that the response body uses the shared error shape.
+///
+/// The shared error body is a JSON object with an `error` field (see
+/// `crate::routes::error_body`). Callers pass the malformed `uri` to exercise
+/// query-parameter parsing on a given route.
+pub(crate) async fn assert_malformed_query_rejected(router: axum::Router, uri: &str) {
+    let response = send(
+        router,
+        Request::builder()
+            .uri(uri)
+            .body(Body::empty())
+            .expect("build request"),
+    )
+    .await;
+
+    let status = response.status();
+    assert!(
+        status.is_client_error(),
+        "malformed query `{uri}` should yield a 4xx, got {status}"
+    );
+    assert_ne!(status, StatusCode::INTERNAL_SERVER_ERROR, "must not be a 500");
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read body");
+    let body: serde_json::Value = serde_json::from_slice(&bytes).expect("error body should be JSON");
+    assert!(
+        body.get("error").is_some(),
+        "error body should use the shared shape with an `error` field, got {body}"
+    );
+}
+
 /// Assert `response` carries the shared error body shape and return the
 /// parsed JSON so callers can inspect the message.
 ///
