@@ -9,6 +9,11 @@ export const metadata = {
 
 <LastReviewed date={metadata.lastReviewed} />
 
+This page is the single canonical reference for the error response shape of the
+Stellar RWA API. Every other page links here instead of restating the shape.
+
+## The shape
+
 Every error response, from any route or from the server itself, has the same
 JSON shape and an `application/json` content type:
 
@@ -27,11 +32,22 @@ JSON shape and an `application/json` content type:
 The body contains exactly these two fields. Headers such as `Retry-After` are
 preserved on the response.
 
+The shape is enforced centrally (`api/src/routes/error_body.rs`): every error
+path is normalized to it, including
+
+- router-level `404` (unknown route) and `405` (method not allowed) responses,
+- query-string and path-parameter rejections (`400`),
+- request timeouts (`408`) and request-body size limits (`413`),
+- the per-IP rate limiter (`429`),
+- `/metrics` bearer-token auth failures (`401`),
+- unexpected server errors (`500`) and unavailability (`503`).
+
 ## Error codes
 
 | HTTP status | `error` | When |
 |-------------|---------|------|
 | `400` | `bad_request` | Malformed query string or path parameter |
+| `400` | `invalid_parameter` | A `?fields=` value names an unknown field; `message` lists the available fields |
 | `401` | `unauthorized` | `/metrics` called without a valid bearer token |
 | `404` | `not_found` | Unknown asset, distribution or route |
 | `405` | `method_not_allowed` | Any method other than `GET` |
@@ -44,9 +60,33 @@ preserved on the response.
 `GET /health` is a status report rather than an error: it returns its own JSON
 status document, with a `503` status while the snapshot is stale.
 
+## Invalid field selection
+
+When a `?fields=` value names a field the endpoint does not expose, the
+response is a `400` with the `invalid_parameter` code. The `message` lists the
+fields that are available, so a client can correct the request:
+
+```json
+{
+  "error": "invalid_parameter",
+  "message": "unknown field \"symbl\"; available fields: id, symbol, name, issuer, status"
+}
+```
+
+See [Field Selection](/docs/api/field-selection) for the full syntax and
+per-endpoint examples.
+
+## Request IDs
+
+`request_id` is **not** part of the error body. The request identifier is
+returned in the `X-Request-Id` response header only, so the body stays exactly
+two fields. See [Request IDs](/docs/api/request-ids) for how to read and use it.
+
 ## What to read next
 
 - [API Overview](/docs/api/overview) — endpoint list, conventions, and the error-body format.
+- [Field Selection](/docs/api/field-selection) — partial responses and the `invalid_parameter` error.
+- [Request IDs](/docs/api/request-ids) — the `X-Request-Id` header, which is not part of the error body.
 - [API · Health & Indexer Lag](/docs/api/health) — the `503` condition explained.
 - [Rate Limits & Caching](/docs/api/rate-limits) — the `429` response and backoff guidance.
 - [Integration Guide](/docs/integration) — how to handle errors in TypeScript client code.

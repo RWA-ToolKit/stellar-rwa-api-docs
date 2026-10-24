@@ -141,4 +141,28 @@ mod tests {
             );
         }
     }
+
+    // #580 – the dividends docs page ships a runnable worked example. This
+    // test pins the exact response shape the example relies on (a JSON array
+    // of distributions, newest ledger first, with the documented fields) so
+    // the page cannot silently drift from the live contract.
+    #[tokio::test]
+    async fn worked_example_response_shape_is_stable() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        snap.dividends.insert(
+            1,
+            vec![distribution(10, 100), distribution(11, 300)],
+        );
+        let state = state_with(snap);
+
+        let dists = list(State(state), Path(1)).await.expect("asset exists").0;
+
+        // The example documents a JSON array ordered newest-first.
+        assert_eq!(dists.len(), 2);
+        assert_eq!(dists[0].id, 11);
+        assert_eq!(dists[0].created_at_ledger, 300);
+        assert_eq!(dists[1].id, 10);
+        assert_eq!(dists[1].created_at_ledger, 100);
+    }
 }

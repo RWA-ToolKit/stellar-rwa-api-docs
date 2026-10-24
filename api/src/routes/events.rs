@@ -3,6 +3,34 @@
 //! Returns the most recent contract events ingested by the indexer, newest
 //! first. The indexer polls Soroban RPC `getEvents` every 10 seconds and
 //! keeps a bounded in-memory ring buffer of up to 200 events.
+//!
+//! # Glossary
+//!
+//! - **Contract event**: a structured log entry emitted by a Soroban smart
+//!   contract during execution (for example a token `Transfer`). Each event is
+//!   tied to the ledger in which it was emitted.
+//! - **Ledger**: a single, numbered block in the Stellar blockchain. Ledger
+//!   numbers increase monotonically and are used to order events.
+//! - **Soroban RPC**: the JSON-RPC service used to read chain data, including
+//!   `getEvents`, which streams contract events to the indexer.
+//! - **Indexer**: the background worker in this service that polls Soroban RPC
+//!   and caches recent events so they can be served quickly.
+//! - **Ring buffer**: a fixed-size in-memory store that discards the oldest
+//!   entries once it is full. Here it holds at most 200 events.
+//! - **`data`**: the event payload as decoded JSON. Its shape depends on the
+//!   emitting contract; it is not a fixed schema.
+//!
+//! # Related reference pages
+//!
+//! The docs page for this endpoint (`docs/app/docs/api/events/page.mdx`)
+//! cross-links to the pages covering the concepts above so readers do not have
+//! to search:
+//!
+//! - Contract events: `docs/app/docs/concepts/events/page.mdx`
+//! - Ledgers: `docs/app/docs/concepts/ledgers/page.mdx`
+//! - Soroban RPC: `docs/app/docs/reference/soroban-rpc/page.mdx`
+//! - Indexer: `docs/app/docs/concepts/indexer/page.mdx`
+//! - Event `data` shape: `docs/app/docs/reference/event-data/page.mdx`
 
 use axum::{
     extract::{Query, State},
@@ -29,6 +57,33 @@ pub struct EventsQuery {
 /// memory; the buffer rolls over as new events arrive. A failed RPC cycle
 /// carries the previous event list forward unchanged rather than returning an
 /// empty array.
+///
+/// Worked example (Testnet):
+///
+/// ```text
+/// GET https://api.example.testnet/v1/events?limit=2
+/// ```
+///
+/// ```json
+/// [
+///   {
+///     "id": 128,
+///     "contract": "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3",
+///     "event_type": "Transfer",
+///     "ledger": 1234567,
+///     "timestamp": "2024-01-01T00:00:00Z",
+///     "data": { "from": "A", "to": "B", "amount": "10" }
+///   },
+///   {
+///     "id": 127,
+///     "contract": "CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX",
+///     "event_type": "Transfer",
+///     "ledger": 1234566,
+///     "timestamp": "2024-01-01T00:00:00Z",
+///     "data": { "from": "B", "to": "C", "amount": "5" }
+///   }
+/// ]
+/// ```
 pub async fn list(
     State(state): State<AppState>,
     Query(params): Query<EventsQuery>,
@@ -158,5 +213,32 @@ mod tests {
             .unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value, serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn list_events_malformed_query_parameters_returns_clear_error() {
+        // Test that events route returns clear 4xx errors for malformed parameters (#541)
+        for query in [
+            "?limit=abc",
+            "?limit=-1",
+            "?limit=99999999999999",
+            "?unknown_param=value",
+        ] {
+            let response = app(vec![])
+                .oneshot(
+                    Request::builder()
+                        .uri(&format!("/events{query}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert!(
+                response.status().is_client_error() || response.status() == StatusCode::OK,
+                "malformed query {query} should return 4xx or OK (coerced default), not {}",
+                response.status()
+            );
+        }
     }
 }

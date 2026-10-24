@@ -11,9 +11,27 @@ export const metadata = {
 
 <ApiEndpoint method="GET" path="/holders/:address/position" description="Positions and claimable dividends for one address across all assets." />
 
+Returns a holder's positions and claimable dividends across every asset in a single
+request. Use it to render a portfolio view without issuing one request per asset.
+
+## Request
+
+`GET /v1/holders/:address/position`
+
+**Path parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `address` | string | Yes | Stellar account address of the holder |
+
+There are no query parameters. The response always covers every asset in which the
+address holds a positive balance.
+
 ```bash
 curl "$API_BASE_URL/v1/holders/$ADDRESS/position"
 ```
+
+### Example response
 
 ```json
 {
@@ -36,24 +54,8 @@ curl "$API_BASE_URL/v1/holders/$ADDRESS/position"
 }
 ```
 
-**Response schema:**
+## Response
 
-| Field | Type | Unit / Description |
-|---|---|---|
-| `address` | string | Stellar account address |
-| `asset_count` | number | Count of assets held with a positive balance |
-| `total_value_usd` | number | Total estimated value across all held positions in **USD dollars** (`f64`) |
-| `positions` | array | Array of asset position objects |
-| `positions[].asset_id` | number | Registry asset id |
-| `positions[].asset_name` | string | Name of the asset |
-| `positions[].symbol` | string | Token symbol |
-| `positions[].balance` | string | Holder's token balance in **base units** (`i128` string in the asset's `decimals` base). Divide by `10 ** decimals` to obtain the token amount. |
-| `positions[].share_percent` | number | Share of the asset's total supply owned, 0–100 with 2 decimal places (`f64`) |
-| `positions[].value_usd` | number | Estimated position value in **USD dollars** (`f64`), calculated from `share_percent` of the asset's valuation |
-| `positions[].claimable` | array | Unclaimed pro-rata shares across open dividend distributions |
-| `positions[].claimable[].distribution_id` | number | Distribution identifier |
-| `positions[].claimable[].payment_token` | string | Contract address of the token used to pay the dividend |
-| `positions[].claimable[].amount` | string | Estimated claimable dividend in **payment-token base units** (`i128` string). Divide by `10 ** payment_decimals` (e.g. 7 for SAC USDC). |
 **Response schema** (`HolderPosition`):
 
 | Field | Type | Unit | Nullable | Description |
@@ -87,7 +89,45 @@ curl "$API_BASE_URL/v1/holders/$ADDRESS/position"
 - `claimable` lists each open distribution with the holder's pro-rata share
   (`balance / total_supply`) of the unclaimed pool, in payment-token base units.
   It is an estimate from indexed data, not an on-chain claim quote.
-- An address with no holdings returns an empty `positions` array.
+- An address with no holdings returns **HTTP 200** with a well-formed body: `asset_count` is `0`, `total_value_usd` is `0`, and `positions` is `[]` — an empty array, never `null` and never an error. Clients can rely on this shape and iterate `positions` without a null check.
+
+## Errors
+
+Error responses use the shared two-field error body (`error` and `message`) defined in `error_body.rs`. See [API · Errors](/docs/api/errors) for the canonical shape and the full list of codes.
+
+| Status | `error` | When |
+|---|---|---|
+| `400` | `bad_request` | The `:address` path segment is not a valid Stellar account address |
+| `429` | `too_many_requests` | The rate limit for this endpoint was exceeded |
+
+```json
+{
+  "error": "bad_request",
+  "message": "invalid Stellar account address"
+}
+```
+
+### Empty positions
+
+An address with no holdings returns `asset_count: 0`, `total_value_usd: 0`, and an
+empty `positions` array:
+
+```json
+{
+  "address": "G...",
+  "asset_count": 0,
+  "total_value_usd": 0.0,
+  "positions": []
+}
+```
+
+<CalloutBox variant="note" title="Claimable amounts are estimates">
+`claimable` amounts are computed from indexed data at the time of the request. They
+are not an on-chain claim quote: balances, distribution state, or the unclaimed pool
+may change between this response and a subsequent `claim` call. For an exact amount,
+call the dividend contract's `claimable` function live — see the
+[Integration Guide](/docs/integration).
+</CalloutBox>
 
 <CalloutBox variant="tip" title="Position unit conversions">
 Because asset tokens and payment tokens may use different decimal bases, always scale each amount using its corresponding token decimals:

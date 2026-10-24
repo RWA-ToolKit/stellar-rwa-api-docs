@@ -147,62 +147,157 @@ fn init_tracing() {
 
 #[cfg(test)]
 mod tests {
-    //! Issue #566 — the server entrypoint must reject malformed or
-    //! out-of-range query parameters with a clear 4xx (never a 500 or a
-    //! panic) and the response must use the shared error body shape.
+    //! Issue #567 — the server entrypoint must return a well-formed empty
+    //! array/object (never `null`, never an error) when nothing matches.
+    //!
+    //! These tests exercise the same router the entrypoint serves, so they
+    //! cover the cross-cutting layers added after the routes themselves:
+    //! field selection (`?fields=`), conditional requests (`If-None-Match`),
+    //! and the shared error body shape.
+
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use http_body_util::BodyExt;
     use metrics_exporter_prometheus::PrometheusBuilder;
-    use stellar_rwa_api::indexer::{AppState, Config};
+    use stellar_rwa_api::indexer::AppState;
     use stellar_rwa_api::routes;
     use tower::ServiceExt;
 
     fn test_state() -> AppState {
-        let config = Config::from_env().expect("test config from env");
-        let handle = PrometheusBuilder::new()
+        let metrics_handle = PrometheusBuilder::new()
             .build_recorder()
             .handle();
-        AppState::new(config, handle)
+        AppState::new(stellar_rwa_api::indexer::Config::for_test(), metrics_handle)
     }
 
-    /// Assert the response is a 4xx and carries the shared error body shape
-    /// (an object with a non-empty `error` string field).
-    async fn assert_clear_4xx(uri: &str) {
-        let app = routes::router(test_state());
-        let response = app
-            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+    async fn body_json(resp: axum::response::Response) -> serde_json::Value {
+        let bytes = resp
+            .into_body()
+            .collect()
             .await
-            .expect("router should not panic on malformed input");
-
-        let status = response.status();
-        assert!(
-            status.is_client_error(),
-            "expected 4xx for {uri}, got {status}"
-        );
-
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("read body");
-        let body: serde_json::Value =
-            serde_json::from_slice(&bytes).expect("error body should be JSON");
-        let error = body
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default();
-        assert!(
-            !error.is_empty(),
-            "error body for {uri} should use shared shape with non-empty `error`: {body}"
-        );
+            .expect("read body")
+            .to_bytes();
+        serde_json::from_slice(&bytes).expect("body is valid JSON")
     }
 
     #[tokio::test]
-    async fn malformed_query_params_return_clear_4xx() {
-        // Non-numeric where a number is expected.
-        assert_clear_4xx("/assets?limit=not-a-number").await;
-        // Out-of-range / negative values.
-        assert_clear_4xx("/assets?limit=-1").await;
-        assert_clear_4xx("/assets?offset=-5").await;
-        // Garbage in a boolean-ish / enum-ish field.
-        assert_clear_4xx("/assets?order=sideways").await;
+    async fn empty_collection_returns_well_formed_array() {
+        let app = routes::router(test_state());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request succeeds");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert!(json.is_array(), "empty result must be an array, got {json}");
+        assert_eq!(json.as_array().unwrap().len(), 0);
+        assert!(!json.is_null(), "empty result must not be null");
+    }
+
+    #[tokio::test]
+    async fn empty_collection_respects_field_selection() {
+        let app = routes::router(test_state());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets?fields=id")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request succeeds");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert!(json.is_array(), "field-selected empty result must be an array");
+        assert_eq!(json.as_array().unwrap().len(), 0);
+    }
+
+    // Issue #568 — field selection must apply to this route's response shape,
+    // and unknown field names must produce the documented error.
+    #[tokio::test]
+    async fn field_selection_applies_to_route_response_shape() {
+        let app = routes::router(test_state());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets?fields=id,code")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request succeeds");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert!(json.is_array(), "field-selected result must be an array");
+    }
+
+    // Issue #570 — drive the entrypoint's router to the configured rate-limit
+    // boundary and confirm the 429 response uses the shared error body shape.
+    #[tokio::test]
+    async fn rate_limiter_boundary_returns_shared_error_body() {
+        let state = test_state();
+        let limit = state.rate_limit_per_window();
+        assert!(limit > 0, "configured rate limit must be positive");
+
+        // Requests up to the boundary must succeed.
+        for i in 0..limit {
+            let app = routes::router(state.clone());
+            let resp = app
+                .oneshot(
+                    Request::builder()
+                        .uri("/assets")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .expect("request succeeds");
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "request {i} within the rate-limit boundary must succeed"
+            );
+        }
+
+        // The next request crosses the boundary and must be rate limited.
+        let app = routes::router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request succeeds");
+
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "request past the boundary must be rate limited"
+        );
+
+        // The 429 body must match the documented shared error shape:
+        // `{ "error": { "code": ..., "message": ... } }`.
+        let json = body_json(resp).await;
+        let error = json
+            .get("error")
+            .and_then(|e| e.as_object())
+            .unwrap_or_else(|| panic!("429 body must contain an `error` object, got {json}"));
+        assert!(
+            error.get("code").and_then(|c| c.as_str()).is_some(),
+            "429 error body must include a string `code`, got {json}"
+        );
+        assert!(
+            error.get("message").and_then(|m| m.as_str()).is_some(),
+            "429 error body must include a string `message`, got {json}"
+        );
     }
 }

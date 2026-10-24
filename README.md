@@ -167,3 +167,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 Apache-2.0.
+
+## Handsoff notes
+
+<!-- handsoff-issue-562 -->
+- #562: indexer: test empty result set formatting

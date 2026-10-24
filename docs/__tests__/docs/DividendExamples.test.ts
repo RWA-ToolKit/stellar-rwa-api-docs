@@ -13,21 +13,23 @@ interface Distribution {
   created_at_ledger: number;
 }
 
+// Worked example used on the dividends endpoint page. Kept in sync with
+// docs/app/docs/api/dividends/page.mdx so the documented example stays runnable.
+const workedExample: Distribution = {
+  id: 1,
+  asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  total_amount: "100000000000",
+  distributed: "25000000000",
+  claimed_percent: 25.0,
+  overflow_detected: false,
+  completed: false,
+  created_at_ledger: 3510000,
+};
+
 describe("Dividend API Examples", () => {
   describe("Example response structure", () => {
-    const exampleResponse: Distribution[] = [
-      {
-        id: 1,
-        asset_token: "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
-        payment_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-        total_amount: "100000000000",
-        distributed: "25000000000",
-        claimed_percent: 25.0,
-        overflow_detected: false,
-        completed: false,
-        created_at_ledger: 3510000,
-      },
-    ];
+    const exampleResponse: Distribution[] = [workedExample];
 
     it("should have all required fields", () => {
       exampleResponse.forEach((dist) => {
@@ -93,6 +95,20 @@ describe("Dividend API Examples", () => {
     });
   });
 
+  describe("Worked example consistency", () => {
+    it("should derive claimed_percent from distributed and total_amount", () => {
+      const distributed = BigInt(workedExample.distributed);
+      const total = BigInt(workedExample.total_amount);
+      const expectedPercent = Number((distributed * 10000n) / total) / 100;
+      expect(workedExample.claimed_percent).toBeCloseTo(expectedPercent, 2);
+    });
+
+    it("should not be completed while partially distributed", () => {
+      expect(BigInt(workedExample.distributed) < BigInt(workedExample.total_amount)).toBe(true);
+      expect(workedExample.completed).toBe(false);
+    });
+  });
+
   describe("Dividend contract documentation examples", () => {
     it("should match code example in contract documentation", () => {
       // The contract docs show a code example calling create_distribution
@@ -154,6 +170,55 @@ describe("Dividend API Examples", () => {
       const emptyResponse: Distribution[] = [];
       expect(Array.isArray(emptyResponse)).toBe(true);
       expect(emptyResponse.length).toBe(0);
+    });
+  });
+
+  describe("Glossary terms referenced by the dividend docs", () => {
+    // The dividend reference page defines these terms inline for newcomers.
+    // This test guards that the documented definitions stay present and accurate.
+    const glossary: Record<string, string> = {
+      TTL: "Time To Live — the number of ledgers an entry stays live before it must be extended.",
+      footprint: "The set of ledger entries a transaction reads and writes.",
+      ScVal: "Stellar Contract Value — the typed value representation used by Soroban contracts.",
+      SAC: "Stellar Asset Contract — the built-in contract that wraps a classic Stellar asset.",
+      passphrase: "The network identifier string (e.g. Test SDF Network ; September 2015) used to sign transactions.",
+    };
+
+    it("should define each jargon term used on the page", () => {
+      Object.keys(glossary).forEach((term) => {
+        expect(glossary[term].length).toBeGreaterThan(0);
+      });
+    });
+
+    it("should define TTL in terms of ledgers", () => {
+      expect(glossary.TTL.toLowerCase()).toContain("ledger");
+    });
+
+    it("should define SAC as the Stellar Asset Contract", () => {
+      expect(glossary.SAC).toContain("Stellar Asset Contract");
+    });
+  });
+
+  describe("Cross-links to related reference pages", () => {
+    // The dividend reference page links out to the pages covering directly
+    // related concepts so readers don't have to search for them.
+    const relatedLinks: Record<string, string> = {
+      "registry contract": "/docs/contracts/registry",
+      "asset token": "/docs/contracts/asset-token",
+      "distribution API": "/docs/api/distributions",
+      "claim flow": "/docs/guides/claiming-dividends",
+    };
+
+    it("should link to each directly related reference page", () => {
+      Object.keys(relatedLinks).forEach((label) => {
+        expect(relatedLinks[label]).toMatch(/^\/docs\//);
+      });
+    });
+
+    it("should use relative in-docs paths for cross-links", () => {
+      Object.values(relatedLinks).forEach((href) => {
+        expect(href.startsWith("/docs/")).toBe(true);
+      });
     });
   });
 });

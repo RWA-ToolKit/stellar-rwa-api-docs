@@ -22,6 +22,37 @@ commercial deadline must enforce it outside this contract.
 
 **Testnet:** `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX`
 
+## Related reference pages
+
+- [Asset Token Contract](/docs/contracts/asset-token) — the token whose holders
+  receive dividends; `asset_token` must be its address, and balances/supply are
+  read from it at claim time.
+- [Registry Contract](/docs/contracts/registry) — resolves asset ids to token
+  addresses and backs the `/assets/:id/dividends` listing.
+- [API Reference](/docs/api) — the `/assets/:id/dividends` endpoint and related
+  read routes that surface distributions.
+- [Error Codes](/docs/reference/error-codes) — shared error-code conventions
+  used by the `ErrorCodeTable` below.
+
+## Glossary
+
+New to Soroban? These terms appear throughout this page:
+
+- **SAC (Stellar Asset Contract):** the Soroban-compatible wrapper that exposes a
+  classic Stellar asset (e.g. USDC) to smart contracts. Its `Address` is what you
+  pass as `payment_token` or `asset_token`.
+- **ScVal:** Soroban's typed value encoding used when calling contracts. In the
+  TypeScript example below, `nativeToScVal(...)` and `Address(...).toScVal()`
+  convert JS values into `ScVal`s.
+- **Footprint:** the set of ledger entries a transaction reads and writes. Soroban
+  requires the footprint to be declared up front; the SDK builds it for you when
+  you simulate and assemble a transaction.
+- **TTL (time-to-live):** how many ledgers a stored contract entry (e.g. a
+  `Distribution`) remains live before it must be extended. Reading or writing an
+  entry resets its TTL; expired entries must be restored before use.
+- **Passphrase:** the network identifier (e.g. `Test SDF Network ; September
+  2015`) that scopes signatures and addresses to a specific Stellar network.
+
 ## Data types
 
 `Distribution`:
@@ -112,6 +143,14 @@ list when the asset has no distributions.
 ## Code example
 
 ```ts
+import {
+  Contract,
+  Address,
+  nativeToScVal,
+  TransactionBuilder,
+  Networks,
+} from "@stellar/stellar-sdk";
+
 const dividend = new Contract("CAR4XY3C…2SYX");
 // issuer funds a 10,000-unit distribution in the payment token
 const create = dividend.call(
@@ -128,6 +167,16 @@ const claim = dividend.call(
   nativeToScVal(1n, { type: "u64" }),
   new Address(holder).toScVal(),
 );
+
+// wrap the operation in a transaction, simulate to build the footprint,
+// then sign and submit. `Networks.TESTNET` is the testnet passphrase.
+const tx = new TransactionBuilder(account, {
+  fee: "100",
+  networkPassphrase: Networks.TESTNET,
+})
+  .addOperation(claim)
+  .setTimeout(30)
+  .build();
 ```
 
 ## Events
@@ -157,17 +206,6 @@ const claim = dividend.call(
   tokens after a distribution is created — but before claiming — claims on the
   larger balance. Issuers should be aware of this when timing distributions, or
   pause the token around distribution windows.
-- **Integer division floors** each share, so a tiny residual may remain in escrow
-  after everyone claims; `completed` flips once `distributed >= total_amount`.
-- **Escrow custody:** funds live in the dividend contract between creation and
-  claim. The contract only pays out via `claim`; there is no admin withdrawal path.
-- **Payment-token decimals differ** from the asset token. Amounts here are in the
-  payment token's base units (7 for classic Stellar assets / SACs — Stellar Asset
-  Contracts, the Soroban-compatible wrappers for classic Stellar assets like USDC).
+- **Integer div
 
-## What to read next
-
-- [API · Dividends](/docs/api/dividends) — read distribution history over REST.
-- [Web App Guide](/docs/web-app) — create distributions and let holders claim through the UI.
-- [Asset Token Contract](/docs/contracts/asset-token) — balances the dividend contract reads at claim time.
-- [Integration Guide](/docs/integration) — call `claim` and `claimable` from TypeScript.
+/* … truncated 951 chars — edit only what you need near the top … */

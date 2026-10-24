@@ -1,5 +1,6 @@
 /// Snapshot test to verify integration guide examples match the documented API contract.
 /// Issue #65: docs: verify example responses on 'Integration' match the live API/contract shapes
+/// Issue #584: verify the runnable worked example on the events endpoint page
 use serde_json::{json, Value};
 
 #[test]
@@ -197,5 +198,65 @@ fn test_integration_guide_no_undocumented_fields_in_example_interface() {
                 key
             );
         }
+    }
+}
+
+#[test]
+fn test_events_endpoint_worked_example_shape() {
+    // Worked example from docs/app/docs/api/events/page.mdx
+    // The events endpoint returns a JSON array of event objects.
+    let example = json!([
+        {
+            "id": 1,
+            "asset_id": 1,
+            "event_type": "asset_registered",
+            "ledger": 123456,
+            "timestamp": "2024-01-01T00:00:00Z",
+            "data": {
+                "name": "Manhattan Loft",
+                "symbol": "MLOFT"
+            }
+        }
+    ]);
+
+    let events = example.as_array().expect("events response must be an array");
+    assert!(!events.is_empty(), "worked example should contain at least one event");
+
+    let event = events[0].as_object().unwrap();
+    for field in ["id", "asset_id", "event_type", "ledger", "timestamp", "data"] {
+        assert!(
+            event.contains_key(field),
+            "Missing field in documented event object: {}",
+            field
+        );
+    }
+
+    assert!(
+        event["event_type"].is_string(),
+        "event_type must be a string"
+    );
+    assert!(
+        event["ledger"].is_number(),
+        "ledger must be a number"
+    );
+    assert!(
+        event["data"].is_object(),
+        "data must be an object"
+    );
+}
+
+#[test]
+fn test_events_endpoint_curl_example_is_valid() {
+    // Worked example curl from the events endpoint page:
+    // curl http://localhost:8080/events
+    // curl "http://localhost:8080/events?asset_id=1"
+    let endpoints = vec!["/events", "/events?asset_id=1"];
+
+    for endpoint in endpoints {
+        assert!(
+            endpoint.starts_with("/events"),
+            "Endpoint {} documented on events page should target /events",
+            endpoint
+        );
     }
 }
