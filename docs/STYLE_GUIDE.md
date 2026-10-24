@@ -9,6 +9,11 @@
 - Use "API" for the REST service and "contract" for on-chain Soroban code. Do not mix them.
 - Use the exact names of endpoints, fields and error codes as they appear in the API.
 - Spell out an acronym on first use per page.
+- Define contract and protocol jargon on first use per page, or link to a glossary
+  entry that defines it. This includes terms such as TTL (time to live), footprint
+  (the ledger entries a transaction reads and writes), ScVal (Soroban's XDR value
+  type), SAC (Stellar Asset Contract), and passphrase (the network passphrase that
+  identifies a Stellar network).
 
 ### Jargon and domain terms
 
