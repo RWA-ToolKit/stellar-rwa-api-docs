@@ -112,3 +112,66 @@ async fn testnet_rpc_reports_recent_ledger() {
         "testnet drift: ledger sequence {sequence} from {rpc_url} looks implausibly low for testnet"
     );
 }
+
+/// Verifies the worked example shown on the getting-started page: the
+/// `getHealth` + `getLatestLedger` JSON-RPC calls the docs tell readers to
+/// run against the current Testnet deployment actually succeed and return
+/// the shapes the page documents. This keeps the getting-started example
+/// honest against the live network instead of leaving it as prose.
+#[tokio::test]
+#[ignore = "opt-in: hits a live testnet RPC endpoint; set RUN_TESTNET_TESTS=1"]
+async fn getting_started_example_works_on_testnet() {
+    let Some(rpc_url) = testnet_rpc_url() else {
+        eprintln!("skipping getting_started_example_works_on_testnet: RUN_TESTNET_TESTS not set to \"1\"");
+        return;
+    };
+
+    let client = reqwest::Client::new();
+
+    // Step 1 from the getting-started page: confirm the RPC is reachable.
+    let health: serde_json::Value = client
+        .post(&rpc_url)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getHealth",
+            "params": {}
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|e| panic!("getting-started example: getHealth to {rpc_url} failed: {e}"))
+        .json()
+        .await
+        .expect("getting-started example: getHealth response was not valid JSON");
+
+    assert_eq!(
+        health["result"]["status"], "healthy",
+        "getting-started example: getHealth did not report healthy: {health}"
+    );
+
+    // Step 2 from the getting-started page: read the latest ledger so the
+    // example produces a concrete, verifiable value.
+    let ledger: serde_json::Value = client
+        .post(&rpc_url)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "getLatestLedger",
+            "params": {}
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|e| panic!("getting-started example: getLatestLedger to {rpc_url} failed: {e}"))
+        .json()
+        .await
+        .expect("getting-started example: getLatestLedger response was not valid JSON");
+
+    let sequence = ledger["result"]["sequence"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("getting-started example: getLatestLedger missing sequence: {ledger}"));
+
+    assert!(
+        sequence > 1_000_000,
+        "getting-started example: ledger sequence {sequence} from {rpc_url} looks implausibly low"
+    );
+}

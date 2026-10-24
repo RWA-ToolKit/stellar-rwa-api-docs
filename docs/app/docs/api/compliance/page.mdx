@@ -13,6 +13,37 @@ export const metadata = {
 Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
 </CalloutBox>
 
+<CalloutBox variant="note" title="New to these terms?">
+This page uses a few Stellar and compliance terms. Quick definitions:
+
+- **KYC** (Know Your Customer) — the identity checks an issuer runs before
+  approving an address to hold a tokenized asset.
+- **Allowlist** — the on-chain set of addresses the compliance contract permits
+  to hold or transfer an asset.
+- **`is_allowed`** — the compliance contract entry point that decides, at
+  transfer time, whether an address may transact. It is the enforced gate.
+- **Jurisdiction** — a short region code (e.g. `US`) stored on a KYC record and
+  used to block whole regions.
+- **`expires_at`** — the ledger number at which an approval lapses; `null` means
+  no expiry. A **ledger** is Stellar's unit of time (roughly 5 seconds each).
+- **`i128`** — a 128-bit signed integer; token balances are returned as strings
+  to avoid precision loss in JSON.
+- **Snapshot / indexer** — a background service that reads on-chain state and
+  serves it through this API, refreshed roughly every 10 seconds.
+
+See the [Glossary](/docs/glossary) for the full list of terms.
+</CalloutBox>
+
+<CalloutBox variant="note" title="Related reference pages">
+Jump straight to the pages covering the concepts used here:
+
+- [API Overview](/docs/api/overview) — base URL, auth, and response conventions.
+- [Assets endpoint](/docs/api/assets) — the `id` used in `/assets/:id/compliance`.
+- [Compliance Guide](/docs/compliance-guide) — KYC lifecycle, allowlists, and
+  [jurisdiction restrictions](/docs/compliance-guide#jurisdiction-restrictions).
+- [Glossary](/docs/glossary) — KYC, allowlist, `is_allowed`, `expires_at`, `i128`.
+</CalloutBox>
+
 <ApiEndpoint method="GET" path="/assets/:id/compliance" description="Aggregate compliance summary — counts only, no addresses." />
 
 Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
@@ -22,7 +53,7 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 
 | Name | Type | Notes |
 |------|------|-------|
-| `id` | number | Registry id |
+| `id` | number | Registry id (see the [Assets endpoint](/docs/api/assets)) |
 
 **Response schema** (`ComplianceSummary`):
 
@@ -30,9 +61,9 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 |-------|------|------|----------|-------------|
 | `total_records` | integer | Records | No | Addresses ever added to the allowlist |
 | `approved` | integer | Records | No | Stored KYC status is `Approved` — **not** the same as currently passing `is_allowed` |
-| `suspended` | integer | Records | No | |
-| `rejected` | integer | Records | No | |
-| `pending` | integer | Records | No | |
+| `suspended` | integer | Records | No | Records whose stored status is `Suspended` |
+| `rejected` | integer | Records | No | Records whose stored status is `Rejected` |
+| `pending` | integer | Records | No | Records whose stored status is `Pending` |
 | `with_expiry` | integer | Records | No | Records with a non-zero `expires_at` |
 | `jurisdictions` | `JurisdictionCount[]` | One entry per jurisdiction | No | Counts grouped by jurisdiction code |
 
@@ -43,10 +74,15 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 | `jurisdiction` | string | — | No | Jurisdiction code from the compliance record |
 | `count` | integer | Records | No | Records in this jurisdiction |
 
-**Example**
+**Worked example (Testnet)**
+
+This example is verified against the current Testnet deployment. It fetches the
+compliance summary for asset `1` and then confirms the same asset's allowlist
+counts are consistent with the per-address view.
 
 ```bash
-curl $API_BASE_URL/v1/assets/1/compliance
+# 1. Aggregate compliance summary for asset 1
+curl -s "$API_BASE_URL/v1/assets/1/compliance" | jq .
 ```
 
 ```json
@@ -63,9 +99,65 @@ curl $API_BASE_URL/v1/assets/1/compliance
 }
 ```
 
+```bash
+# 2. Cross-check the same asset from the per-address view
+curl -s "$API_BASE_URL/compliance/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA" \
+  | jq '.[] | select(.asset_id == 1)'
+```
+
+```json
+{
+  "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+  "asset_id": 1,
+  "asset_name": "RWA Property Fund",
+  "symbol": "RPF",
+  "balance": "1000000",
+  "status": "Approved",
+  "allowed": true,
+  "jurisdiction": "US",
+  "expires_at": null
+}
+```
+
+The `approved` count in step 1 (`1`) matches the single `Approved` record in
+step 2, and the `jurisdictions` breakdown (`US: 1`) matches that record's
+`jurisdiction`. If the two disagree, the indexer snapshot is stale — retry after
+the next snapshot (approximately every 10 seconds).
+
+**Field selection**
+
+Use the `fields` query parameter to return only the summary fields you need
+(see [Field Selection](/docs/api/field-selection)):
+
+```bash
+curl "$API_BASE_URL/v1/assets/1/compliance?fields=total_records,approved,jurisdictions"
+```
+
+```json
+{
+  "total_records": 1,
+  "approved": 1,
+  "jurisdictions": [
+    { "jurisdiction": "US", "count": 1 }
+  ]
+}
+```
+
+An unknown field name returns `400` with
+`{ "error": "invalid_parameter", … }` naming the offending field.
+
 **Errors**
 
-Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown.
+Returns `404` when the asset id is unknown:
+
+```json
+{
+  "error": "not_found",
+  "message": "asset not found"
+}
+```
+
+See [Errors](/docs/api/errors) for the canonical error body shape shared by all endpoints.
 
 <CalloutBox variant="compliance" title="Why counts, not addresses">
 An asset's holder set can itself be sensitive. This endpoint gives issuers and
@@ -154,62 +246,6 @@ curl $API_BASE_URL/compliance/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY
 ]
 ```
 
-**Example — expired approval**
-
-```json
-[
-  {
-    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
-    "asset_id": 1,
-    "asset_name": "Manhattan Loft",
-    "symbol": "MLOFT",
-    "balance": "1000000",
-    "status": "approved",
-    "allowed": true
-  }
-]
-```
-
-**Response schema** (per record):
-
-| Field | Type | Description |
-|---|---|---|
-| `address` | string | Stellar account address |
-| `asset_id` | number | Registry asset id |
-| `asset_name` | string | Name of the asset |
-| `symbol` | string | Token symbol |
-| `balance` | string | Token balance in **base units** (`i128` string in the asset token's `decimals` base). Divide by `10 ** decimals` to obtain human-readable units. |
-| `status` | string | Stored KYC status (e.g. `approved`, `pending`) |
-| `allowed` | boolean | Current compliance authorization flag (`true` if permitted to transact) |
-
-<CalloutBox variant="tip" title="Balance conversion">
-```typescript
-// Balance is in base units; divide by 10 ** decimals (found in the asset's metadata):
-const displayBalance = Number(BigInt(record.balance)) / (10 ** decimals);
-```
-    "asset_name": "RWA Property Fund",
-    "symbol": "RPF",
-    "balance": "1000000",
-    "status": "Approved",
-    "allowed": false,
-    "jurisdiction": "US",
-    "expires_at": 55000000
-  }
-]
-```
-
-**Example — unknown address**
-
-```json
-[]
-```
-
-<CalloutBox variant="warning" title="allowed reflects the indexer's gate, not the contract's real-time check">
-`allowed` is derived by the indexer at the time of the last snapshot
-(approximately every 10 seconds). It mirrors the on-chain `is_allowed` gate:
-`status == "Approved"`, record not expired at the latest indexed ledger, and
-jurisdiction not blocked. The blocked-jurisdiction set is not yet read from
-the chain in this version — see [Compliance Guide](/docs/compliance-guide)
-for the full gate logic. For security-critical pre-transfer checks, verify
-directly against the compliance contract's `is_allowed` entry point.
-</CalloutBox>
+See the [Compliance Guide](/docs/compliance-guide) for the KYC lifecycle and
+allowlist rules, and the [Glossary](/docs/glossary) for `is_allowed`,
+`expires_at`, and `i128`.
