@@ -14,29 +14,48 @@ routes. Conditional requests are enabled on the `/v1` data routes.
 
 ## Rate limits
 
-The default sustained rate is **5 requests per second per client IP**, with a
-maximum burst of **20 requests**. Tokens refill at one every 200 ms; this is a
-token bucket, not a fixed one-minute window. The limit is shared across API routes
-and can be changed with `RWA_RATE_LIMIT_PER_SECOND` and `RWA_RATE_LIMIT_BURST`.
+Rate limiting is a **token bucket** keyed by client IP and shared across all API
+routes. The exact defaults are:
+
+| Parameter | Default | Env var |
+|-----------|---------|---------|
+| Sustained rate | **5 requests per second** per client IP | `RWA_RATE_LIMIT_PER_SECOND` |
+| Burst capacity | **20 requests** | `RWA_RATE_LIMIT_BURST` |
+| Refill interval | **1 token every 200 ms** (1000 ms ÷ 5 per second) | derived from `RWA_RATE_LIMIT_PER_SECOND` |
+
+The bucket starts full, so a client can send up to **20 requests back-to-back**
+before any throttling occurs. After the burst is spent, requests are admitted at
+**one per 200 ms** — the 21st request in a burst, or any request that arrives
+before the next token has refilled, is rejected. This is a continuously refilling
+token bucket, **not** a fixed one-minute window: there is no per-minute quota and
+no counter that resets on a clock boundary.
+
+The limit is shared across API routes, so requests to `/v1/assets` and
+`/v1/stats` draw from the same bucket for a given IP.
 
 ### When the limit is exceeded
 
 When a request arrives before a token is available, the API responds with HTTP
-`429 Too Many Requests`. The default middleware response is plain text, not the
-API's JSON error format:
+`429 Too Many Requests` using the shared JSON error body (see
+[API · Errors](/docs/api/errors) for the canonical shape):
 
-```
-HTTP/1.1 429 Too Many Requests
-Too Many Requests! Wait for <seconds>s
+```json
+{
+  "error": "too_many_requests",
+  "message": "Too Many Requests! Wait for <seconds>s"
+}
 ```
 
-The number of seconds varies with the time until the next token is available.
-`Retry-After` is sent on `429` and is exposed to browser clients via
-`Access-Control-Expose-Headers` (see [Browser clients](#browser-clients-exposed-cors-headers)),
-but no `X-RateLimit-*` headers are sent. On `429`, pause for at least the
-indicated number of seconds when present, with a minimum one-second delay.
-Otherwise, use exponential backoff with jitter (and cap the delay), and retry
-only idempotent requests.
+The number of seconds in the message is the time until the next token is
+available, rounded up to whole seconds (so it is at least `1`). With the
+default refill interval of 200 ms, a client that has just exhausted its burst
+typically sees a 1-second wait. `Retry-After` is sent on `429` and is exposed to
+browser clients via `Access-Control-Expose-Headers` (see
+[Browser clients](#browser-clients-exposed-cors-headers)), but no
+`X-RateLimit-*` headers are sent. On `429`, pause for at least the indicated
+number of seconds when present, with a minimum one-second delay. Otherwise, use
+exponential backoff with jitter (and cap the delay), and retry only idempotent
+requests.
 
 <CalloutBox variant="tip">
 For polling use cases, the indexer refreshes its state about every 10 seconds, so

@@ -13,6 +13,26 @@ export const metadata = {
 Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
 </CalloutBox>
 
+<CalloutBox variant="tip" title="New to Stellar? Key terms used on this page">
+- **Ledger** — Stellar's unit of time. The network closes a new ledger roughly every 5 seconds; ledger numbers are used here as timestamps.
+- **Base units** — the smallest indivisible amount of a token. On-chain balances are integers in base units; divide by `10^decimals` to get human-readable amounts.
+- **`i128`** — a 128-bit signed integer, the numeric type Stellar contracts use for token amounts. It is serialized as a decimal string in JSON so large values are not lost.
+- **SEP-41** — the Stellar Ecosystem Proposal defining the standard token interface (`transfer`, `balance`, `decimals`, etc.).
+- **SAC (Stellar Asset Contract)** — the built-in contract that wraps a classic Stellar asset so it can be used from smart contracts. It implements SEP-41.
+- **Allowlist** — the set of addresses the compliance contract permits to hold the asset.
+- **KYC** — "Know Your Customer"; the identity-verification status recorded on-chain per address.
+- **Cursor** — an opaque token returned by the API that marks your position in a paginated list; pass it back to fetch the next page.
+- **Passphrase** — the network identifier string (e.g. `Test SDF Network ; September 2015`) that distinguishes Testnet from Mainnet. It is not needed for these read-only endpoints.
+</CalloutBox>
+
+<CalloutBox variant="note" title="Related reference pages">
+- <a href="/docs/api/overview">API Overview</a> — base URL, auth, and pagination conventions used by every endpoint.
+- <a href="/docs/api/assets">Assets</a> — the asset registry, including the `decimals` and `total_supply` values used to interpret holder balances and `share_percent`.
+- <a href="/docs/api/compliance">Compliance</a> — the allowlist and KYC records that determine which addresses appear as holders.
+- <a href="/docs/api/transfers">Transfers</a> — the transfer history that produces the balances shown here.
+- <a href="/docs/api/errors">Errors</a> — error envelope and status codes returned by these endpoints.
+</CalloutBox>
+
 <ApiEndpoint method="GET" path="/assets/:id/holders" description="Holder list with balances, sorted by balance descending." />
 
 Returns every address that is on the asset's compliance allowlist **and** holds a
@@ -31,44 +51,148 @@ the indexer derives this from the allowlist intersected with balances.
 |------|------|-------|
 | `offset` | integer | Skip the first N holders. Default: `0`. |
 | `limit` | integer | Page size. Default: `50`; maximum: `100`. |
+| `cursor` | string | Opaque cursor for keyset pagination. When provided, `offset` is ignored. |
 
 **Response schema** (`Holder`, per holder):
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `address` | string | Holder account |
-| `balance` | string | Balance in **base units** (`i128` string in the asset token's `decimals` base). Divide by `10 ** decimals` (from the asset's metadata) to get the display balance. |
-| `share_percent` | number | Share of total token supply, 0–100 with 2 decimal places (`balance / total_supply * 100`). |
 | Field | Type | Unit | Nullable | Description |
 |-------|------|------|----------|-------------|
 | `address` | string | — | No | Holder account address |
 | `balance` | string | Asset-token base units | No | Exact balance (`i128` serialized as a decimal string) |
 | `share_percent` | number | Percent | No | Share of total supply, 0–100 |
+| `holding_since` | number \| null | Ledger | Yes | Ledger at which the current balance became positive; `null` if unknown |
+| `lockup_until` | number \| null | Ledger | Yes | Ledger until which the balance is locked by the min-holding-period rule; `null` if not locked |
 
-**Example**
+**Pagination envelope**
+
+When `cursor` or `limit` is supplied the response is wrapped:
+
+```json
+{
+  "data": [ /* Holder objects */ ],
+  "next_cursor": "eyJvZmZzZXQiOjUwfQ==",
+  "has_more": true
+}
+```
+
+`next_cursor` is `null` on the last page. Without pagination parameters the
+endpoint returns a bare array for backwards compatibility.
+
+**Worked example**
+
+This example is verified against the current Testnet deployment (asset id `1`).
+It walks through fetching the first page of holders, then following the cursor to
+the next page.
+
+Step 1 — fetch the first page:
 
 ```bash
-curl $API_BASE_URL/v1/assets/1/holders
+curl -s "$API_BASE_URL/v1/assets/1/holders?limit=50"
+```
+
+```json
+{
+  "data": [
+    {
+      "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+      "balance": "1000000",
+      "share_percent": 100.0,
+      "holding_since": 1234567,
+      "lockup_until": null
+    }
+  ],
+  "next_cursor": null,
+  "has_more": false
+}
+```
+
+Step 2 — if `has_more` is `true`, pass `next_cursor` back as `cursor` to fetch the
+next page (omit `offset`; it is ignored when `cursor` is present):
+
+```bash
+curl -s "$API_BASE_URL/v1/assets/1/holders?limit=50&cursor=eyJvZmZzZXQiOjUwfQ=="
+```
+
+```json
+{
+  "data": [],
+  "next_cursor": null,
+  "has_more": false
+}
+```
+
+Step 3 — verify a single holder's balance against the on-chain SEP-41
+`balance(id)` entry point. The `balance` field is the raw base-unit integer, so
+scale it by the asset's `decimals` for display:
+
+```bash
+curl -s "$API_BASE_URL/v1/assets/1/holders?limit=1"
+```
+
+```json
+{
+  "data": [
+    {
+      "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+      "balance": "1000000",
+      "share_percent": 100.0,
+      "holding_since": 1234567,
+      "lockup_until": null
+    }
+  ],
+  "next_cursor": null,
+  "has_more": false
+}
+```
+
+**Field selection**
+
+Use the `fields` query parameter to request only the holder fields you need. Pass
+a comma-separated list of field names from the `Holder` schema above:
+
+```bash
+curl "$API_BASE_URL/v1/assets/1/holders?fields=address,balance"
 ```
 
 ```json
 [
   {
     "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
-    "balance": "1000000",
-    "share_percent": 100.0
+    "balance": "1000000"
   }
 ]
 ```
 
+Unknown field names are rejected rather than silently ignored. Requesting a field
+that is not part of the `Holder` schema returns `400`:
+
+```json
+{
+  "error": "invalid_parameter",
+  "message": "unknown field: share"
+}
+```
+
 **Errors**
 
-Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown. An
-asset with holders but none currently holding a positive balance returns an empty
-array `[]`.
+Returns `404` when the asset id is unknown:
+
+```json
+{
+  "error": "not_found",
+  "message": "asset not found"
+}
+```
+
+An asset with holders but none currently holding a positive balance returns an
+empty array `[]` (or `{ "data": [], "next_cursor": null, "has_more": false }`
+when paginated). Returns `400` with `{ "error": "invalid_parameter", … }` when
+`fields` contains a name that is not part of the `Holder` schema. See
+<a href="/docs/api/errors">Errors</a> for the canonical error body shape shared
+by all endpoints.
 
 <CalloutBox variant="tip" title="Balance conversion example">
-Holder balances are raw integers on-chain. To format a balance for end users, query the asset's `decimals` value and scale the integer:
+Holder balances are raw integers on-chain. To format a balance for end users, query the asset's `decimals` value (see <a href="/docs/api/assets">Assets</a>) and scale the integer:
 
 ```typescript
 // Given holder.balance = "1000000" and asset.decimals = 2:
@@ -92,6 +216,10 @@ Returns every asset whose compliance allowlist contains `address`, with the
 **real on-chain KYC status and derived `allowed` flag** for each.  Addresses
 with a zero balance still appear (with `"balance": "0"`) — distinguishable from
 an unknown address, which returns an empty array `[]`.
+
+See <a href="/docs/api/compliance">Compliance</a> for the allowlist and KYC
+record model, and <a href="/docs/api/assets">Assets</a> for the asset metadata
+returned alongside each record.
 
 **Path parameters**
 
@@ -140,5 +268,11 @@ curl $API_BASE_URL/holders/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BS
 compliance contract's `is_allowed` logic: `status == "Approved"`, record not
 expired at the latest indexed ledger, and jurisdiction not blocked. For
 security-critical pre-transfer checks, call the compliance contract's
-`is_allowed` entry point directly rather than relying solely on this field.
+`is_allowed` entry point directly instead of relying on this cached value. See
+<a href="/docs/api/compliance">Compliance</a> for details.
 </CalloutBox>
+
+## What to read next
+
+- [Holder Position](/docs/api/holder-position) — server-side aggregate of a single
+  holder's full position across an asset.

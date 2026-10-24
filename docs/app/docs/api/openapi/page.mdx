@@ -17,9 +17,17 @@ contract-testing tools.
 The spec source lives at `docs/public/openapi-v1.yaml` and is linted in CI by the
 `OpenAPI` workflow on every change.
 
+## Error responses
+
+Every error response in the spec references the shared error body schema. The
+canonical shape — fields, types, and examples — is documented once at
+[Error Responses](/docs/api/errors); the OpenAPI schema mirrors it, so treat that
+page as the source of truth when generating clients or writing contract tests.
+
 ## What to read next
 
 - [API Overview](/docs/api/overview) — endpoint conventions, versioning policy, and error shapes.
+- [Error Responses](/docs/api/errors) — the canonical shared error body shape referenced by the spec.
 - [Integration Guide](/docs/integration) — generate a typed SDK client from the OpenAPI spec.
 - [Getting Started](/docs/getting-started) — run the API locally and make your first requests.
 - [API Changelog](/docs/changelog) — track changes to the documented API surface.

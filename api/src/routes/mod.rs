@@ -57,6 +57,8 @@ mod field_select_tests;
 #[cfg(test)]
 mod holder_position_tests;
 #[cfg(test)]
+mod holders_tests;
+#[cfg(test)]
 mod test_support;
 
 #[cfg(test)]
@@ -67,6 +69,7 @@ mod cors_headers_tests;
 
 #[cfg(test)]
 mod rate_limit_boundary_tests;
+mod error_body_tests;
 
 pub(crate) mod error_body;
 

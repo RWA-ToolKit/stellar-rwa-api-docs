@@ -15,6 +15,38 @@ controlling **who is allowed to hold it**. This guide explains the compliance
 model end to end: why it exists, how the allowlist works, how the on-chain
 transfer gate is enforced, and how issuers should operate it.
 
+## Glossary
+
+New to Stellar or to this platform? These terms recur throughout the guide.
+
+- **RWA (real-world asset)** — a token that represents an off-chain asset such as
+  equity, an invoice, or a commodity.
+- **KYC / AML** — *Know Your Customer* / *Anti-Money Laundering*: the identity and
+  screening checks a regulated issuer must run before letting someone hold an asset.
+- **Allowlist** — the set of addresses the issuer has approved to hold the asset.
+- **Ledger** — a single Stellar ledger close (roughly 5 seconds). Ledger numbers are
+  used here as timestamps: `verified_at` and `expires_at` are ledger numbers, not
+  wall-clock times.
+- **TTL (time-to-live)** — how many ledgers a piece of on-chain storage stays alive
+  before it must be extended. Soroban storage entries (including `KycRecord`s) have
+  a TTL; if it lapses the entry is archived and must be restored before use.
+- **Footprint** — the set of ledger entries a Soroban transaction reads and writes.
+  The footprint must be declared up front so the network can validate the
+  transaction; a cross-contract call like `is_allowed` adds the compliance
+  contract's entries to the footprint.
+- **ScVal** — Soroban's canonical value type (the XDR encoding used for contract
+  arguments and return values). Addresses, integers, and structs are all passed as
+  `ScVal`s under the hood.
+- **SAC (Stellar Asset Contract)** — the built-in contract that wraps a classic
+  Stellar asset so it can be used from Soroban. This platform's asset token is a
+  custom contract, not a SAC, but both expose a similar `transfer` surface.
+- **Passphrase** — the network identifier string (e.g. `Test SDF Network ; September
+  2015` for testnet, `Public Global Stellar Network ; September 2015` for mainnet)
+  that scopes signatures and transactions to one network. Signing with the wrong
+  passphrase produces an invalid transaction.
+- **Cross-contract call** — one contract invoking another during a transaction; here
+  the asset token calls `is_allowed` on the compliance contract.
+
 ## Why compliance matters for RWA
 
 A real-world asset — equity in a building, a trade invoice, a warehouse of copper —
@@ -54,6 +86,35 @@ returns `true`**, which requires all three of:
 1. status is `Approved`,
 2. the approval has not expired, and
 3. the address's jurisdiction is not blocked.
+
+### Batch allowlist operations
+
+Onboarding a large investor base one call at a time is slow and error-prone. The
+compliance contract exposes batch entry points that apply the same validation as
+their single-address counterparts, so a partial failure reverts the whole batch:
+
+- `add_to_allowlist_batch(records)` — approve many addresses in one transaction
+- `suspend_batch(addresses)` — suspend many addresses at once
+- `remove_batch(addresses)` — remove many addresses at once
+
+Each batch is atomic: if any entry is invalid (bad jurisdiction, missing record,
+unauthorized caller) the entire call reverts and no record changes. Use batches
+for bulk onboarding and bulk offboarding; use the single-address calls for
+one-off corrections.
+
+### Admin handover
+
+The compliance admin is the only account that can mutate the allowlist or block
+jurisdictions. To transfer that authority — for example when a compliance officer
+changes — use the admin handover entry points rather than sharing keys:
+
+- `propose_admin(new_admin)` — the current admin nominates a successor
+- `accept_admin()` — the nominee must call this to complete the handover
+- `get_admin()` — read the current admin
+
+The two-step handover prevents accidentally handing control to a mistyped or
+uncontrolled address: until the nominee accepts, the original admin remains in
+control and can cancel by proposing a different successor.
 
 ## How transfer gating works
 
@@ -134,156 +195,6 @@ jurisdiction is a no-op, and so is unblocking one that is not blocked.
 This models a common real-world requirement: a regulatory change, sanction, or
 offering restriction that must apply to a whole country at once. Because the check
 happens inside `is_allowed` at read time, the effect is **instantaneous and
-retroactive** — there is no list to re-scan and no window where stale approvals
-still work.
+retroactive** — there is no list to re-scan and no
 
-The API's [`/assets/:id/compliance`](/docs/api/compliance) endpoint surfaces the
-jurisdiction distribution (as counts) so issuers can audit their geographic
-exposure before making such a change.
-
-<CalloutBox variant="warning" title="Known limitation: blocked jurisdictions with no approved address are invisible">
-The API and other clients learn jurisdictions **only from the `jurisdiction` field of
-allowlist KYC records**. The set of blocked jurisdictions is stored separately, as
-per-code flags in the compliance contract. A client that infers "which jurisdictions
-are blocked" from the allowlist will therefore never see a blocked jurisdiction that
-has no address on the allowlist: no record carries its code, so it appears in no
-breakdown. Blocking `KP` before anyone from `KP` is approved, for example, leaves no
-trace in `/assets/:id/compliance`.
-</CalloutBox>
-
-**Why it happens.** Blocking is a property of a country code, not of an address, so
-the contract does not need any record to exist in order to block a code. The API
-indexes per-address records and reports what they contain; it has no record to
-derive an empty jurisdiction from. The gate itself is unaffected: `is_allowed` still
-checks the flag, so an address later approved with that code fails immediately. Only
-*visibility* is limited.
-
-**What to do about it.**
-
-- To ask about a specific code, call `is_jurisdiction_blocked(code)` on the
-  compliance contract. It is authoritative regardless of who is on the allowlist.
-- The compliance contract also exposes `get_blocked_jurisdictions()`, which returns
-  every currently blocked code in the order it was first blocked. This is the direct
-  read that closes the gap. It is present on the contracts repository's main branch;
-  check that your deployed compliance contract includes it, and note that the REST
-  API's compliance summary does not yet report it. Until the API does, read the
-  blocked set from the contract rather than from the API.
-- Do not treat the API's `jurisdictions` array as the list of what is blocked, or as
-  proof that a jurisdiction is unblocked.
-
-## KYC expiry semantics
-
-Approvals are not forever. Expiry is stored per record as `expires_at`, a **ledger
-sequence number** (`u32`), and evaluated against the current ledger sequence every
-time `is_allowed` runs.
-
-| Stored `expires_at` | Behaviour |
-|---------------------|-----------|
-| `0` | **Sentinel: the approval never expires.** No ledger number ever lapses it. |
-| Non-zero `N` | Valid while the current ledger is `N - 1` or earlier. Lapsed from ledger `N` onward. |
-
-**The boundary is exclusive.** `is_allowed` treats a record as expired when
-`expires_at != 0 && current_ledger >= expires_at`. With `expires_at = 100`:
-
-| Current ledger | `is_allowed` (status `Approved`, jurisdiction not blocked) |
-|----------------|--------------------------------------------------------------|
-| 99 | `true` |
-| 100 | `false` |
-| 101 | `false` |
-
-So `expires_at` is the **first ledger at which the approval no longer holds**, not the
-last ledger at which it does. This is pinned by the compliance contract's tests
-(`test_expiry_boundary_one_before_is_allowed`,
-`test_expiry_boundary_exactly_at_expiry_is_expired`,
-`test_expiry_boundary_one_after_is_expired` and `test_zero_expiry_never_lapses`).
-
-**Setting an expiry.** `add_to_allowlist` (and the batch variant) rejects a non-zero
-`expires_at` that is less than or equal to the current ledger with `InvalidExpiry (4)`,
-which matches the read-time rule: an approval that would already be expired cannot be
-created. `0` is always accepted. Because time is measured in ledgers (~5 seconds
-each), a one-year approval is roughly `+6,300,000` ledgers from now.
-
-**What lapsing does and does not do.**
-
-- The stored `status` stays `Approved`. Only `is_allowed` changes, so the holder can
-  no longer send or receive until re-approved with a new expiry (the API's `approved`
-  count still includes them; see [API Compliance](/docs/api/compliance)).
-- Nothing runs on a timer. The check is evaluated live, so an approval that lapsed at
-  ledger `N` fails the very next transaction included in ledger `N` or later.
-- The record stays in storage until the admin calls `prune_expired`, which removes
-  expired records from the allowlist. Pruning is housekeeping and does not change what
-  `is_allowed` returns.
-- Reading `is_allowed` for an expired record publishes an `expired` event. Do not rely
-  on that event as the only signal, since it only fires when `is_allowed` is evaluated.
-
-## Suspension
-
-`suspend(address)` sets the status to `Suspended` while keeping the record. This is
-the right tool for a temporary hold — a pending re-review, a compliance flag —
-because it is reversible (`reinstate`, or `add_to_allowlist`) and preserves the audit
-trail. Use `remove` only when an address should be erased entirely.
-
-<CalloutBox variant="warning" title="Expiry is enforced on read, not on a timer">
-There is no background job expiring records. The check is evaluated live against
-the current ledger every time `is_allowed` runs. An approval whose `expires_at` has
-been reached fails the very next transfer — no cron, no lag.
-</CalloutBox>
-
-## Worked scenarios
-
-These examples show how the live `is_allowed` gate affects a transfer. A transfer
-checks both the sender and recipient, so the error identifies which side failed.
-
-| Scenario | What the issuer or integrator sees | Outcome and next step |
-|----------|------------------------------------|-----------------------|
-| **Unapproved recipient** | An address has no allowlist record, or its status is `Pending` or `Rejected`. `is_allowed(recipient)` returns `false`. | The transfer reverts with `RecipientNotCompliant (8)`. Complete verification, then approve the recipient with `add_to_allowlist`; retry only after the approval is in effect. |
-| **Expired approval** | The record still says `Approved`, but the current ledger has reached `expires_at`. | `is_allowed` returns `false`, and an outgoing transfer fails with `SenderNotCompliant (7)`; an incoming transfer fails with `RecipientNotCompliant (8)`. Re-verify the holder and issue a new approval with a future expiry. |
-| **Suspended holder** | The holder's record is retained for the audit trail but has status `Suspended`. | `is_allowed` returns `false`. The holder cannot send (`SenderNotCompliant (7)`) or receive (`RecipientNotCompliant (8)`) until the compliance admin resolves the review and approves them again. |
-| **Blocked jurisdiction** | The address has an otherwise valid approval, but its recorded jurisdiction is currently blocked. | The jurisdiction check makes `is_allowed` return `false` immediately. Transfers from that holder fail with `SenderNotCompliant (7)` and transfers to them fail with `RecipientNotCompliant (8)`. Review the restriction before unblocking the jurisdiction or changing an individual's record. |
-
-In all four cases, an off-chain status display is not a substitute for the
-contract check: use `is_allowed` for the asset's current compliance contract
-before submitting a transfer. The transaction itself remains authoritative and
-will revert if either party fails the gate.
-
-## Best practices for issuers
-
-1. **Secure the compliance admin key.** It is the single most powerful key in the
-   system — it decides who can hold your asset. Use multisig and hardware custody.
-2. **Prefer `suspend` over `remove`.** Suspension is reversible and preserves the
-   record for audits; removal is destructive.
-3. **Set sensible expiries.** Time-bounded approvals force periodic re-KYC and keep
-   your allowlist from silently drifting out of date. Choose an expiry that matches
-   your re-verification cadence.
-4. **Approve the issuer first.** The asset token mints the initial supply to the
-   admin, so the admin must be approved on the compliance contract *before*
-   `initialize`, or deployment fails with `RecipientNotCompliant`.
-5. **Coordinate distributions with balances.** The dividend contract reads balances
-   at **claim** time. If you need a clean snapshot, consider pausing the token
-   around a distribution window. See the [Dividend contract](/docs/contracts/dividend#security-considerations).
-6. **Use jurisdiction blocks deliberately.** They are immediate and affect every
-   holder in the region. Review the jurisdiction breakdown from the API first, and
-   remember it cannot show blocked jurisdictions that have no approved address
-   (see the [limitation](#jurisdiction-model-and-its-limitation)).
-7. **Treat registry listing as self-attestation.** Anyone can register an asset;
-   the *binding* control is the compliance contract, not the registry entry.
-
-## Putting it together
-
-The compliance contract is small, but it is the reason this platform can represent
-regulated assets at all. Every other piece — the token, the registry, the dividend
-escrow, the API, the web app — is built around the single invariant it enforces:
-
-> **Only KYC-approved, unexpired, non-blocked addresses can ever hold the asset,
-> and the asset enforces this itself on every transfer.**
-
-Next, see how issuers operate this in practice in the
-[Web App Guide](/docs/web-app), or how to read compliance state programmatically in
-the [Integration Guide](/docs/integration).
-
-## What to read next
-
-- [Compliance Contract](/docs/contracts/compliance) — full function reference for `add_to_allowlist`, `is_allowed`, `block_jurisdiction`, and more.
-- [Integration Guide](/docs/integration) — check `is_allowed` live before submitting a transfer.
-- [Web App Guide](/docs/web-app) — manage the allowlist and distribute dividends as an issuer.
-- [API · Compliance](/docs/api/compliance) — read aggregate compliance stats (counts, jurisdictions) over REST.
+/* … truncated 1395 chars — edit only what you need near the top … */
