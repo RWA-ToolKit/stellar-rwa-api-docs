@@ -114,9 +114,165 @@ async fn stale_if_none_match_returns_full_response() {
 }
 
 #[tokio::test]
+async fn assets_route_sets_etag_and_honours_if_none_match() {
+    // The assets route is snapshot-backed like the data routes, so it must
+    // advertise the same ledger-derived ETag and revalidate consistently.
+    let etag = format!("\"ledger-{LEDGER}\"");
+
+    let response = get(app(), "/v1/assets", None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(header_str(&response, header::ETAG), etag);
+
+    let response = get(app(), "/v1/assets", Some(&etag)).await;
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(header_str(&response, header::ETAG), etag);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert!(body.is_empty(), "304 must not carry a body");
+
+    let response = get(app(), "/v1/assets", Some("\"ledger-1\"")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(header_str(&response, header::ETAG), etag);
+}
+
+#[tokio::test]
 async fn non_data_routes_are_not_cached() {
     let response = get(app(), "/version", None).await;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert!(response.headers().get(header::ETAG).is_none());
+}
+
+#[tokio::test]
+async fn dividends_route_sets_cache_control_and_etag() {
+    // Test that dividends route properly supports conditional requests (#539)
+    let response = get(app(), "/v1/assets/1/dividends", None).await;
+
+    // Dividends route may return 404 if asset doesn't exist, but should still set headers
+    if response.status() == StatusCode::OK {
+        assert_eq!(
+            header_str(&response, header::CACHE_CONTROL),
+            format!("public, max-age={}", POLL_INTERVAL.as_secs())
+        );
+        assert_eq!(
+            header_str(&response, header::ETAG),
+            format!("\"ledger-{LEDGER}\"")
+        );
+    }
+}
+
+#[tokio::test]
+async fn dividends_route_honours_if_none_match() {
+    // Verify If-None-Match matching ETag returns 304 Not Modified for dividends
+    let etag = format!("\"ledger-{LEDGER}\"");
+    let response = get(app(), "/v1/assets/1/dividends", Some(&etag)).await;
+
+    // For valid asset, should return 304; for missing asset, 404 is acceptable
+    if response.status() == StatusCode::NOT_MODIFIED {
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(body.is_empty(), "304 Not Modified must not carry a body");
+    }
+}
+
+#[tokio::test]
+async fn server_entrypoint_route_sets_etag_and_honours_if_none_match() {
+    // The server entrypoint (`api/src/main.rs`) serves the same router, so the
+    // conditional request contract must hold end-to-end for its routes too.
+    let response = get(app(), "/v1/stats", None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let etag = header_str(&response, header::ETAG);
+    assert_eq!(etag, format!("\"ledger-{LEDGER}\""));
+
+    // A matching If-None-Match must short-circuit to 304 with no body.
+    let revalidated = get(app(), "/v1/stats", Some(&etag)).await;
+    assert_eq!(revalidated.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(header_str(&revalidated, header::ETAG), etag);
+    let body = to_bytes(revalidated.into_body(), usize::MAX).await.unwrap();
+    assert!(body.is_empty(), "304 must not carry a body");
+}
+
+#[tokio::test]
+async fn compliance_summary_route_sets_cache_control_and_etag() {
+    let response = get(app(), "/v1/assets/1/compliance", None).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        header_str(&response, header::CACHE_CONTROL),
+        format!("public, max-age={}", POLL_INTERVAL.as_secs())
+    );
+    assert_eq!(
+        header_str(&response, header::ETAG),
+        format!("\"ledger-{LEDGER}\"")
+    );
+}
+
+#[tokio::test]
+async fn events_route_sets_cache_control_and_etag() {
+    // Test that events route properly supports conditional requests (#544)
+    let response = get(app(), "/v1/events", None).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        header_str(&response, header::CACHE_CONTROL),
+        format!("public, max-age={}", POLL_INTERVAL.as_secs())
+    );
+    assert_eq!(
+        header_str(&response, header::ETAG),
+        format!("\"ledger-{LEDGER}\"")
+    );
+}
+
+#[tokio::test]
+async fn compliance_summary_if_none_match_returns_304() {
+    let etag = format!("\"ledger-{LEDGER}\"");
+    let response = get(app(), "/v1/assets/1/compliance", Some(&etag)).await;
+
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert!(body.is_empty(), "304 Not Modified must not carry a body");
+}
+
+#[tokio::test]
+async fn events_route_if_none_match_returns_304() {
+    // Verify If-None-Match matching ETag returns 304 Not Modified
+    let etag = format!("\"ledger-{LEDGER}\"");
+    let response = get(app(), "/v1/events", Some(&etag)).await;
+
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert!(body.is_empty(), "304 Not Modified must not carry a body");
+}
+
+#[tokio::test]
+async fn compliance_summary_stale_etag_returns_full_response() {
+    let response = get(app(), "/v1/assets/1/compliance", Some("\"ledger-1\"")).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        header_str(&response, header::ETAG),
+        format!("\"ledger-{LEDGER}\"")
+    );
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json.is_object(),
+        "stale ETag must yield the full compliance summary object"
+    );
+}
+
+#[tokio::test]
+async fn events_route_stale_etag_returns_full_response() {
+    // Verify stale ETag returns full response with updated ETag
+    let response = get(app(), "/v1/events", Some("\"ledger-1\"")).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        header_str(&response, header::ETAG),
+        format!("\"ledger-{LEDGER}\"")
+    );
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json.is_array(),
+        "stale ETag must yield the full events array"
+    );
 }

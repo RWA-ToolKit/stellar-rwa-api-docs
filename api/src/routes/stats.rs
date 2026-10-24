@@ -117,4 +117,71 @@ mod tests {
             "serialized /stats keys must exactly match the OpenAPI schema's required list"
         );
     }
+
+    /// Drive the stats route to the configured rate-limit boundary and confirm
+    /// the 429 response uses the shared error body shape (see #555).
+    #[tokio::test]
+    async fn stats_rate_limit_boundary_returns_shared_error_body() {
+        use crate::routes::test_support::rate_limited_router;
+
+        let state = state_with(Snapshot::default());
+        let (router, limit) = rate_limited_router(state, get);
+
+        // Requests up to the configured limit succeed.
+        for i in 0..limit {
+            let resp = router
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri("/stats")
+                        .body(axum::body::Body::empty())
+                        .expect("build request"),
+                )
+                .await
+                .expect("request within limit succeeds");
+            assert_eq!(
+                resp.status(),
+                axum::http::StatusCode::OK,
+                "request {} of {} should be within the rate limit",
+                i + 1,
+                limit
+            );
+        }
+
+        // The next request crosses the boundary and must be rejected.
+        let resp = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/stats")
+                    .body(axum::body::Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("boundary request completes");
+        assert_eq!(
+            resp.status(),
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            "request past the configured limit must be rate limited"
+        );
+
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("read 429 body");
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("429 body is valid JSON");
+
+        // Shared error body shape: { "error": { "code": ..., "message": ... } }.
+        let error = value
+            .get("error")
+            .and_then(|v| v.as_object())
+            .expect("429 body has an `error` object");
+        assert!(
+            error.get("code").and_then(|v| v.as_str()).is_some(),
+            "429 error body must include a string `code`"
+        );
+        assert!(
+            error.get("message").and_then(|v| v.as_str()).is_some(),
+            "429 error body must include a string `message`"
+        );
+    }
 }

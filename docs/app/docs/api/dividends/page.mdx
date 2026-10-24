@@ -31,6 +31,119 @@ New to Stellar? These terms appear throughout this page.
 
 ## Distribution object
 
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | number | Distribution id |
+| `asset_token` | string | The asset paid out on |
+| `payment_token` | string | Token used to pay |
+| `total_amount` | string | Pool size in **payment-token base units** (`i128` string). Divide by `10 ** payment_token_decimals` to get human-readable units. |
+| `distributed` | string | Claimed so far in **payment-token base units** (`i128` string). Divide by `10 ** payment_token_decimals` to get human-readable units. |
+| `claimed_percent` | number | Percentage of pool claimed, 0–100 with 2 decimal places (`f64`). |
+| `overflow_detected` | boolean | `true` when `distributed` exceeds `total_amount` (on-chain anomaly, not an API bug) |
+| `completed` | boolean | `true` once fully claimed |
+| `created_at_ledger` | number | |
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `id` | integer | Distribution id | No | |
+| `asset_token` | string | — | No | Asset-token contract address |
+| `payment_token` | string | — | No | Payment-token contract address |
+| `total_amount` | string | Payment-token base units | No | Exact pool size (`i128` serialized as a decimal string) |
+| `distributed` | string | Payment-token base units | No | Exact amount claimed so far (`i128` serialized as a decimal string) |
+| `claimed_percent` | number | Percent | No | Claimed share of the pool; may exceed 100 when `overflow_detected` is true |
+| `overflow_detected` | boolean | — | No | `true` when `distributed` exceeds `total_amount` (on-chain anomaly, not an API bug) |
+| `completed` | boolean | — | No | `true` once fully claimed |
+| `created_at_ledger` | integer | Ledger sequence | No | |
+
+**Example**
+
+```bash
+curl $API_BASE_URL/v1/assets/1/dividends
+```
+
+```json
+[
+  {
+    "id": 1,
+    "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+    "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    "total_amount": "100000000000",
+    "distributed": "25000000000",
+    "claimed_percent": 25.0,
+    "overflow_detected": false,
+    "completed": false,
+    "created_at_ledger": 3510000
+  }
+]
+```
+
+An asset with no distributions returns an empty array `[]`.
+
+**Field selection**
+
+Use the `fields` query parameter to return only the distribution fields you need.
+See [Field selection](/docs/api/field-selection) for the full syntax.
+
+```bash
+curl "$API_BASE_URL/v1/assets/1/dividends?fields=id,total_amount,claimed_percent,completed"
+```
+
+```json
+[
+  {
+    "id": 1,
+    "total_amount": "100000000000",
+    "claimed_percent": 25.0,
+    "completed": false
+  }
+]
+```
+
+Unknown field names are rejected with `400`:
+
+```json
+{
+  "error": "invalid_parameter",
+  "message": "unknown field: claimed_percentage"
+}
+```
+
+**Errors**
+
+Returns `404` when the asset id is unknown:
+
+```json
+{
+  "error": "not_found",
+  "message": "asset not found"
+}
+```
+
+Returns `400` with `{ "error": "invalid_parameter", … }` when `fields` contains an
+unknown field name (see [Field selection](/docs/api/field-selection)). See
+[API · Errors](/docs/api/errors) for the canonical error body shape shared by all
+endpoints.
+
+## Get a single distribution
+
+<ApiEndpoint method="GET" path="/assets/:id/distributions/:did" description="A single distribution for an asset, by distribution id." />
+
+**Path parameters**
+
+| Name | Type | Notes |
+|------|------|-------|
+| `id` | number | Registry id |
+| `did` | number | Distribution id |
+
+**Response schema**
+
+Same shape as a single item from the list above.
+
+**Example**
+
+```bash
+curl $API_BASE_URL/v1/assets/1/distributions/1
+```
+
 ```json
 {
   "id": 1,
@@ -57,7 +170,16 @@ New to Stellar? These terms appear throughout this page.
 | `completed` | boolean | True once the distribution is fully claimed or finalized |
 | `created_at_ledger` | number | Ledger at which the distribution was created |
 
-## List distributions
+Returns `404` when the asset id or the distribution id is unknown:
+
+```json
+{
+  "error": "not_found",
+  "message": "distribution not found"
+}
+```
+
+See [API · Errors](/docs/api/errors) for the canonical error body shape shared by all endpoints.
 
 `GET /api/dividends?asset_token={address}&page={page}&limit={limit}`
 
