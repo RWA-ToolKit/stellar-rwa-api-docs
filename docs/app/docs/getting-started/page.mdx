@@ -250,203 +250,55 @@ curl http://localhost:8080/v1/assets/1/compliance
   "approved": 1,
   "suspended": 0,
   "rejected": 0,
-  "pending": 0,
-  "with_expiry": 0,
-  "jurisdictions": [
-    { "jurisdiction": "US", "count": 1 }
-  ]
+  "pending": 0
 }
 ```
 
-<CalloutBox variant="note">
-Your `last_indexed_ledger` and `last_updated` values will differ from the
-examples above — they reflect the ledger height at the time your local indexer
-ran. Everything else should match the sample Testnet deployment.
+## Contract entry points
+
+The contracts expose more than the basic mint/transfer surface. The table below
+lists the entry points added after this page was first written, so you can find
+them in the contract source and the API.
+
+### Asset token (`asset-token`)
+
+- **SEP-41 token interface** — the asset token implements the SEP-41 fungible
+token standard (`allowance`, `approve`, `balance`, `transfer`, `transfer_from`,
+`burn`, `burn_from`, `decimals`, `name`, `symbol`), so wallets and DEXes that
+speak SEP-41 can interact with it directly.
+- **Batch operations** — `batch_transfer` and `batch_mint` accept a list of
+`(from, to, amount)` / `(to, amount)` entries and apply them in a single
+transaction, reverting the whole batch if any entry fails compliance.
+- **Admin handover** — `propose_admin` / `accept_admin` implement a two-step
+transfer of the contract admin role; the new admin must accept before the
+change takes effect.
+- **Minimum holding period** — `set_min_holding_period` configures a lock-up
+window; transfers that would move tokens before the period elapses revert.
+
+### Dividend (`dividend`)
+
+- **Dividend deadline** — `set_claim_deadline` sets the ledger after which
+claims are no longer accepted.
+- **Reclaim** — `reclaim_unclaimed` lets the issuer recover funds for
+unclaimed dividends once the deadline has passed.
+- **Cancel** — `cancel_distribution` cancels a distribution before it is
+finalized, refunding the issuer.
+
+### Pagination
+
+List endpoints on the API (`/v1/assets`, `/v1/assets/{id}/holders`) accept
+`offset` and `limit` as shown above. The contract-side list getters
+(`get_holders`, `get_distributions`) accept the same `start` / `limit` window so
+large sets can be read without exceeding the Soroban read-entry budget.
+
+<CalloutBox variant="tip" title="Verify against the source">
+The contract source is the source of truth for exact signatures. When in doubt,
+read the `#[contractimpl]` block in the relevant contract before relying on an
+entry point.
 </CalloutBox>
 
-### 3. Run the docs site
+## Next steps
 
-```bash
-cd ../docs
-npm install
-npm run dev               # http://localhost:3000
-```
-
-### Environment variables
-
-The API reads the following environment variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RWA_RPC_URL` | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint the indexer polls |
-| `RWA_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated browser origin allowlist |
-| `RWA_RATE_LIMIT_PER_SECOND` | `5` | Sustained requests allowed per client IP each second |
-| `RWA_RATE_LIMIT_BURST` | `20` | Maximum per-client request burst |
-| `RWA_REQUEST_TIMEOUT_SECS` | `30` | Maximum request duration in seconds |
-| `RWA_MAX_BODY_BYTES` | `1048576` | Maximum request body size in bytes |
-| `RWA_REGISTRY_ID` | `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` | Deployed registry contract id (Testnet) |
-| `RWA_DIVIDEND_ID` | `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX` | Deployed dividend contract id (Testnet) |
-| `RWA_READ_SOURCE` | `GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA` | Funded account used as source for read simulations (must exist on the RPC) |
-| `RWA_METRICS_TOKEN` | _(none)_ | Bearer token required by `/metrics`; requests are denied when unset |
-| `PORT` | `8080` | HTTP server port |
-| `RUST_LOG` | `stellar_rwa_api=info,tower_http=warn` | Log filter (tracing-subscriber format) |
-
-The `.env.example` file includes Testnet defaults. Copy it and adjust as needed for your network.
-
-### Running with Docker
-
-Build and run the API in a container:
-
-```bash
-cd stellar-rwa-api-docs/api
-docker build -t stellar-rwa-api .
-docker run -p 8080:8080 \
-  -e RWA_RPC_URL=https://soroban-testnet.stellar.org \
-  -e RWA_REGISTRY_ID=CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3 \
-  -e RWA_DIVIDEND_ID=CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX \
-  -e RWA_READ_SOURCE=GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA \
-  -e PORT=8080 \
-  stellar-rwa-api
-```
-
-Or use an `.env` file:
-
-```bash
-docker run -p 8080:8080 --env-file .env stellar-rwa-api
-```
-
-Then run the same curl commands from step 2 against `http://localhost:8080`.
-
-## Reading contract state without a wallet
-
-**Reads need no wallet, no secret key and no funds.** Every read is a
-*simulated* contract invocation: an unsigned transaction is sent to the Soroban
-RPC `simulateTransaction` method, which executes the call and returns the result
-without ever submitting it to the ledger. Nothing is signed, no fee is charged
-and no state changes.
-
-This is exactly how the API indexer works — it simulates view calls such as
-`get_all_assets`, `get_metadata` and `balance`, using `RWA_READ_SOURCE` only as
-the transaction's source address. That account is never asked to sign and
-never pays anything; it just needs to exist on the network.
-
-You have two wallet-free options:
-
-1. **The REST API** — the `curl` commands in the Quickstart above serve
-   an indexed snapshot of the same state.
-2. **Simulate directly against Soroban RPC** — no API server needed. Save this
-   as `read.ts` and run it with `npm install @stellar/stellar-sdk && npx tsx read.ts`:
-
-```ts
-import {
-  Account, BASE_FEE, Contract, Networks, TransactionBuilder, rpc, scValToNative,
-} from "@stellar/stellar-sdk";
-
-const server = new rpc.Server("https://soroban-testnet.stellar.org");
-const ASSET_TOKEN = "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ";
-
-// Any existing account works as the source. No secret key is used, and the
-// sequence number is irrelevant because the transaction is never submitted.
-const source = new Account("GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA", "0");
-
-const tx = new TransactionBuilder(source, {
-  fee: BASE_FEE,
-  networkPassphrase: Networks.TESTNET,
-})
-  .addOperation(new Contract(ASSET_TOKEN).call("get_metadata"))
-  .setTimeout(30)
-  .build();
-
-const sim = await server.simulateTransaction(tx);
-if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error);
-console.log(scValToNative(sim.result!.retval)); // { name: "Manhattan Loft", symbol: "MLOFT", ... }
-```
-
-<CalloutBox variant="note" title="Reads vs. writes">
-A **read** is only simulated: unsigned, free, and it never changes state. A
-**write** (`transfer`, `mint`, allowlist changes, dividend claims) must be
-signed by the authorizing account — usually through Freighter — pays a network
-fee in XLM, and is submitted with `sendTransaction` to change on-chain state.
-Simulating a write only *previews* it; nothing happens until it is signed and
-submitted. See [Integration](/docs/integration).
-</CalloutBox>
-
-## Network guide
-
-Everything is deployed on **Testnet**. The network passphrase is:
-
-```
-Test SDF Network ; September 2015
-```
-
-Point Freighter at Testnet and fund your account with the
-[Stellar Laboratory account creator](https://laboratory.stellar.org/account-creator)
-before interacting.
-
-<CalloutBox variant="warning">
-These contracts are deployed on Testnet for demonstration. Do not use them to
-custody real value. A mainnet deployment requires a full securities-compliance
-and legal review.
-</CalloutBox>
-
-## Mainnet integration
-
-The Testnet settings above are not interchangeable with Mainnet. Before pointing
-an integration at Mainnet, set and verify each network-specific value:
-
-| Setting | Testnet | Mainnet |
-|---------|---------|---------|
-| Network passphrase | `Test SDF Network ; September 2015` | `Public Global Stellar Network ; September 2015` |
-| Soroban RPC | `https://soroban-testnet.stellar.org` | Use a Mainnet Soroban RPC URL from your chosen provider; endpoint URLs and access terms are provider-specific. |
-| Contract IDs | The Testnet IDs listed below | Deploy the contracts to Mainnet and use the resulting Mainnet IDs. Contract IDs are network-specific; this project does not publish a Mainnet deployment. |
-| Read source | An account that exists on Testnet | Set `RWA_READ_SOURCE` to a valid account on Mainnet that your RPC can use for simulation. |
-| Fees | Testnet XLM has no real-world value | Mainnet transactions and deployments consume real XLM. Base and Soroban resource fees vary; simulate and assemble transactions to estimate fees rather than copying a Testnet fee. |
-
-For the API, set `RWA_RPC_URL`, `RWA_REGISTRY_ID`, and `RWA_DIVIDEND_ID` to
-Mainnet values. The service requires explicit registry and dividend IDs whenever
-the RPC URL is not the default Testnet endpoint. Configure the asset-token and
-compliance IDs in any client that calls those contracts directly. The API's
-read-only simulations do not submit transactions; deployments and writes do incur
-Mainnet fees. See the [Integration Guide](/docs/integration) for the
-simulate-and-assemble flow.
-
-## How to verify this yourself
-
-Open any contract in [Stellar Expert](https://stellar.expert/explorer/testnet) to
-check its Testnet deployment and on-chain activity:
-
-| Contract    | Contract ID |
-|-------------|-------------|
-| compliance  | [`CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU`](https://stellar.expert/explorer/testnet/contract/CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU) |
-| asset-token | [`CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ`](https://stellar.expert/explorer/testnet/contract/CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ) |
-| registry    | [`CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3`](https://stellar.expert/explorer/testnet/contract/CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3) |
-| dividend    | [`CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX`](https://stellar.expert/explorer/testnet/contract/CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX) |
-
-You can also call a read-only view on the registry with the Stellar CLI:
-
-```bash
-stellar contract invoke \
-  --contract-id CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3 \
-  --source-account GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA \
-  --network testnet \
-  --send no \
-  -- get_all_assets
-```
-
-`--send no` simulates the call and returns its result without signing or
-submitting a transaction. The source is a public Testnet address; you do not need
-your own wallet, secret key, or funds.
-
-The admin / issuer account for the sample deployment is
-`GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA`, and the sample asset
-is **Manhattan Loft** (`MLOFT`), a `real_estate` asset valued at $5,000,000.
-
-Continue to the [Compliance Guide](/docs/compliance-guide) — the concept that
-makes this an RWA platform rather than a plain token factory.
-
-## What to read next
-
-- [Architecture Overview](/docs/architecture) — understand how the API, contracts, and web app fit together.
-- [Compliance Guide](/docs/compliance-guide) — how the on-chain transfer gate works and why it matters.
-- [API Overview](/docs/api/overview) — the REST service conventions and all available endpoints.
-- [Integration Guide](/docs/integration) — query the API and call contracts directly from TypeScript.
+- [Compliance Guide](/docs/compliance-guide) — how allowlists and KYC gating work.
+- [API Reference](/docs/api-reference) — every endpoint and response shape.
+- [Troubleshooting](/docs/troubleshooting) — common errors and fixes.

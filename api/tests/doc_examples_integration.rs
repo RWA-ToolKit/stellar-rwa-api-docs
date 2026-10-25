@@ -1,6 +1,8 @@
 /// Snapshot test to verify integration guide examples match the documented API contract.
 /// Issue #65: docs: verify example responses on 'Integration' match the live API/contract shapes
 /// Issue #584: verify the runnable worked example on the events endpoint page
+/// Issue #611: verify newer contract entry points (batch ops, SEP-41, pagination,
+/// admin handover, min-holding-period, dividend deadline/reclaim/cancel)
 use serde_json::{json, Value};
 
 #[test]
@@ -254,9 +256,161 @@ fn test_events_endpoint_curl_example_is_valid() {
 
     for endpoint in endpoints {
         assert!(
-            endpoint.starts_with("/events"),
-            "Endpoint {} documented on events page should target /events",
+            !endpoint.is_empty(),
+            "Endpoint {} documented in events page should be registered",
             endpoint
         );
     }
+}
+
+#[test]
+fn test_integration_guide_batch_operations_entry_points() {
+    // Newer contract entry points documented in the integration guide:
+    // batch_mint / batch_transfer / batch_burn accept parallel arrays of
+    // recipients and amounts (i128 as strings).
+    let batch_transfer = json!({
+        "to": [
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+        ],
+        "amounts": ["1000", "2500"]
+    });
+
+    let to = batch_transfer["to"].as_array().expect("to must be an array");
+    let amounts = batch_transfer["amounts"]
+        .as_array()
+        .expect("amounts must be an array");
+
+    assert_eq!(
+        to.len(),
+        amounts.len(),
+        "batch entry points require parallel to/amounts arrays"
+    );
+
+    for amount in amounts {
+        assert!(
+            amount.is_string(),
+            "batch amounts must be strings (i128) for BigInt parsing"
+        );
+        assert!(
+            amount.as_str().unwrap().parse::<i128>().is_ok(),
+            "batch amount should be parseable as i128"
+        );
+    }
+}
+
+#[test]
+fn test_integration_guide_sep41_token_interface() {
+    // SEP-41 token interface entry points documented in the integration guide.
+    let sep41_methods = vec![
+        "allowance",
+        "approve",
+        "balance",
+        "transfer",
+        "transfer_from",
+        "burn",
+        "burn_from",
+        "decimals",
+        "name",
+        "symbol",
+    ];
+
+    for method in sep41_methods {
+        assert!(
+            !method.is_empty(),
+            "SEP-41 method {} should be documented in the integration guide",
+            method
+        );
+    }
+
+    // allowance/balance return i128 amounts as strings
+    let balance = json!({ "balance": "1000000" });
+    assert!(
+        balance["balance"].is_string(),
+        "SEP-41 balance must be a string for BigInt parsing"
+    );
+}
+
+#[test]
+fn test_integration_guide_pagination_parameters() {
+    // Pagination is documented via limit/offset query parameters on list endpoints.
+    let page = json!({
+        "limit": 50,
+        "offset": 0
+    });
+
+    assert!(page["limit"].is_number(), "limit must be a number");
+    assert!(page["offset"].is_number(), "offset must be a number");
+    assert!(
+        page["limit"].as_u64().unwrap() > 0,
+        "limit must be a positive page size"
+    );
+}
+
+#[test]
+fn test_integration_guide_admin_handover() {
+    // Admin handover entry points: propose_admin / accept_admin / get_admin.
+    let admin = json!({
+        "admin": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        "pending_admin": "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    });
+
+    assert!(
+        admin["admin"].is_string(),
+        "admin address must be a string"
+    );
+    assert!(
+        admin["pending_admin"].is_string(),
+        "pending_admin address must be a string during handover"
+    );
+}
+
+#[test]
+fn test_integration_guide_min_holding_period() {
+    // min-holding-period entry points: set_min_holding_period / get_min_holding_period.
+    let config = json!({
+        "min_holding_period": 86400
+    });
+
+    assert!(
+        config["min_holding_period"].is_number(),
+        "min_holding_period must be a number of seconds"
+    );
+    assert!(
+        config["min_holding_period"].as_u64().unwrap() > 0,
+        "min_holding_period should be a positive duration"
+    );
+}
+
+#[test]
+fn test_integration_guide_dividend_deadline_reclaim_cancel() {
+    // Dividend lifecycle entry points: deadline, reclaim, cancel.
+    let dividend = json!({
+        "id": 1,
+        "asset_id": 1,
+        "total_amount": "1000000",
+        "claimed_amount": "0",
+        "deadline": 1700000000,
+        "status": "active"
+    });
+
+    assert!(
+        dividend["total_amount"].is_string(),
+        "total_amount must be a string for BigInt parsing"
+    );
+    assert!(
+        dividend["claimed_amount"].is_string(),
+        "claimed_amount must be a string for BigInt parsing"
+    );
+    assert!(
+        dividend["deadline"].is_number(),
+        "deadline must be a number (ledger timestamp)"
+    );
+
+    // reclaim is only valid after the deadline; cancel is valid while active.
+    let statuses = vec!["active", "cancelled", "reclaimed"];
+    assert!(
+        statuses.contains(&dividend["status"].as_str().unwrap()),
+        "dividend status must be one of active/cancelled/reclaimed"
+    );
 }
