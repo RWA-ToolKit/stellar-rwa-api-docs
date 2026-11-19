@@ -1,0 +1,57 @@
+{
+  "info": {
+    "name": "Stellar RWA API",
+    "_postman_id": "d6f1a9d0-6b2a-4e7a-9a2e-6c9a4b2f1c01",
+    "description": "Read-only REST API that indexes tokenized real-world asset activity on Stellar. See https://github.com/RWA-ToolKit/stellar-rwa-api-docs for full docs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "assetId", "value": "1", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Index",
+      "request": { "method": "GET", "url": "{{baseUrl}}/" }
+    },
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+    },
+    {
+      "name": "Platform Stats",
+      "request": { "method": "GET", "url": "{{baseUrl}}/stats" }
+    },
+    {
+      "name": "List Assets",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/assets?asset_type=real_estate&active=true",
+          "host": ["{{baseUrl}}"],
+          "path": ["assets"],
+          "query": [
+            { "key": "asset_type", "value": "real_estate", "disabled": true },
+            { "key": "active", "value": "true", "disabled": true }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Asset by Id",
+      "request": { "method": "GET", "url": "{{baseUrl}}/assets/{{assetId}}" }
+    },
+    {
+      "name": "Get Asset Holders",
+      "request": { "method": "GET", "url": "{{baseUrl}}/assets/{{assetId}}/holders" }
+    },
+    {
+      "name": "Get Asset Compliance Summary",
+      "request": { "method": "GET", "url": "{{baseUrl}}/assets/{{assetId}}/compliance" }
+    },
+    {
+      "name": "Get Asset Dividends",
+      "request": { "method": "GET", "url": "{{baseUrl}}/assets/{{assetId}}/dividends" }
+    }
+  ]
+}

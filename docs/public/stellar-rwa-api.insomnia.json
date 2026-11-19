@@ -1,0 +1,89 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-11-19T00:00:00.000Z",
+  "__export_source": "stellar-rwa-api-docs",
+  "resources": [
+    {
+      "_id": "wrk_rwa",
+      "_type": "workspace",
+      "name": "Stellar RWA API",
+      "description": "Read-only REST API that indexes tokenized real-world asset activity on Stellar."
+    },
+    {
+      "_id": "env_rwa_base",
+      "_type": "environment",
+      "parentId": "wrk_rwa",
+      "name": "Base Environment",
+      "data": { "baseUrl": "http://localhost:8080", "assetId": "1" }
+    },
+    {
+      "_id": "req_index",
+      "_type": "request",
+      "parentId": "wrk_rwa",
+      "name": "Index",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/"
+    },
+    {
+      "_id": "req_health",
+      "_type": "request",
+      "parentId": "wrk_rwa",
+      "name": "Health",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/health"
+    },
+    {
+      "_id": "req_stats",
+      "_type": "request",
+      "parentId": "wrk_rwa",
+      "name": "Platform Stats",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/stats"
+    },
+    {
+      "_id": "req_assets_list",
+      "_type": "request",
+      "parentId": "wrk_rwa",
+      "name": "List Assets",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/assets",
+      "parameters": [
+        { "name": "asset_type", "value": "real_estate", "disabled": true },
+        { "name": "active", "value": "true", "disabled": true }
+      ]
+    },
+    {
+      "_id": "req_asset_get",
+      "_type": "request",
+      "parentId": "wrk_rwa",
+      "name": "Get Asset by Id",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/assets/{{ _.assetId }}"
+    },
+    {
+      "_id": "req_asset_holders",
+      "_type": "request",
+      "parentId": "wrk_rwa",
+      "name": "Get Asset Holders",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/assets/{{ _.assetId }}/holders"
+    },
+    {
+      "_id": "req_asset_compliance",
+      "_type": "request",
+      "parentId": "wrk_rwa",
+      "name": "Get Asset Compliance Summary",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/assets/{{ _.assetId }}/compliance"
+    },
+    {
+      "_id": "req_asset_dividends",
+      "_type": "request",
+      "parentId": "wrk_rwa",
+      "name": "Get Asset Dividends",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/assets/{{ _.assetId }}/dividends"
+    }
+  ]
+}
