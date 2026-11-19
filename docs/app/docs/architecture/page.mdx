@@ -60,7 +60,9 @@ layer; they interact only through well-defined interfaces.
    binary-encoded type Soroban uses to pass data in and out of contracts) with
    `stellar-xdr` (the XDR codec library; XDR is the wire format Stellar uses
    for all on-chain data).
-2. The decoded state is held in an in-memory snapshot (no database in v1).
+2. The decoded state is held in an in-memory snapshot (no database in v1). For
+   how that snapshot grows, what it costs per request, and the bounding
+   strategy, see [Snapshot Memory](/docs/snapshot-memory).
 3. The web app — and any other client — fetches that snapshot over REST. This is
    cheaper and simpler than every client simulating its own contract calls.
 
@@ -86,7 +88,9 @@ a brand-new snapshot from scratch.
    contract.
 3. The results are assembled into a new snapshot (assets, holders, compliance
    summaries, dividends and `/stats`) and swapped in atomically. Readers see
-   either the old snapshot or the new one — never a half-built mix.
+   either the old snapshot or the new one — never a half-built mix. See
+   [Snapshot Memory](/docs/snapshot-memory) for the memory and per-request cost
+   implications of this design.
 4. Individual reads retry transient RPC errors in place with short backoff. If
    the cycle still fails, the previous snapshot keeps being served and the next
    attempt waits one poll interval (or the RPC's `Retry-After`, if it sent one).
