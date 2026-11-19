@@ -75,3 +75,15 @@ criterion mentions, that's worth a question before merge.
 
 This does not replace the checklist in `CONTRIBUTING.md` — it is about how
 you *describe* the change you already made following that checklist.
+
+## Renaming or removing a page
+
+If your PR moves or deletes a published doc page, add an entry to
+[`docs/redirects.json`](./docs/redirects.json) pointing the old path at its
+replacement (or at the nearest relevant page, if there is no 1:1 replacement).
+`docs/next.config.mjs` reads that file and registers each entry as a Next.js
+redirect at build time — no code change needed beyond the JSON entry. List
+this under your PR's acceptance criteria, e.g.:
+
+- [ ] Old URL `/docs/<old-path>` redirects to `/docs/<new-path>` via
+      `docs/redirects.json`, instead of 404ing
