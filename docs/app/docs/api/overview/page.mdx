@@ -81,3 +81,17 @@ can call the API directly from the browser.
 
 `total_holders` is the count of **distinct approved addresses** across all assets;
 `last_indexed_ledger` is the ledger the most recent successful refresh read from.
+
+## FAQ
+
+### Why REST instead of GraphQL?
+
+The API only exposes a handful of fixed, shallow resources — assets, their
+holders, compliance summary and dividend history — so there is no deeply nested
+or client-varying query shape that GraphQL's flexible querying would pay for.
+REST also keeps the service dependency-free (no schema/resolver layer) and makes
+every response cacheable and curl-able with a plain URL, which matches the
+read-only, polling nature of the indexer. If a future version needs to let
+clients compose across many related resources in one round trip, GraphQL would
+be reconsidered then — for now it would add complexity without solving a real
+problem for this API's shape.
