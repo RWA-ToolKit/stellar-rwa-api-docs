@@ -114,5 +114,71 @@ The admin / issuer account for the sample deployment is
 `GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA`, and the sample asset
 is **Manhattan Loft** (`MLOFT`), a `real_estate` asset valued at $5,000,000.
 
+## Troubleshooting
+
+### `cargo build` fails while compiling `aws-lc-sys`
+
+The API's TLS stack (`reqwest` with `rustls-tls`, pulled in transitively via
+`stellar-xdr`/`stellar-strkey`'s dependency tree) resolves to `aws-lc-rs` /
+`aws-lc-sys` on most platforms. `aws-lc-sys` compiles a vendored C/assembly
+library as part of the build, which is the most common source of build
+friction for new contributors running `cargo run` or `cargo build` in `api/`
+for the first time — even though `api/` is maintainer-owned for PRs,
+contributors still need it running locally to verify doc examples against a
+real response.
+
+Typical failure signature:
+
+```
+error: failed to run custom build command for `aws-lc-sys v...`
+...
+CMake Error: CMake was unable to find a build program
+```
+
+or, on a successful CMake step but a missing C toolchain:
+
+```
+cc: command not found
+```
+
+**Fix — install the build prerequisites before `cargo build`:**
+
+- **cmake** (required — `aws-lc-sys` builds via CMake)
+- **A C/C++ compiler** — `clang` is preferred and tested upstream; `gcc` also
+  works
+- **Go 1.18+** (only needed if CMake falls back to the Go-based assembly
+  perl-less path on your platform — usually not required if `perl` is
+  present)
+- **perl** (used to process `aws-lc`'s assembly sources on most platforms;
+  typically already present on Linux/macOS)
+
+Install commands by platform:
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install -y cmake clang
+
+# Fedora
+sudo dnf install -y cmake clang
+
+# macOS (Homebrew)
+brew install cmake llvm
+
+# Windows
+# Use a recent Visual Studio Build Tools install (C++ workload) plus
+# cmake from https://cmake.org/download/, or build inside WSL2 instead.
+```
+
+<CalloutBox variant="note">
+If you only need to read or edit the docs site or contracts, you can skip
+this entirely — `npm run dev` in `docs/` and `stellar contract build` in the
+contract crates don't touch `aws-lc-sys`. It's only required for building or
+running `api/`.
+</CalloutBox>
+
+After installing, re-run `cargo build` (or `cargo run`) from `api/`; the
+`aws-lc-sys` build step should complete without re-running `cmake`/`cc`
+lookups on subsequent builds since Cargo caches the compiled artifact.
+
 Continue to the [Compliance Guide](/docs/compliance-guide) — the concept that
 makes this an RWA platform rather than a plain token factory.
