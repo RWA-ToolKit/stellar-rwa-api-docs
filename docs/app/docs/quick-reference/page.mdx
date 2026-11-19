@@ -1,0 +1,79 @@
+export const metadata = {
+  title: "Quick Reference",
+  description: "A single-page cheatsheet of every API endpoint, response shape, and the relevant on-chain fields.",
+};
+
+# Quick Reference
+
+A one-page cheatsheet for the Stellar RWA API. For full details on any endpoint,
+see the [API Reference](/docs/api/overview) section.
+
+Base URL (local): `http://localhost:8080`
+
+## Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Self-describing index of available endpoints. |
+| `GET` | `/health` | Liveness check. |
+| `GET` | `/stats` | Platform-wide statistics. |
+| `GET` | `/assets` | All tokenized assets. Supports `asset_type` and `active` query params. |
+| `GET` | `/assets/:id` | Full detail for a single asset by registry id. |
+| `GET` | `/assets/:id/holders` | Holder list with balances, sorted by balance descending. |
+| `GET` | `/assets/:id/compliance` | Aggregate compliance summary — counts only, no addresses. |
+| `GET` | `/assets/:id/dividends` | Distribution history for an asset, newest ledger first. |
+
+All endpoints are read-only `GET` requests. There is no authentication — the API
+holds no keys and never signs or submits transactions.
+
+## Query parameters
+
+| Endpoint | Param | Type | Notes |
+|----------|-------|------|-------|
+| `/assets` | `asset_type` | string | `real_estate` \| `invoice` \| `commodity` |
+| `/assets` | `active` | boolean | Filter by active status |
+
+## Common response fields
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | number | Registry id |
+| `token_contract` | string | Asset-token contract address |
+| `issuer` | string | Issuer account |
+| `valuation_cents` | string | USD cents, as `i128` serialized as a string |
+| `valuation_usd` | number | Convenience float, `valuation_cents / 100` |
+| `total_supply` / `balance` | string | Raw base units, `i128` serialized as a string |
+| `decimals` | number | Divide base-unit amounts by `10 ** decimals` to display |
+| `share_percent` / `claimed_percent` | number | Convenience percentage floats |
+
+## Error shape
+
+```json
+{ "error": "not_found", "message": "no asset with id 999" }
+```
+
+| Status | `error` | When |
+|--------|---------|------|
+| `404` | `not_found` | Unknown asset id |
+| `400` | — | Non-numeric `:id` path segment |
+
+## Quick curl reference
+
+```bash
+curl http://localhost:8080/stats
+curl http://localhost:8080/assets
+curl "http://localhost:8080/assets?asset_type=real_estate&active=true"
+curl http://localhost:8080/assets/1
+curl http://localhost:8080/assets/1/holders
+curl http://localhost:8080/assets/1/compliance
+curl http://localhost:8080/assets/1/dividends
+```
+
+## Four contracts (for context)
+
+| Contract | Role |
+|----------|------|
+| Registry | Tracks all tokenized assets and their metadata. |
+| Asset Token | The fungible token representing fractional ownership. |
+| Compliance | Allowlist / KYC gate enforced on transfers. |
+| Dividend | Distributes proceeds pro-rata to holders. |
