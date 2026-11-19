@@ -105,7 +105,7 @@ The web app supports two distinct data paths for reading platform state, asset d
 
 ### Freshness and cost tradeoffs
 
-| Dimension | API-Backed Path | Direct-RPC Fallback Path |
+| Dimension | API-backed path | Direct-RPC fallback path |
 |---|---|---|
 | **Freshness** | Eventual consistency (~10s lag behind ledger tip, governed by indexer polling interval). | Real-time state directly from the current ledger head. |
 | **Client Performance** | Fast; single HTTP GET request returning lightweight JSON. No client-side XDR decoding. | Slower; requires executing transaction simulations and decoding `ScVal` responses (`scValToNative`). |
