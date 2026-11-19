@@ -25,6 +25,13 @@ export const NAV: NavSection[] = [
     ],
   },
   {
+    title: "Architecture",
+    items: [
+      { title: "Overview", href: "/docs/architecture" },
+      { title: "Performance & Benchmarks", href: "/docs/performance" },
+    ],
+  },
+  {
     title: "API Reference",
     items: [
       { title: "Overview", href: "/docs/api/overview" },

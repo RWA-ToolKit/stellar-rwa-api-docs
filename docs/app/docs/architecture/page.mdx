@@ -1,0 +1,60 @@
+export const metadata = {
+  title: "Architecture",
+  description: "How the indexer, API, and web app fit together, and what performance to expect.",
+};
+
+# Architecture
+
+The system has three parts — contracts, API, and web app — connected as
+described in [Getting Started](/docs/getting-started). This page focuses on
+the API's internals and the performance envelope integrators should plan
+around.
+
+## The indexer
+
+`api/src/indexer/mod.rs` runs a background task that polls Soroban RPC every
+`POLL_INTERVAL` (**10 seconds**) via `simulateTransaction` view calls, decodes
+the returned `ScVal`s, and swaps in a new immutable snapshot behind an
+`ArcSwap`. There is no database in v1 — every `GET` request clones the current
+snapshot out of memory.
+
+A single failed read is retried in place up to `MAX_READ_ATTEMPTS` (4 attempts)
+with jittered exponential backoff between `RETRY_BASE_DELAY` (150ms) and
+`RETRY_MAX_DELAY` (2s), so a transient RPC blip does not fail a whole refresh
+cycle. If a full cycle still fails, the API keeps serving the last good
+snapshot rather than erroring.
+
+## Performance and SLO expectations
+
+These are the concrete numbers integrators can design around today:
+
+| Characteristic | Value | Source |
+|---|---|---|
+| Indexer poll interval | 10s (`POLL_INTERVAL`) | `api/src/indexer/mod.rs` |
+| Max data staleness (healthy indexer) | ~10s, bounded by poll interval | `api/src/indexer/mod.rs` |
+| Snapshot read latency | Sub-millisecond — an `Arc` clone of an in-memory structure, no I/O | `api/src/indexer/mod.rs` (`snapshot()`) |
+| HTTP response time (cache hit, `304`) | Single comparison, no snapshot clone | `api/src/routes/mod.rs` (`cache_headers`) |
+| HTTP response time (cache miss) | Dominated by JSON serialization of the snapshot, not RPC — typically single-digit milliseconds for the Testnet dataset sizes | `api/src/routes/stats.rs`, `routes/assets.rs` |
+| Per-IP rate limit | 5 req/s sustained, burst of 20 | `api/src/routes/mod.rs` (`RATE_LIMIT_PER_SECOND`, `RATE_LIMIT_BURST`) |
+| Cache freshness header | `Cache-Control: public, max-age=10` on all snapshot-backed endpoints | `api/src/routes/mod.rs` (`insert_cache_headers`) |
+| RPC read retries before failing a refresh | 4 attempts, 150ms–2s backoff | `api/src/indexer/mod.rs` (`MAX_READ_ATTEMPTS`, `RETRY_BASE_DELAY`, `RETRY_MAX_DELAY`) |
+
+<CalloutBox variant="note">
+These numbers describe the indexer and transport layer. The dominant cost at
+scale is rebuilding the snapshot once per poll cycle as the number of assets,
+holders, and distributions grows — see
+[Performance / Benchmarks](/docs/performance) for how that scaling
+characteristic is (and should be) measured.
+</CalloutBox>
+
+### What this means for integrators
+
+- Don't poll the API faster than once per `POLL_INTERVAL` (10s) expecting new
+  data — you will just get `304 Not Modified` or an identical body.
+- Budget for the per-IP rate limit (5 req/s, burst 20) if you fan out requests
+  across multiple assets; batch via a shared client where possible.
+- Treat `last_updated` on `GET /stats` (see
+  [API Overview → Data freshness](/docs/api/overview#data-freshness)) as the
+  authoritative staleness signal rather than assuming a fixed 10s bound — a
+  degraded RPC backend can push it further out, and the API will still answer
+  with `200 OK`.
