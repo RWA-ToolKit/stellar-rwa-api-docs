@@ -390,6 +390,7 @@ export async function transferAndConfirm(
 The web app follows the same sequence; its progress indicator (*preparing →
 awaiting signature → submitting → confirming*) maps to stages 1–3, 4, 5, and 6.
 See [Transaction feedback](/docs/web-app#transaction-feedback).
+
 ## Testnet fixtures for compliance failure paths
 
 The scenarios below let you exercise every failure branch of the compliance gate
@@ -723,8 +724,5 @@ read from a node that is lagging behind.
 
 All Testnet contract IDs (with Stellar Expert explorer links) are in
 [Getting Started → Deployed contract addresses](/docs/getting-started#deployed-contract-addresses-testnet).
-Asset-token contract IDs are discovered from the registry's `get_all_assets` (or
-the API's `/assets`).
-All Testnet contract ids are listed in [Getting Started](/docs/getting-started#deployed-contract-addresses-testnet).
-Asset-token contract ids are discovered from the registry's `get_all_assets(start_id, limit)`
+Asset-token contract IDs are discovered from the registry's `get_all_assets(start_id, limit)`
 (paginating until a page shorter than `limit` is returned) or from the API's `/v1/assets`.
