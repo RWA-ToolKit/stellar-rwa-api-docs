@@ -29,6 +29,14 @@ adding a new documentation page — is fair game in `docs/`.
 - **Use the components.** `CalloutBox`, `ApiEndpoint`, and fenced code blocks keep
   pages consistent. See existing pages for patterns.
 - **Update navigation.** If you add a page, add it to `docs/components/nav.ts`.
+- **Keep `lastReviewed` current.** Every `page.mdx` exports a `lastReviewed`
+  date (`"YYYY-MM-DD"`, UTC) in its `metadata` object, set to the date the
+  page's content was last checked against the deployed contracts and API —
+  not the date of an unrelated wording fix. Bump it whenever you verify or
+  correct the page's examples. New pages must set it from the start. A CI
+  script (`docs/scripts/check-last-reviewed.mjs`) fails the build once a
+  page's `lastReviewed` is older than the staleness threshold, so stale pages
+  surface automatically.
 
 ## Local setup
 
