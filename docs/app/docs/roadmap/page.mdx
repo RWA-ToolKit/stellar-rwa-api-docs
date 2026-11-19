@@ -1,0 +1,50 @@
+export const metadata = {
+  title: "Roadmap",
+  description: "Where the project has been and where it's headed, linking to the changelog and the open issue tracker.",
+  canonical: "/docs/roadmap",
+  lastReviewed: "2026-11-19",
+};
+
+# Roadmap
+
+<LastReviewed date={metadata.lastReviewed} />
+
+This page is a public, low-maintenance view of the project's direction. It
+intentionally doesn't duplicate detail that's already tracked elsewhere —
+it links out to the two places that stay current on their own.
+
+## Where we've been
+
+Every shipped change — API, docs, and CI — is recorded in the
+[Changelog](/docs/changelog), which is generated from the repository's
+[`CHANGELOG.md`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/blob/main/CHANGELOG.md).
+That's the authoritative history of what has already landed.
+
+## Where we're headed
+
+Planned and proposed work lives as GitHub issues, not in this page, so it
+can't go stale. The full, live list of open issues is:
+
+**[github.com/RWA-ToolKit/stellar-rwa-api-docs/issues](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/issues?q=is%3Aissue+is%3Aopen)**
+
+A few useful filtered views:
+
+- [Open issues labeled `docs`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/issues?q=is%3Aissue+is%3Aopen+label%3Adocs) — contribution-friendly, scoped to `docs/`.
+- [Open issues labeled `enhancement`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement) — proposed new functionality.
+- [Open issues with no assignee](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/issues?q=is%3Aissue+is%3Aopen+no%3Aassignee) — up for grabs.
+
+<CalloutBox variant="note">
+Roadmap items don't get a status here beyond "open" or "shipped" — the issue
+thread itself is where discussion, design, and progress happen. If you want
+to propose something new, open an issue rather than a PR to this page.
+</CalloutBox>
+
+## How something gets from here to the changelog
+
+1. It starts as a GitHub issue (bug, enhancement, or docs gap).
+2. Discussion and design happen on the issue.
+3. A PR closes it — for `docs/` changes, anyone can open one; see
+   [CONTRIBUTING.md](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/blob/main/CONTRIBUTING.md).
+   Changes under `api/` are maintainer-only.
+4. Once merged and released, it's added to [`CHANGELOG.md`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/blob/main/CHANGELOG.md)
+   and shows up on the [Changelog](/docs/changelog) page.

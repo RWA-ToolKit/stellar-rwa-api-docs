@@ -4,7 +4,8 @@
     "items": [
       { "title": "Getting Started", "href": "/docs/getting-started" },
       { "title": "Architecture Overview", "href": "/docs/architecture" },
-      { "title": "Contributing Walkthrough", "href": "/docs/contributing-walkthrough" }
+      { "title": "Contributing Walkthrough", "href": "/docs/contributing-walkthrough" },
+      { "title": "Roadmap", "href": "/docs/roadmap" }
     ]
   },
   {
