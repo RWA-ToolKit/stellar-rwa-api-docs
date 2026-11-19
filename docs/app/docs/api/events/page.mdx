@@ -99,7 +99,7 @@ export API_BASE_URL="https://api.testnet.example.com"
 curl -s "$API_BASE_URL/v1/events?limit=5" | jq .
 ```
 
-```typescript
+```ts
 const API_BASE_URL = process.env.API_BASE_URL ?? "https://api.testnet.example.com";
 
 async function fetchEvents(limit = 20) {
@@ -137,7 +137,7 @@ Amounts inside `data` depend on the contract and event type, in accordance with 
 | Dividend `claim` | `data.amount` | Payment token base units (`i128` string) | `Number(BigInt(data.amount)) / 10 ** payment_token.decimals` |
 
 <CalloutBox variant="tip" title="Event amount conversion example">
-```typescript
+```ts
 // For a Transfer event with amount = "100" and token decimals = 2:
 const rawAmount = BigInt(event.data.amount);
 const displayAmount = Number(rawAmount) / (10 ** 2);

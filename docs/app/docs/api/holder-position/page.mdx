@@ -132,7 +132,7 @@ call the dividend contract's `claimable` function live — see the
 <CalloutBox variant="tip" title="Position unit conversions">
 Because asset tokens and payment tokens may use different decimal bases, always scale each amount using its corresponding token decimals:
 
-```typescript
+```ts
 // 1. Convert asset token balance (e.g. TST with decimals = 2):
 const rawBalance = BigInt(position.balance); // "250"
 const assetDecimals = 2;
