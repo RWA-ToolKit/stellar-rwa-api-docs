@@ -1,0 +1,212 @@
+export const metadata = {
+  title: "API · Rate Limits & Caching",
+  description: "Rate-limit headers, ETag-based conditional requests, and Cache-Control guidance for the Stellar RWA API.",
+  canonical: "/docs/api/rate-limits",
+  lastReviewed: "2026-09-27",
+};
+
+# Rate Limits & Caching
+
+<LastReviewed date={metadata.lastReviewed} />
+
+Rate limiting is keyed by client IP and uses a token bucket shared across API
+routes. Conditional requests are enabled on the `/v1` data routes.
+
+## Rate limits
+
+Rate limiting is a **token bucket** keyed by client IP and shared across all API
+routes. The exact defaults are:
+
+| Parameter | Default | Env var |
+|-----------|---------|---------|
+| Sustained rate | **5 requests per second** per client IP | `RWA_RATE_LIMIT_PER_SECOND` |
+| Burst capacity | **20 requests** | `RWA_RATE_LIMIT_BURST` |
+| Refill interval | **1 token every 200 ms** (1000 ms ÷ 5 per second) | derived from `RWA_RATE_LIMIT_PER_SECOND` |
+
+The bucket starts full, so a client can send up to **20 requests back-to-back**
+before any throttling occurs. After the burst is spent, requests are admitted at
+**one per 200 ms** — the 21st request in a burst, or any request that arrives
+before the next token has refilled, is rejected. This is a continuously refilling
+token bucket, **not** a fixed one-minute window: there is no per-minute quota and
+no counter that resets on a clock boundary.
+
+The limit is shared across API routes, so requests to `/v1/assets` and
+`/v1/stats` draw from the same bucket for a given IP.
+
+### When the limit is exceeded
+
+When a request arrives before a token is available, the API responds with HTTP
+`429 Too Many Requests` using the shared JSON error body (see
+[API · Errors](/docs/api/errors) for the canonical shape):
+
+```json
+{
+  "error": "too_many_requests",
+  "message": "Too Many Requests! Wait for <seconds>s"
+}
+```
+
+The number of seconds in the message is the time until the next token is
+available, rounded up to whole seconds (so it is at least `1`). With the
+default refill interval of 200 ms, a client that has just exhausted its burst
+typically sees a 1-second wait. `Retry-After` is sent on `429` and is exposed to
+browser clients via `Access-Control-Expose-Headers` (see
+[Browser clients](#browser-clients-exposed-cors-headers)), but no
+`X-RateLimit-*` headers are sent. On `429`, pause for at least the indicated
+number of seconds when present, with a minimum one-second delay. Otherwise, use
+exponential backoff with jitter (and cap the delay), and retry only idempotent
+requests.
+
+<CalloutBox variant="tip">
+For polling use cases, the indexer refreshes its state about every 10 seconds, so
+polling more frequently does not provide fresher data. Use a 10–15 second polling
+interval and back off promptly after a `429`.
+</CalloutBox>
+
+## HTTP caching with ETags
+
+Snapshot-backed `/v1` data endpoints return a strong `ETag` derived from the latest
+indexed ledger, along with `Cache-Control: public, max-age=10`. `/health` and other
+non-data routes do not return these cache headers.
+
+### How it works
+
+1. Make a normal request — the response includes an `ETag` header.
+2. On the next request, send the value back in `If-None-Match`.
+3. If the snapshot has not changed, the server returns `304 Not Modified` with an
+   empty body, saving bandwidth. The request still counts toward the rate limit.
+4. If the snapshot has changed, the server returns `200 OK` with the new body and
+   a new `ETag`.
+
+```bash
+# First request — capture the ETag
+# API_BASE_URL includes /v1, for example http://localhost:8080/v1
+curl -i "$API_BASE_URL/assets/1"
+# HTTP/1.1 200 OK
+# ETag: "ledger-3514152"
+# Cache-Control: public, max-age=10
+
+# Second request — send the ETag back
+curl -i -H 'If-None-Match: "ledger-3514152"' "$API_BASE_URL/assets/1"
+# HTTP/1.1 304 Not Modified   (empty body)
+```
+
+### TypeScript helper
+
+```ts
+const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080/v1";
+
+const etagCache = new Map<string, { etag: string; data: unknown }>();
+
+export async function fetchWithEtag<T>(path: string): Promise<T> {
+  const url = `${API}${path}`;
+  const cached = etagCache.get(url);
+
+  const headers: HeadersInit = cached
+    ? { "If-None-Match": cached.etag }
+    : {};
+
+  const res = await fetch(url, { headers });
+
+  if (res.status === 304 && cached) {
+    // Server confirmed nothing changed — reuse the cached body.
+    return cached.data as T;
+  }
+
+  if (!res.ok) throw new Error(`API ${res.status}`);
+
+  const data = (await res.json()) as T;
+  const etag = res.headers.get("ETag");
+  if (etag) etagCache.set(url, { etag, data });
+
+  return data;
+}
+```
+
+### Browser clients: exposed CORS headers
+
+The helper above works from a browser only because the API opts the relevant
+headers into CORS. `ETag` and `Retry-After` are **not** CORS-safelisted response
+headers, so without `Access-Control-Expose-Headers` a cross-origin
+`res.headers.get("ETag")` returns `null` and the cache is never populated. The
+API sets the following on every CORS response:
+
+| Header | Direction | Why |
+|--------|----------|-----|
+| `ETag` | exposed to JS | Read after a fetch to store the tag for the next `If-None-Match`. |
+| `Retry-After` | exposed to JS | Read from a `429` to learn how long to wait before retrying. |
+| `Cache-Control` | exposed to JS | Lets a client decide whether to serve a response from its own cache. |
+
+`If-None-Match` is likewise not safelisted as a *request* header, so setting it
+from a script triggers an `OPTIONS` preflight. The API answers that preflight
+with `Access-Control-Allow-Headers: content-type, if-none-match`; both are
+required for the conditional-request flow above to work in a browser.
+
+```ts
+// The preflight a browser sends before a request carrying If-None-Match.
+// Access-Control-Allow-Headers must list if-none-match or the request fails.
+OPTIONS /v1/assets/1
+Origin: http://localhost:3000
+Access-Control-Request-Method: GET
+Access-Control-Request-Headers: if-none-match
+```
+
+<CalloutBox variant="tip">
+If you self-host the API and call it from another origin, add that origin to
+`RWA_CORS_ALLOWED_ORIGINS` (comma-separated). Both the web app and these docs
+are separate origins from the API, so without it the browser blocks the
+response entirely.
+</CalloutBox>
+
+### Which endpoints support ETags?
+
+All snapshot-backed `/v1` read endpoints support ETags. The `/health` endpoint
+does **not** return an `ETag` because liveness probes should always get a fresh
+response.
+
+| Endpoint | ETag |
+|----------|------|
+| `GET /stats` | ✅ |
+| `GET /events` | ✅ |
+| `GET /assets` | ✅ |
+| `GET /assets/:id` | ✅ |
+| `GET /assets/:id/holders` | ✅ |
+| `GET /assets/:id/compliance` | ✅ |
+| `GET /assets/:id/dividends` | ✅ |
+| `GET /assets/:id/distributions/:did` | ✅ |
+| `GET /holders/:address` | ✅ |
+| `GET /holders/:address/compliance` | ✅ |
+| `GET /compliance/:address` | ✅ |
+| `GET /health` | ❌ |
+
+## Cache-Control
+
+The API sets `Cache-Control: public, max-age=10` on snapshot-backed responses,
+matching the indexer's approximately 10-second refresh interval.
+
+If you are fronting the API with a CDN, configure it to **forward** the
+`If-None-Match` / `ETag` headers so conditional requests reach the origin rather
+than being absorbed by the CDN's own cache.
+
+## Recommendations for integrators
+
+- **Poll at the refresh interval.** The indexer rebuilds state every ~10 seconds.
+  Polling more frequently wastes budget without gaining fresher data. A 10–15 s
+  interval is a good default.
+- **Use ETags for asset detail pages.** Asset metadata rarely changes. Send
+  `If-None-Match` on every poll — most responses will be `304`.
+- **Handle `429` responses.** Back off with jitter; the API does not expose a
+  remaining-request counter.
+- **Cache locally for read-heavy UIs.** If your frontend renders the same data
+  across multiple components, fetch once and share the result rather than making
+  one request per component.
+- **Prefer the API over direct Soroban RPC for display data.** The API reduces the
+  number of outbound RPC calls your integration makes and returns pre-decoded JSON.
+  Use direct RPC only when you need live data that has not been indexed yet.
+
+## What to read next
+
+- [API Overview](/docs/api/overview) — the full endpoint list and versioning policy.
+- [Integration Guide](/docs/integration) — TypeScript helper for ETag-based fetching plus retry guidance.
+- [API · Health & Indexer Lag](/docs/api/health) — monitor whether the snapshot is fresh.
+- [Architecture Overview](/docs/architecture) — understand the 10-second polling model behind caching.

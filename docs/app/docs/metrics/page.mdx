@@ -1,0 +1,34 @@
+export const metadata = {
+  title: "Indexer Metrics",
+  description: "Prometheus metrics exposed by the Stellar RWA API indexer.",
+  canonical: "/docs/metrics",
+  lastReviewed: "2026-09-26",
+};
+
+# Indexer Metrics
+
+<LastReviewed date={metadata.lastReviewed} />
+
+`GET /metrics` (bearer token via `RWA_METRICS_TOKEN`) exposes Prometheus text
+format. Names follow Prometheus conventions: `rwa_indexer_` prefix, base units
+in the suffix (`_seconds`), and `_total` for counters.
+
+| Metric | Type | Description |
+| --- | --- | --- |
+| `rwa_indexer_refresh_duration_seconds` | histogram | Poll (refresh cycle) duration. |
+| `rwa_indexer_refresh_total{outcome}` | counter | Refresh cycles, `outcome` is `success` or `failure`. Failures are the `failure` series. |
+| `rwa_indexer_asset_read_errors_total{asset_id,read}` | counter | Failed per-asset RPC reads. |
+| `rwa_indexer_last_indexed_ledger` | gauge | Ledger of the latest successful snapshot. |
+| `rwa_indexer_last_success_timestamp_seconds` | gauge | Unix time of the last successful refresh. |
+| `rwa_indexer_last_success_age_seconds` | gauge | Lag: seconds since the last successful refresh, computed at scrape time. |
+| `rwa_indexer_snapshot_assets` | gauge | Assets in the in-memory snapshot. |
+| `rwa_indexer_snapshot_events` | gauge | Events in the in-memory snapshot. |
+
+Suggested alert: `rwa_indexer_last_success_age_seconds > 60`.
+
+## What to read next
+
+- [API · Health & Indexer Lag](/docs/api/health) — the HTTP health endpoint and staleness headers.
+- [API Overview](/docs/api/overview) — the `/metrics` endpoint authentication and scrape configuration.
+- [Architecture Overview](/docs/architecture) — how the indexer refresh cycle works.
+- [Snapshot Memory](/docs/snapshot-memory) — memory gauges and the bounding strategy.

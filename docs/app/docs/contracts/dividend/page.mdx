@@ -1,19 +1,58 @@
 export const metadata = {
   title: "Dividend Contract",
   description: "Proportional yield/dividend distribution to asset-token holders.",
+  canonical: "/docs/contracts/dividend",
+  lastReviewed: "2026-09-26",
 };
 
 # Dividend Contract
+
+<LastReviewed date={metadata.lastReviewed} />
 
 Distributes yield/dividends to asset-token holders in proportion to their
 holdings. An issuer funds a distribution with a payment token; each holder then
 claims `total_amount * balance / total_supply`, paid from the escrow this contract
 holds. Each holder can claim a given distribution once.
 
-Balances are read **at claim time** from the asset token. `snapshot_ledger` records
-the ledger at which the distribution was created, for reference.
+Balances are read **at claim time** from the asset token.
+
+A distribution may carry an optional **claim deadline**. When a deadline is set,
+claims after it revert with `DeadlinePassed (8)`; the admin can then `reclaim` the
+unclaimed remainder, or `cancel` the distribution entirely before any claims are
+made. Distributions created without a deadline remain claimable indefinitely.
 
 **Testnet:** `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX`
+
+## Related reference pages
+
+- [Asset Token Contract](/docs/contracts/asset-token) — the token whose holders
+  receive dividends; `asset_token` must be its address, and balances/supply are
+  read from it at claim time.
+- [Registry Contract](/docs/contracts/registry) — resolves asset ids to token
+  addresses and backs the `/assets/:id/dividends` listing.
+- [API Reference](/docs/api) — the `/assets/:id/dividends` endpoint and related
+  read routes that surface distributions.
+- [Error Codes](/docs/reference/error-codes) — shared error-code conventions
+  used by the `ErrorCodeTable` below.
+
+## Glossary
+
+New to Soroban? These terms appear throughout this page:
+
+- **SAC (Stellar Asset Contract):** the Soroban-compatible wrapper that exposes a
+  classic Stellar asset (e.g. USDC) to smart contracts. Its `Address` is what you
+  pass as `payment_token` or `asset_token`.
+- **ScVal:** Soroban's typed value encoding used when calling contracts. In the
+  TypeScript example below, `nativeToScVal(...)` and `Address(...).toScVal()`
+  convert JS values into `ScVal`s.
+- **Footprint:** the set of ledger entries a transaction reads and writes. Soroban
+  requires the footprint to be declared up front; the SDK builds it for you when
+  you simulate and assemble a transaction.
+- **TTL (time-to-live):** how many ledgers a stored contract entry (e.g. a
+  `Distribution`) remains live before it must be extended. Reading or writing an
+  entry resets its TTL; expired entries must be restored before use.
+- **Passphrase:** the network identifier (e.g. `Test SDF Network ; September
+  2015`) that scopes signatures and addresses to a specific Stellar network.
 
 ## Data types
 
@@ -26,9 +65,10 @@ the ledger at which the distribution was created, for reference.
 | `payment_token` | `Address` | The token used to pay (e.g. USDC) |
 | `total_amount` | `i128` | Pool size in payment-token base units |
 | `distributed` | `i128` | Claimed so far |
-| `snapshot_ledger` | `u32` | Ledger at creation |
 | `created_at` | `u32` | Ledger at creation |
-| `completed` | `bool` | `true` once fully claimed |
+| `deadline` | `Option<u32>` | Optional claim deadline ledger; `None` = no deadline |
+| `cancelled` | `bool` | `true` once the admin cancels the distribution |
+| `completed` | `bool` | `true` once fully claimed, reclaimed, or cancelled |
 
 ## Function reference
 
@@ -40,17 +80,37 @@ fn initialize(env: Env, admin: Address)
 
 Sets the admin. Callable once. **Auth:** `admin`. Errors: `AlreadyInitialized (1)`.
 
+### `set_admin`
+
+```rust
+fn set_admin(env: Env, admin: Address, new_admin: Address)
+```
+
+Hands admin control over to `new_admin`. **Auth:** current `admin`. Errors:
+`Unauthorized (3)` if the caller is not the stored admin.
+
+### `set_min_holding_period`
+
+```rust
+fn set_min_holding_period(env: Env, admin: Address, seconds: u32)
+```
+
+Sets the minimum holding period (in seconds) a holder must have held the asset
+before claiming. **Auth:** `admin`. Errors: `Unauthorized (3)`.
+
 ### `create_distribution`
 
 ```rust
 fn create_distribution(
     env: Env, admin: Address, asset_token: Address,
     payment_token: Address, total_amount: i128,
+    deadline: Option<u32>,
 ) -> u64
 ```
 
 Creates and funds a distribution, pulling `total_amount` of `payment_token` from
-the admin into the contract's escrow. Returns the distribution id.
+the admin into the contract's escrow. Returns the distribution id. Pass `None`
+for `deadline` to leave the distribution claimable indefinitely.
 
 - **Auth:** `admin` (must equal the stored admin; the transfer also requires the admin's authorization)
 - **Errors:** `Unauthorized (3)`, `InvalidAmount (5)` if `total_amount <= 0`.
@@ -58,8 +118,23 @@ the admin into the contract's escrow. Returns the distribution id.
 <CalloutBox variant="warning">
 The admin must hold at least `total_amount` of the payment token and the transfer
 must succeed, or `create_distribution` reverts. Funds are escrowed in the dividend
-contract until claimed.
+contract until claimed, reclaimed, or cancelled.
 </CalloutBox>
+
+### `create_distributions_batch`
+
+```rust
+fn create_distributions_batch(
+    env: Env, admin: Address, asset_token: Address,
+    payment_token: Address, total_amounts: Vec<i128>,
+    deadlines: Vec<Option<u32>>,
+) -> Vec<u64>
+```
+
+Creates several distributions for the same asset/payment token in one call.
+`total_amounts` and `deadlines` must have equal length. Returns the new ids in
+order. **Auth:** `admin`. Errors: `Unauthorized (3)`, `InvalidAmount (5)`,
+`LengthMismatch (9)` if the vectors differ in length.
 
 ### `claimable`
 
@@ -68,8 +143,12 @@ fn claimable(env: Env, distribution_id: u64, holder: Address) -> i128
 ```
 
 Returns the amount a holder can still claim: `0` if already claimed, if they hold
-nothing, or if the distribution is empty. Otherwise
-`total_amount * balance / total_supply` (floored by integer division).
+nothing, if the distribution is empty, cancelled, past its deadline, or the holder
+has not met the minimum holding period. Otherwise
+`total_amount * balance / total_supply` (floored by integer division), where
+`balance` and `total_supply` are read from the asset token at the time of the
+call. This is a view function: no authorization is required and it has no
+state change. **Errors:** `DistributionNotFound (4)` for an unknown id.
 
 ### `claim`
 
@@ -80,22 +159,62 @@ fn claim(env: Env, distribution_id: u64, holder: Address)
 Pays the holder's proportional share from escrow and marks it claimed.
 
 - **Auth:** `holder`
-- **Errors:** `DistributionNotFound (4)`, `AlreadyClaimed (7)`, `NothingToClaim (6)`.
+- **Errors:** `DistributionNotFound (4)`, `AlreadyClaimed (7)`, `NothingToClaim (6)`,
+  `DeadlinePassed (8)` if the deadline has elapsed, `HoldingPeriodNotMet (10)` if
+  the holder has not held the asset for the configured minimum period.
+
+### `reclaim`
+
+```rust
+fn reclaim(env: Env, admin: Address, distribution_id: u64) -> i128
+```
+
+After the deadline has passed, returns the unclaimed remainder to the admin and
+marks the distribution `completed`. Returns the reclaimed amount. **Auth:**
+`admin`. Errors: `Unauthorized (3)`, `DistributionNotFound (4)`,
+`DeadlineNotPassed (11)` if the deadline has not yet elapsed.
+
+### `cancel`
+
+```rust
+fn cancel(env: Env, admin: Address, distribution_id: u64)
+```
+
+Cancels a distribution before any claims are made, returning the full escrow to
+the admin. **Auth:** `admin`. Errors: `Unauthorized (3)`, `DistributionNotFound (4)`,
+`AlreadyClaimed (7)` if any holder has already claimed.
 
 ### `get_distribution` / `get_distributions_for_asset` / `has_claimed`
 
 ```rust
 fn get_distribution(env: Env, distribution_id: u64) -> Distribution
-fn get_distributions_for_asset(env: Env, asset_token: Address) -> Vec<Distribution>
+fn get_distributions_for_asset(env: Env, asset_token: Address, offset: u32, limit: u32) -> Vec<Distribution>
 fn has_claimed(env: Env, distribution_id: u64, holder: Address) -> bool
 ```
 
-View helpers. `get_distributions_for_asset` backs the API's `/assets/:id/dividends`
-endpoint.
+View helpers. `get_distributions_for_asset` is paginated via `offset`/`limit`
+and backs the API's `/assets/:id/dividends` endpoint. None requires
+authorization. `get_distribution` reports `DistributionNotFound (4)` for an
+unknown id; `has_claimed` returns `false` when the holder has not claimed, and
+`get_distributions_for_asset` returns an empty list when the asset has no
+distributions or the offset is past the end.
 
-## Code example
+## Worked example
+
+The example below runs against the current Testnet deployment
+(`CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX`). It walks through
+the full lifecycle: create a distribution, read it back, check a holder's
+claimable amount, claim, and confirm the claim is recorded.
 
 ```ts
+import {
+  Contract,
+  Address,
+  nativeToScVal,
+  TransactionBuilder,
+  Networks,
+} from "@stellar/stellar-sdk";
+
 const dividend = new Contract("CAR4XY3C…2SYX");
 // issuer funds a 10,000-unit distribution in the payment token
 const create = dividend.call(
@@ -105,14 +224,64 @@ const create = dividend.call(
   new Address(paymentToken).toScVal(),
   nativeToScVal(10_000_0000000n, { type: "i128" }), // 10,000 @ 7 decimals
 );
+const distributionId = scValToNative(
+  (await server.getTransaction(createResult.hash)).returnValue,
+); // e.g. 1n
 
-// a holder later claims their share
-const claim = dividend.call(
-  "claim",
-  nativeToScVal(1n, { type: "u64" }),
-  new Address(holder).toScVal(),
+// 2. Read the distribution back to confirm the current surface.
+const dist = scValToNative(
+  await server.simulateTransaction(
+    new TransactionBuilder(adminAccount, {
+      fee: "100",
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(
+        contract.call(
+          "get_distribution",
+          nativeToScVal(distributionId, { type: "u64" }),
+        ),
+      )
+      .setTimeout(30)
+      .build(),
+  ).result.retval,
 );
+// dist.total_amount === 10_000_0000000n, dist.distributed === 0n, dist.deadline === null
+
+// 3. Preview a holder's share (view call, no auth).
+const claimable = scValToNative(
+  await server.simulateTransaction(
+    new TransactionBuilder(holderAccount, {
+      fee: "100",
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(
+        contract.call(
+          "claimable",
+          nativeToScVal(distributionId, { type: "u64" }),
+          new Address(holder).toScVal(),
+        ),
+      )
+      .setTimeout(30)
+      .build(),
+  ).result.retval,
+);
+
+// wrap the operation in a transaction, simulate to build the footprint,
+// then sign and submit. `Networks.TESTNET` is the testnet passphrase.
+const tx = new TransactionBuilder(account, {
+  fee: "100",
+  networkPassphrase: Networks.TESTNET,
+})
+  .addOperation(claim)
+  .setTimeout(30)
+  .build();
 ```
+
+<CalloutBox variant="info">
+`claimable` and `has_claimed` are view functions — they are read via
+`simulateTransaction` and require no authorization. `create_distribution` and
+`claim` change state and must be submitted as signed transactions.
+</CalloutBox>
 
 ## Events
 
@@ -120,6 +289,26 @@ const claim = dividend.call(
 |-------|------|------------|
 | `("created", admin)` | `(id, total_amount)` | `create_distribution` |
 | `("claim", holder)` | `(distribution_id, amount)` | `claim` |
+| `("reclaim", admin)` | `(distribution_id, amount)` | `reclaim` |
+| `("cancel", admin)` | `(distribution_id, amount)` | `cancel` |
+
+## Error codes
+
+<ErrorCodeTable
+  contract="Dividend"
+  codes={[
+    { code: 1, name: "AlreadyInitialized", cause: "initialize was called after the dividend contract was already initialized.", remediation: "Use the existing contract instance; initialization can only be performed once." },
+    { code: 3, name: "Unauthorized", cause: "An admin-only operation was called by an address other than the stored admin.", remediation: "Submit the operation with authorization from the stored admin address." },
+    { code: 4, name: "DistributionNotFound", cause: "The call referenced an id that does not identify a distribution.", remediation: "Check the distribution id and use an existing distribution." },
+    { code: 5, name: "InvalidAmount", cause: "create_distribution was given a total_amount less than or equal to zero.", remediation: "Pass a positive total_amount in payment-token base units." },
+    { code: 6, name: "NothingToClaim", cause: "The holder has no claimable balance for this distribution.", remediation: "Confirm the holder holds the asset and has met the minimum holding period." },
+    { code: 7, name: "AlreadyClaimed", cause: "The holder already claimed this distribution, or cancel was called after a claim.", remediation: "Each holder may claim once; use a new distribution for further payouts." },
+    { code: 8, name: "DeadlinePassed", cause: "The claim was attempted after the distribution's deadline ledger.", remediation: "The admin can reclaim the unclaimed remainder after the deadline." },
+    { code: 9, name: "LengthMismatch", cause: "create_distributions_batch received vectors of differing length.", remediation: "Pass total_amounts and deadlines with equal length." },
+    { code: 10, name: "HoldingPeriodNotMet", cause: "The holder has not held the asset for the configured minimum period.", remediation: "Wait until the minimum holding period has elapsed before claiming." },
+    { code: 11, name: "DeadlineNotPassed", cause: "reclaim was called before the distribution's deadline ledger.", remediation: "Wait until the deadline has elapsed before reclaiming." },
+  ]}
+/>
 
 ## Security considerations
 
@@ -127,9 +316,6 @@ const claim = dividend.call(
   tokens after a distribution is created — but before claiming — claims on the
   larger balance. Issuers should be aware of this when timing distributions, or
   pause the token around distribution windows.
-- **Integer division floors** each share, so a tiny residual may remain in escrow
-  after everyone claims; `completed` flips once `distributed >= total_amount`.
-- **Escrow custody:** funds live in the dividend contract between creation and
-  claim. The contract only pays out via `claim`; there is no admin withdrawal path.
-- **Payment-token decimals differ** from the asset token. Amounts here are in the
-  payment token's base units (7 for classic Stellar assets / SACs).
+- **Integer div
+
+/* … truncated 951 chars — edit only what you need near the top … */

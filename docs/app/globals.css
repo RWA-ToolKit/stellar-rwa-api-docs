@@ -11,6 +11,20 @@ body {
   min-height: 100vh;
 }
 
+/* Prevent page-level horizontal scrolling on phones. Long code samples and
+   wide tables must scroll inside their own containers instead. */
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+/* Global focus-visible ring satisfying WCAG 2.4.7 and 2.4.11 */
+:focus-visible {
+  outline: 2px solid #34d399;
+  outline-offset: 2px;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: #333a49 transparent;
@@ -23,6 +37,8 @@ body {
 /* ------------------------------------------------------------------ */
 .prose {
   @apply max-w-none text-base-200;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .prose > * + * { margin-top: 1.15rem; }
 .prose h1 {
@@ -37,33 +53,47 @@ body {
   @apply mt-8 text-lg font-semibold text-base-50;
   scroll-margin-top: 6rem;
 }
-.prose h4 { @apply mt-6 text-base font-semibold text-base-100; }
-.prose p { @apply leading-7 text-base-200/85; }
+.prose h4 { @apply mt-6 text-base font-semibold text-base-100; scroll-margin-top: 6rem; }
+/* Section anchor links: hidden until the heading is hovered or the link is
+   focused, so they stay reachable by keyboard. */
+.prose .heading-anchor {
+  @apply ml-2 font-normal text-base-200/50 no-underline opacity-0 transition-opacity hover:text-brand-400;
+}
+.prose :is(h2, h3, h4, h5, h6):hover .heading-anchor,
+.prose .heading-anchor:focus-visible {
+  @apply opacity-100;
+}
+.prose .heading-anchor:focus-visible {
+  @apply rounded-sm outline outline-2 outline-offset-2 outline-brand-400;
+}
+.prose p { @apply leading-7 text-base-200; }
 .prose a {
-  @apply font-medium text-brand-400 underline decoration-brand-400/30 underline-offset-2 transition-colors hover:decoration-brand-400;
+  @apply font-medium text-brand-400 underline decoration-brand-400/50 underline-offset-2 transition-colors hover:text-brand-300 hover:decoration-brand-300;
 }
 .prose ul { @apply ml-1 list-none space-y-2; }
-.prose ul > li { @apply relative pl-5 leading-7 text-base-200/85; }
+.prose ul > li { @apply relative pl-5 leading-7 text-base-200; }
 .prose ul > li::before {
   content: "";
-  @apply absolute left-0 top-3 h-1.5 w-1.5 rounded-full bg-brand-500/70;
+  @apply absolute left-0 top-3 h-1.5 w-1.5 rounded-full bg-brand-400;
 }
-.prose ol { @apply ml-5 list-decimal space-y-2 marker:text-base-300; }
-.prose ol > li { @apply pl-1.5 leading-7 text-base-200/85; }
+.prose ol { @apply ml-5 list-decimal space-y-2 marker:text-base-200; }
+.prose ol > li { @apply pl-1.5 leading-7 text-base-200; }
 .prose strong { @apply font-semibold text-base-50; }
 .prose blockquote {
-  @apply border-l-2 border-brand-500/40 pl-4 italic text-base-200/70;
+  @apply border-l-2 border-brand-500/60 pl-4 italic text-base-200;
 }
-.prose hr { @apply my-10 border-white/5; }
+.prose hr { @apply my-10 border-white/10; }
 
 /* Inline code */
 .prose :not(pre) > code {
-  @apply rounded-md border border-white/5 bg-white/[0.06] px-1.5 py-0.5 font-mono text-[0.85em] text-brand-300;
+  @apply rounded-md border border-white/10 bg-white/[0.08] px-1.5 py-0.5 font-mono text-[0.85em] text-brand-300;
+  overflow-wrap: break-word;
 }
 
-/* Fenced code blocks */
+/* Fenced code blocks — scroll within their own container, never widen the page */
 .prose pre {
   @apply overflow-x-auto rounded-xl border border-white/10 bg-[#0a0c11] p-4 text-sm leading-relaxed;
+  max-width: 100%;
 }
 .prose pre code {
   @apply font-mono text-base-100;
@@ -72,18 +102,28 @@ body {
   padding: 0;
 }
 
-/* Tables */
+/* Tables — scroll horizontally inside their own wrapper */
 .prose table {
   @apply w-full border-collapse overflow-hidden rounded-lg text-sm;
   display: block;
   overflow-x: auto;
+  max-width: 100%;
 }
-.prose thead { @apply border-b border-white/10 text-left; }
+.prose thead { @apply border-b border-white/15 text-left; }
 .prose th { @apply px-3 py-2 font-semibold text-base-100; }
-.prose td { @apply border-t border-white/5 px-3 py-2 align-top text-base-200/80; }
+.prose td { @apply border-t border-white/10 px-3 py-2 align-top text-base-200; }
 
 @layer components {
   .chip {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
+  }
+  .sr-only {
+    @apply absolute -m-px h-px w-px overflow-hidden whitespace-nowrap border-0 p-0;
+    clip: rect(0, 0, 0, 0);
+  }
+  .sr-only:focus,
+  .focus\:not-sr-only:focus {
+    @apply static m-auto h-auto w-auto overflow-visible whitespace-normal;
+    clip: auto;
   }
 }

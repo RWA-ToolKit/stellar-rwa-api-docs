@@ -47,6 +47,7 @@ export const NAV: NavSection[] = [
       { title: "Compliance Guide", href: "/docs/compliance-guide" },
       { title: "Web App Guide", href: "/docs/web-app" },
       { title: "Integration", href: "/docs/integration" },
+      { title: "Troubleshooting", href: "/docs/troubleshooting" },
     ],
   },
 ];

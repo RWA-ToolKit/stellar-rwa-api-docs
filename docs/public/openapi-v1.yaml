@@ -1,0 +1,336 @@
+openapi: 3.0.3
+info:
+  title: Stellar RWA API (v1)
+  version: 1.0.0
+  description: Read-only REST API indexing tokenized real-world asset activity on Stellar. All data routes are nested under /v1.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+paths:
+  /:
+    get:
+      operationId: getIndex
+      summary: Self-describing API index
+      responses:
+        "200":
+          description: List of available endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+  /version:
+    get:
+      operationId: getVersion
+      summary: Crate version and release label
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness probe
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "503":
+          description: Indexer data is stale or not yet available
+          content:
+            application/json:
+              schema:
+                type: object
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus scrape endpoint
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+  /v1/stats:
+    get:
+      operationId: getStats
+      summary: Platform-wide statistics
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/events:
+    get:
+      operationId: listEvents
+      summary: List indexed events
+      description: >
+        Returns the most recent contract events captured by the indexer,
+        ordered newest-first. The indexer polls Soroban RPC getEvents every
+        10 seconds and retains up to 200 events in a bounded in-memory buffer.
+        A failed RPC cycle carries the previous event list forward unchanged.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of events to return (default 50, max 200).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Array of event objects, newest-first
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/assets:
+    get:
+      operationId: listAssets
+      summary: List assets
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/assets/{id}:
+    get:
+      operationId: getAsset
+      summary: Asset detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+  /v1/assets/{id}/holders:
+    get:
+      operationId: listAssetHolders
+      summary: Holders of an asset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+  /v1/assets/{id}/compliance:
+    get:
+      operationId: getAssetCompliance
+      summary: Compliance summary for an asset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+  /v1/assets/{id}/dividends:
+    get:
+      operationId: listAssetDividends
+      summary: Distributions for an asset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+  /v1/assets/{id}/distributions/{did}:
+    get:
+      operationId: getDistribution
+      summary: A single distribution
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: did
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+  /v1/holders/{address}:
+    get:
+      operationId: getHolder
+      summary: Holdings for an address
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+  /v1/holders/{address}/compliance:
+    get:
+      operationId: getHolderCompliance
+      summary: Compliance status of a holder
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK — every asset the address is allowlisted on, with real status and allowed derived from the on-chain record. Empty array when the address is unknown.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AddressCompliance"
+  /v1/compliance/{address}:
+    get:
+      operationId: getComplianceForAddress
+      summary: Compliance lookup for an address
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK — every asset the address is allowlisted on, with real status and allowed derived from the on-chain record. Empty array when the address is unknown.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AddressCompliance"
+components:
+  schemas:
+    AddressCompliance:
+      type: object
+      required: [address, asset_id, asset_name, symbol, balance, status, allowed]
+      properties:
+        address:
+          type: string
+          description: Stellar account address
+        asset_id:
+          type: integer
+          description: Registry asset ID
+        asset_name:
+          type: string
+          description: Asset name
+        symbol:
+          type: string
+          description: Ticker symbol
+        balance:
+          type: string
+          description: Balance in base units (i128 as string). "0" when the address is allowlisted but holds no tokens.
+        status:
+          type: string
+          description: >
+            KYC status from the on-chain record: "Approved", "Suspended",
+            "Rejected", "Pending". "none" if the address is not on the
+            allowlist (future; currently returns empty array instead).
+        allowed:
+          type: boolean
+          description: >
+            true when status is "Approved", the record has not expired at the
+            latest indexed ledger, and the jurisdiction is not blocked.
+        jurisdiction:
+          type: string
+          nullable: true
+          description: ISO jurisdiction code from the on-chain KYC record, or null if unknown.
+        expires_at:
+          type: integer
+          nullable: true
+          description: Ledger at which approval expires. null means no expiry or unknown address.
+    ApiErrorBody:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
