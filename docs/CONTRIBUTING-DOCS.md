@@ -55,6 +55,44 @@ be merged if this command fails.
 2. Add an entry to the matching section in `docs/components/nav.ts`. Order in that array is the sidebar order, and it also drives previous/next links and search metadata. Place the page where a reader would expect to find it in the section.
 3. Run `npm run check:mdx-samples` and `npm run build`.
 
+## Changelog entries
+
+The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and the project uses [Semantic Versioning](https://semver.org/). The canonical
+list lives in [`CHANGELOG.md`](../CHANGELOG.md); the docs site renders the same
+content at `docs/app/docs/changelog/page.mdx`. Keep both in sync when you add an
+entry.
+
+### Format
+
+- Group entries under a version heading (`## [Unreleased]` or `## [x.y.z] - YYYY-MM-DD`).
+- Within a version, use the standard change-type subheadings, in this order:
+  `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`,
+  `### Security`. Omit any section that has no entries.
+- Write one bullet per change, in the imperative or past tense, and reference the
+  issue or PR when one exists.
+
+```markdown
+## [Unreleased]
+
+### Added
+
+- Changelog entry guidance for contributors (#743)
+
+### Fixed
+
+- Corrected the `simulateTransaction` example (#742)
+```
+
+### Rules
+
+- Add new work under `## [Unreleased]`; do not edit already-released sections.
+- Use the change type that matches the impact: `Added` for new features,
+  `Changed` for behavior changes, `Fixed` for bug fixes, and so on.
+- Keep bullets short and user-facing — describe the effect, not the internals.
+- When a release is cut, move the `Unreleased` entries under a new version
+  heading with the release date.
+
 ## Style
 
 Follow the [documentation style guide](./STYLE_GUIDE.md).

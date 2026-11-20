@@ -3,6 +3,34 @@
 All notable changes to this repository are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Changelog entry format
+
+Contributors should add entries under an `## [Unreleased]` section at the top of
+this file, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/):
+
+- Group changes under one of these headings, in this order: `### Added`,
+  `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`.
+- Write one bullet per notable change, in the imperative or past tense, and
+  reference the related issue or PR where useful (e.g. `(#743)`).
+- Only document user-facing or operationally relevant changes; skip internal
+  refactors and chores.
+- Use ISO dates (`YYYY-MM-DD`) for released versions and keep the newest
+  version at the top.
+
+Example:
+
+```markdown
+## [Unreleased]
+
+### Added
+
+- Changelog entry guidance for contributors (#743).
+
+### Fixed
+
+- Corrected the `/assets` filter documentation.
+```
+
 ## [0.1.0] — 2026-07-09
 
 Initial release: the indexing REST API and the documentation site.
