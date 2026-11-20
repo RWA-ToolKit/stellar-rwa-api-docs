@@ -1,15 +1,29 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Sidebar } from "./Sidebar";
 
 const CONTRACTS_REPO = "https://github.com/your-org/stellar-rwa-contracts";
 const WEB_REPO = "https://github.com/your-org/stellar-rwa-web";
+const DOCS_REPO = "https://github.com/your-org/stellar-rwa-web";
+
+/**
+ * Build the GitHub edit URL for the current docs page. Docs routes map to
+ * source files under `docs/app`, so `/docs/getting-started` becomes
+ * `docs/app/docs/getting-started/page.tsx`.
+ */
+function editUrlForPath(pathname: string | null): string {
+  const clean = (pathname ?? "/docs").replace(/\/+$/, "") || "/docs";
+  return `${DOCS_REPO}/edit/main/docs/app${clean}/page.tsx`;
+}
 
 /** Top navigation bar with a mobile-only slide-in sidebar drawer. */
 export function DocHeader() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const editUrl = editUrlForPath(pathname);
 
   return (
     <>
@@ -50,6 +64,16 @@ export function DocHeader() {
             </a>
             <a href={WEB_REPO} target="_blank" rel="noopener noreferrer" className="rounded-lg px-3 py-2 text-base-200/70 hover:text-base-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400">
               Web App <span aria-label="(opens in new tab)">↗</span>
+            </a>
+            <a
+              href={editUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Edit this page on GitHub"
+              className="rounded-lg px-3 py-2 text-base-200/70 hover:text-base-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
+            >
+              <span className="hidden sm:inline">Edit this page</span>
+              <span className="sm:hidden">Edit</span> <span aria-label="(opens in new tab)">↗</span>
             </a>
           </nav>
         </div>
