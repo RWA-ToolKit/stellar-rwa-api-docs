@@ -1,8 +1,7 @@
 export const metadata = {
   title: "Integration Guide",
   description: "Query the API, use the TypeScript examples, and call the contracts directly.",
-  lastReviewed: "2026-07-09",
-
+};
 
 # Integration Guide
 
@@ -167,3 +166,16 @@ error up front.
 All Testnet contract ids are listed in [Getting Started](/docs/getting-started#deployed-contract-addresses-testnet).
 Asset-token contract ids are discovered from the registry's `get_all_assets` (or
 the API's `/assets`).
+
+## API client collections
+
+Ready-made collections for the read-only API, covering every endpoint with the
+`baseUrl` and `assetId` pulled out as variables:
+
+- [Postman collection](/stellar-rwa-api.postman_collection.json) — in Postman,
+  **Import** → **File** → select the downloaded JSON.
+- [Insomnia export](/stellar-rwa-api.insomnia.json) — in Insomnia,
+  **Application menu** → **Preferences** → **Data** → **Import Data** → **From File**.
+
+Both default `baseUrl` to `http://localhost:8080`; change the environment
+variable to point at a deployed instance.
