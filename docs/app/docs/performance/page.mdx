@@ -1,0 +1,85 @@
+export const metadata = {
+  title: "Performance & Benchmarks",
+  description: "What the indexer scaling benchmark measures and how to run it.",
+};
+
+# Performance & Benchmarks
+
+The [Architecture](/docs/architecture) page covers the API's steady-state
+performance characteristics (poll interval, rate limits, cache headers). This
+page covers how the indexer's **scaling** behavior — rebuild cost as the
+number of assets, holders, and distributions grows — is meant to be measured.
+
+## What the benchmark measures
+
+A Criterion benchmark at `api/benches/registry_scaling.rs` is the intended
+home for this: it would drive `Indexer`'s snapshot-rebuild path
+(`api/src/indexer/mod.rs`) against synthetic registries of increasing size —
+e.g. 10, 100, 1,000 assets, each with a realistic holder and distribution
+count — and report how refresh latency and allocation volume scale with
+dataset size. That is the number that matters for capacity planning: unlike
+HTTP response time (dominated by serialization, see
+[Architecture](/docs/architecture)), the *rebuild* that runs once per
+`POLL_INTERVAL` is where cost actually grows with the size of the on-chain
+state being indexed.
+
+<CalloutBox variant="warning">
+As of this checkout, `api/benches/registry_scaling.rs` and a `[[bench]]`
+target in `api/Cargo.toml` do not exist yet — `rg "\[\[bench\]\]" api/Cargo.toml`
+returns nothing. This page documents the benchmark's intended purpose and
+interface so that whoever adds it (and anyone reading `Architecture`'s
+reference to indexer scaling) has a concrete spec to implement against,
+rather than leaving the reference undocumented.
+</CalloutBox>
+
+## Intended shape
+
+```toml
+# api/Cargo.toml
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "registry_scaling"
+harness = false
+```
+
+```rust
+// api/benches/registry_scaling.rs (proposed)
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+
+fn bench_rebuild(c: &mut Criterion) {
+    let mut group = c.benchmark_group("snapshot_rebuild");
+    for &n_assets in &[10usize, 100, 1_000] {
+        group.bench_with_input(BenchmarkId::from_parameter(n_assets), &n_assets, |b, &n| {
+            let fixture = synthetic_registry(n); // N assets, holders, distributions
+            b.iter(|| rebuild_snapshot(&fixture));
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_rebuild);
+criterion_main!(benches);
+```
+
+## How to interpret results
+
+- **Report per-asset-count latency**, not a single number — the question is
+  how the curve bends as `n_assets` grows, since that's what determines how
+  far the deployment scales before `POLL_INTERVAL` (10s) becomes too short to
+  finish a rebuild comfortably.
+- **Compare against `POLL_INTERVAL`.** If rebuild time at the target asset
+  count approaches a meaningful fraction of 10s, that's the signal to either
+  raise `POLL_INTERVAL`, move state out of pure in-memory rebuild, or add a
+  database (see the "no database in v1" note in
+  [API Overview](/docs/api/overview)).
+- **Run it locally** (once added) with:
+
+  ```bash
+  cd api
+  cargo bench --bench registry_scaling
+  ```
+
+  This only touches the `api/` Rust workspace — it does not require the web
+  app or docs site to be running.

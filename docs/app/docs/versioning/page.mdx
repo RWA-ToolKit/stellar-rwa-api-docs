@@ -1,0 +1,51 @@
+export const metadata = {
+  title: "Versioning",
+  description: "How the Stellar RWA API and docs are versioned, and how breaking changes are communicated.",
+  lastReviewed: "2026-11-19",
+};
+
+# Versioning
+
+The API, the indexer and this documentation site are versioned together and
+follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
+
+- **PATCH** — bug fixes and docs corrections with no change to behavior or shape.
+- **MINOR** — backwards-compatible additions (new endpoints, new optional
+  response fields, new query parameters).
+- **MAJOR** — breaking changes: anything that removes or renames a field,
+  changes a field's type, changes default behavior, or removes an endpoint.
+
+Every breaking change is called out inline on the page it affects using the
+`BreakingChangeCallout` component, in addition to being listed in
+[`CHANGELOG.md`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/blob/main/CHANGELOG.md)
+at the repository root.
+
+## Breaking change callout pattern
+
+Use `BreakingChangeCallout` (in `docs/components/BreakingChangeCallout.tsx`,
+built on top of the shared `CalloutBox`) to flag a breaking change directly on
+the reference page it affects:
+
+```mdx
+import { BreakingChangeCallout } from "@/components/BreakingChangeCallout";
+
+<BreakingChangeCallout version="0.2.0">
+  `GET /assets/:id` now returns `tvl_cents` as a string instead of a number to
+  avoid precision loss in large totals. Update any client that parses it as a
+  numeric type.
+</BreakingChangeCallout>
+```
+
+This renders a red "Breaking change" box with the version it shipped in, so
+readers scanning a reference page cannot miss it. Keep the wording short:
+what changed, and what the consumer needs to do about it.
+
+## Example
+
+The API has not shipped a breaking change since the `0.1.0` initial release,
+so there is nothing to retrofit yet. The first time a response shape, field
+type, or endpoint is removed or changed incompatibly, add a
+`BreakingChangeCallout` to the affected reference page (for example
+`docs/app/docs/api/overview/page.mdx` or `docs/app/docs/api/assets/page.mdx`)
+right above the section it changes, following the pattern above, and add a
+matching entry under a new `### Breaking changes` heading in `CHANGELOG.md`.

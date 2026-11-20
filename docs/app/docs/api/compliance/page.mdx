@@ -1,48 +1,10 @@
 export const metadata = {
   title: "API · Compliance",
   description: "Non-PII compliance summary for a tokenized asset.",
-  canonical: "/docs/api/compliance",
-  lastReviewed: "2026-07-28",
-};
+  lastReviewed: "2026-07-09",
+
 
 # Compliance
-
-<LastReviewed date={metadata.lastReviewed} />
-
-<CalloutBox variant="note">
-Replace <code>$API_BASE_URL</code> in examples with your configured API base URL (see <a href="/docs/api/overview">API Overview</a>).
-</CalloutBox>
-
-<CalloutBox variant="note" title="New to these terms?">
-This page uses a few Stellar and compliance terms. Quick definitions:
-
-- **KYC** (Know Your Customer) — the identity checks an issuer runs before
-  approving an address to hold a tokenized asset.
-- **Allowlist** — the on-chain set of addresses the compliance contract permits
-  to hold or transfer an asset.
-- **`is_allowed`** — the compliance contract entry point that decides, at
-  transfer time, whether an address may transact. It is the enforced gate.
-- **Jurisdiction** — a short region code (e.g. `US`) stored on a KYC record and
-  used to block whole regions.
-- **`expires_at`** — the ledger number at which an approval lapses; `null` means
-  no expiry. A **ledger** is Stellar's unit of time (roughly 5 seconds each).
-- **`i128`** — a 128-bit signed integer; token balances are returned as strings
-  to avoid precision loss in JSON.
-- **Snapshot / indexer** — a background service that reads on-chain state and
-  serves it through this API, refreshed roughly every 10 seconds.
-
-See the [Glossary](/docs/glossary) for the full list of terms.
-</CalloutBox>
-
-<CalloutBox variant="note" title="Related reference pages">
-Jump straight to the pages covering the concepts used here:
-
-- [API Overview](/docs/api/overview) — base URL, auth, and response conventions.
-- [Assets endpoint](/docs/api/assets) — the `id` used in `/assets/:id/compliance`.
-- [Compliance Guide](/docs/compliance-guide) — KYC lifecycle, allowlists, and
-  [jurisdiction restrictions](/docs/compliance-guide#jurisdiction-restrictions).
-- [Glossary](/docs/glossary) — KYC, allowlist, `is_allowed`, `expires_at`, `i128`.
-</CalloutBox>
 
 <ApiEndpoint method="GET" path="/assets/:id/compliance" description="Aggregate compliance summary — counts only, no addresses." />
 
@@ -53,36 +15,24 @@ Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes
 
 | Name | Type | Notes |
 |------|------|-------|
-| `id` | number | Registry id (see the [Assets endpoint](/docs/api/assets)) |
+| `id` | number | Registry id |
 
-**Response schema** (`ComplianceSummary`):
+**Response schema**
 
-| Field | Type | Unit | Nullable | Description |
-|-------|------|------|----------|-------------|
-| `total_records` | integer | Records | No | Addresses ever added to the allowlist |
-| `approved` | integer | Records | No | Stored KYC status is `Approved` — **not** the same as currently passing `is_allowed` |
-| `suspended` | integer | Records | No | Records whose stored status is `Suspended` |
-| `rejected` | integer | Records | No | Records whose stored status is `Rejected` |
-| `pending` | integer | Records | No | Records whose stored status is `Pending` |
-| `with_expiry` | integer | Records | No | Records with a non-zero `expires_at` |
-| `jurisdictions` | `JurisdictionCount[]` | One entry per jurisdiction | No | Counts grouped by jurisdiction code |
+| Field | Type | Notes |
+|-------|------|-------|
+| `total_records` | number | Addresses ever added to the allowlist |
+| `approved` | number | Currently passing `is_allowed` |
+| `suspended` | number | |
+| `rejected` | number | |
+| `pending` | number | |
+| `with_expiry` | number | Records with a non-zero `expires_at` |
+| `jurisdictions` | array | `{ jurisdiction, count }` breakdown |
 
-`JurisdictionCount` fields:
-
-| Field | Type | Unit | Nullable | Description |
-|-------|------|------|----------|-------------|
-| `jurisdiction` | string | — | No | Jurisdiction code from the compliance record |
-| `count` | integer | Records | No | Records in this jurisdiction |
-
-**Worked example (Testnet)**
-
-This example is verified against the current Testnet deployment. It fetches the
-compliance summary for asset `1` and then confirms the same asset's allowlist
-counts are consistent with the per-address view.
+**Example**
 
 ```bash
-# 1. Aggregate compliance summary for asset 1
-curl -s "$API_BASE_URL/v1/assets/1/compliance" | jq .
+curl http://localhost:8080/assets/1/compliance
 ```
 
 ```json
@@ -99,65 +49,9 @@ curl -s "$API_BASE_URL/v1/assets/1/compliance" | jq .
 }
 ```
 
-```bash
-# 2. Cross-check the same asset from the per-address view
-curl -s "$API_BASE_URL/compliance/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA" \
-  | jq '.[] | select(.asset_id == 1)'
-```
-
-```json
-{
-  "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
-  "asset_id": 1,
-  "asset_name": "RWA Property Fund",
-  "symbol": "RPF",
-  "balance": "1000000",
-  "status": "Approved",
-  "allowed": true,
-  "jurisdiction": "US",
-  "expires_at": null
-}
-```
-
-The `approved` count in step 1 (`1`) matches the single `Approved` record in
-step 2, and the `jurisdictions` breakdown (`US: 1`) matches that record's
-`jurisdiction`. If the two disagree, the indexer snapshot is stale — retry after
-the next snapshot (approximately every 10 seconds).
-
-**Field selection**
-
-Use the `fields` query parameter to return only the summary fields you need
-(see [Field Selection](/docs/api/field-selection)):
-
-```bash
-curl "$API_BASE_URL/v1/assets/1/compliance?fields=total_records,approved,jurisdictions"
-```
-
-```json
-{
-  "total_records": 1,
-  "approved": 1,
-  "jurisdictions": [
-    { "jurisdiction": "US", "count": 1 }
-  ]
-}
-```
-
-An unknown field name returns `400` with
-`{ "error": "invalid_parameter", … }` naming the offending field.
-
 **Errors**
 
-Returns `404` when the asset id is unknown:
-
-```json
-{
-  "error": "not_found",
-  "message": "asset not found"
-}
-```
-
-See [Errors](/docs/api/errors) for the canonical error body shape shared by all endpoints.
+Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown.
 
 <CalloutBox variant="compliance" title="Why counts, not addresses">
 An asset's holder set can itself be sensitive. This endpoint gives issuers and
@@ -166,86 +60,6 @@ how many approvals carry expiries — without publishing who they are. The
 per-address KYC records live only on-chain and in the issuer's own tooling.
 </CalloutBox>
 
-<CalloutBox variant="warning" title="Stored status vs. the enforced gate">
-`approved` (and the other status counts) reflect each record's **stored**
-`status` field, not the on-chain `is_allowed` check the compliance contract
-actually enforces at transfer time. A record can be counted as `approved`
-here while `is_allowed` would reject it — for example an approval that has
-expired (`expires_at` in the past) or one whose `jurisdiction` has since been
-blocked via `is_jurisdiction_blocked`. Use `with_expiry` together with the
-current time, and cross-reference `jurisdictions` against the contract's
-blocked-jurisdiction list, if you need a true count of holders currently
-permitted to transact. Do not treat `approved` as that number on its own.
-</CalloutBox>
-
 The `jurisdictions` breakdown reflects the `jurisdiction` field of each KYC record.
 Combined with the contract's `is_jurisdiction_blocked`, it helps issuers audit
 their geographic exposure. See the [Compliance Guide](/docs/compliance-guide#jurisdiction-restrictions).
-
-## Address compliance
-
-<ApiEndpoint method="GET" path="/compliance/:address" description="Compliance status and balance for a single address across all held assets." />
-
-Returns the compliance authorization and token balance for an address across all assets it holds.
-
-```bash
-curl "$API_BASE_URL/compliance/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA"
-```
-
----
-
-<ApiEndpoint method="GET" path="/compliance/:address" description="Per-address compliance status across all assets." />
-
-Returns every asset whose compliance allowlist contains `address`, together
-with the **real on-chain KYC status and derived `allowed` flag** for each.
-
-- If the address is allowlisted but holds **zero balance**, it still appears
-  with `"balance": "0"` — distinguishable from an unknown address.
-- If the address is **not on any allowlist**, the response is an empty array
-  `[]` (not `404`).
-
-**Path parameters**
-
-| Name | Type | Notes |
-|------|------|-------|
-| `address` | string | Stellar account address (G…) |
-
-**Response schema** (array of objects):
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `address` | string | The queried address |
-| `asset_id` | number | Registry asset ID |
-| `asset_name` | string | Asset name |
-| `symbol` | string | Ticker symbol |
-| `balance` | string | Base-unit balance (`i128` as string). `"0"` when allowlisted but not holding. |
-| `status` | string | On-chain KYC status: `"Approved"`, `"Suspended"`, `"Rejected"`, `"Pending"` |
-| `allowed` | boolean | `true` when `status == "Approved"`, record is not expired, and jurisdiction is not blocked |
-| `jurisdiction` | string \| null | ISO jurisdiction code from the KYC record |
-| `expires_at` | number \| null | Ledger at which approval expires; `null` if no expiry set |
-
-**Example — approved, active holder**
-
-```bash
-curl $API_BASE_URL/compliance/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA
-```
-
-```json
-[
-  {
-    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
-    "asset_id": 1,
-    "asset_name": "RWA Property Fund",
-    "symbol": "RPF",
-    "balance": "1000000",
-    "status": "Approved",
-    "allowed": true,
-    "jurisdiction": "US",
-    "expires_at": null
-  }
-]
-```
-
-See the [Compliance Guide](/docs/compliance-guide) for the KYC lifecycle and
-allowlist rules, and the [Glossary](/docs/glossary) for `is_allowed`,
-`expires_at`, and `i128`.

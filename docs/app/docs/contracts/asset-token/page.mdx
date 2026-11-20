@@ -1,68 +1,55 @@
+export const metadata = {
+  title: "Asset Token Contract",
+  description: "Compliant RWA token — every transfer is gated by the compliance contract.",
+  lastReviewed: "2026-07-09",
+
+
 # Asset Token Contract
 
-The Asset Token contract is a SEP-41 compliant token that represents tokenized real-world assets. It enforces compliance checks on every transfer and supports advanced features like batch operations, admin handover, minimum holding periods, and dividend management.
+A compliant token representing a tokenized real-world asset. Every transfer is
+gated by an external compliance contract: **both** the sender and the recipient
+must pass `is_allowed` before any balance moves. Minting is gated on the
+recipient, so only KYC-approved addresses can ever hold the asset.
 
-- **Contract Address (Testnet):** `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ`
-- **Standard:** SEP-41 (Token Interface)
+Valuation is stored in USD cents (`i128`). Amounts are integer token units in the
+token's own `decimals` base.
 
-## Related Reference Pages
+**Testnet:** `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ`
 
-This page documents the asset-token contract surface. The following reference pages cover directly related concepts and are worth reading alongside it:
+## Data types
 
-- [Contracts overview](/docs/contracts) — how the contracts in this project fit together.
-- [Compliance contract](/docs/contracts/compliance) — the policy engine behind every `ComplianceCheckFailed (4)` result on this page.
-- [Dividend contract](/docs/contracts/dividend) — the distribution mechanics behind `set_dividend_deadline`, `reclaim_dividends`, and `cancel_dividend`.
-- [Token interface (SEP-41)](/docs/contracts/token-interface) — the standard interface this contract implements.
-- [Error codes](/docs/contracts/errors) — the shared error-code table referenced in the [Error Codes](#error-codes) section below.
-- [Deploying contracts](/docs/guides/deploy) — how to deploy and initialize the asset token.
+`AssetMetadata` is the single instance record describing the token:
 
-## Glossary
+| Field | Type | Notes |
+|-------|------|-------|
+| `name` | `String` | Human-readable asset name |
+| `symbol` | `String` | Ticker, e.g. `MLOFT` |
+| `asset_type` | `String` | `real_estate` \| `invoice` \| `commodity` |
+| `total_supply` | `i128` | Base units |
+| `decimals` | `u32` | |
+| `admin` | `Address` | Issuer; the only account that can mint/pause |
+| `compliance_contract` | `Address` | The gate consulted on transfer/mint |
+| `asset_description` | `String` | |
+| `valuation` | `i128` | USD cents |
+| `paused` | `bool` | |
 
-New to Stellar? These terms appear throughout this page.
+## Function reference
 
-- **SEP-41** — the Stellar Ecosystem Proposal that defines the standard fungible token interface (the `allowance`, `approve`, `balance`, `transfer`, `burn`, `decimals`, `name`, and `symbol` functions). Implementing it makes the token interoperable with wallets, DEXs, and other SEP-41 consumers. See the [token interface reference](/docs/contracts/token-interface).
-- **SAC (Stellar Asset Contract)** — the built-in contract that wraps a classic Stellar asset so it can be used from Soroban smart contracts. This asset token is a custom SEP-41 contract, not a SAC, but it follows the same token interface.
-- **Ledger** — a single entry in the Stellar blockchain. Ledgers close roughly every 5 seconds, so a duration expressed "in ledgers" is a count of blocks, not seconds. `expiration_ledger` and holding periods are measured this way.
-- **TTL (time to live)** — how long a piece of contract storage stays valid, measured in ledgers. When storage TTL expires the entry can be archived and must be restored before use. Allowances here use an explicit `expiration_ledger` rather than an implicit TTL.
-- **Footprint** — the set of ledger entries (contract data, account balances, etc.) that a transaction reads and writes. Soroban requires the footprint to be declared up front so the network can schedule and price the transaction.
-- **ScVal** — Soroban's canonical value encoding (the `ScVal` type in the Rust SDK). Every argument and return value passed to a contract is serialized as an `ScVal`; the CLI handles this conversion for you.
-- **Passphrase** — the network identifier string (e.g. `Test SDF Network ; September 2015` for Testnet) that distinguishes one Stellar network from another. The CLI's `--network testnet` flag selects the matching passphrase and RPC endpoint.
-- **Compliance check** — a contract-level policy evaluated on every transfer, mint, and burn. If it rejects a party, the call fails with `ComplianceCheckFailed (4)`. See the [compliance contract reference](/docs/contracts/compliance).
-
-## SEP-41 Token Interface
-
-The contract implements the full SEP-41 token interface, so it is interoperable with wallets, DEXs, and other SEP-41 consumers. See the [token interface reference](/docs/contracts/token-interface) for the standard definition.
-
-### `allowance`
+### `initialize`
 
 ```rust
-fn allowance(env: Env, from: Address, spender: Address) -> i128
+fn initialize(
+    env: Env, admin: Address, name: String, symbol: String,
+    asset_type: String, total_supply: i128, decimals: u32,
+    compliance_contract: Address, asset_description: String, valuation: i128,
+)
 ```
 
-Returns the amount `spender` is allowed to transfer on behalf of `from`.
+Initializes the token and mints the full `total_supply` to `admin`. The admin
+**must already be compliance-approved** to hold the initial supply.
 
-- **Auth:** None
-
-### `approve`
-
-```rust
-fn approve(env: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32)
-```
-
-Sets the allowance for `spender` to `amount`, valid until `expiration_ledger` (a ledger sequence number — see the glossary).
-
-- **Auth:** `from`
-- **Errors:** `InsufficientAllowance (2)`
-
-### `balance`
-
-```rust
-fn balance(env: Env, id: Address) -> i128
-```
-
-Returns the token balance of `id`.
-
-- **Auth:** None
+- **Auth:** `admin`
+- **Errors:** `AlreadyInitialized (1)`, `InvalidAmount (5)` if `total_supply < 0` or `valuation < 0`, `RecipientNotCompliant (8)` if the admin is not approved.
 
 ### `transfer`
 
@@ -70,21 +57,28 @@ Returns the token balance of `id`.
 fn transfer(env: Env, from: Address, to: Address, amount: i128)
 ```
 
-Transfers `amount` from `from` to `to`. The transfer is rejected if either party fails the compliance check (see the [compliance contract reference](/docs/contracts/compliance)).
+Moves `amount` from `from` to `to`. Both parties must be compliance-approved and
+the token must not be paused.
 
 - **Auth:** `from`
-- **Errors:** `InsufficientBalance (1)`, `ComplianceCheckFailed (4)`
+- **Errors:** `InvalidAmount (5)` if `amount <= 0`, `Paused (6)`, `SenderNotCompliant (7)`, `RecipientNotCompliant (8)`, `InsufficientBalance (4)`.
 
-### `transfer_from`
+<CalloutBox variant="compliance">
+`transfer` performs **two** cross-contract calls into the compliance contract —
+`is_allowed(from)` and `is_allowed(to)` — before touching balances. This is the
+on-chain transfer gate. See [How transfer gating works](/docs/compliance-guide#how-transfer-gating-works).
+</CalloutBox>
+
+### `mint`
 
 ```rust
-fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128)
+fn mint(env: Env, admin: Address, to: Address, amount: i128)
 ```
 
-Transfers `amount` from `from` to `to` using the caller's allowance.
+Mints new tokens to a compliance-approved recipient, increasing `total_supply`.
 
-- **Auth:** `spender`
-- **Errors:** `InsufficientBalance (1)`, `InsufficientAllowance (2)`, `ComplianceCheckFailed (4)`
+- **Auth:** `admin` (must equal the stored admin)
+- **Errors:** `Unauthorized (3)`, `InvalidAmount (5)`, `Paused (6)`, `RecipientNotCompliant (8)`, `Overflow (9)`.
 
 ### `burn`
 
@@ -92,204 +86,92 @@ Transfers `amount` from `from` to `to` using the caller's allowance.
 fn burn(env: Env, from: Address, amount: i128)
 ```
 
-Burns `amount` from `from`.
+Burns `amount` of the caller's own tokens, decreasing `total_supply`.
 
 - **Auth:** `from`
-- **Errors:** `InsufficientBalance (1)`
+- **Errors:** `InvalidAmount (5)`, `InsufficientBalance (4)`.
 
-### `burn_from`
-
-```rust
-fn burn_from(env: Env, spender: Address, from: Address, amount: i128)
-```
-
-Burns `amount` from `from` using the caller's allowance.
-
-- **Auth:** `spender`
-- **Errors:** `InsufficientBalance (1)`, `InsufficientAllowance (2)`
-
-### `decimals`
+### `balance` / `total_supply`
 
 ```rust
-fn decimals(env: Env) -> u32
+fn balance(env: Env, id: Address) -> i128
+fn total_supply(env: Env) -> i128
 ```
 
-Returns the number of decimals used by the token.
+View functions. `balance` returns `0` for an unknown address.
 
-- **Auth:** None
-
-### `name`
+### `pause` / `unpause`
 
 ```rust
-fn name(env: Env) -> String
+fn pause(env: Env, admin: Address)
+fn unpause(env: Env, admin: Address)
 ```
 
-Returns the token name.
+Halts or resumes all transfers and mints. **Auth:** `admin`. Errors: `Unauthorized (3)`.
 
-- **Auth:** None
-
-### `symbol`
+### `update_valuation`
 
 ```rust
-fn symbol(env: Env) -> String
+fn update_valuation(env: Env, admin: Address, new_valuation: i128)
 ```
 
-Returns the token symbol.
+Updates the recorded USD-cents valuation. **Auth:** `admin`. Errors: `Unauthorized (3)`, `InvalidAmount (5)` if negative.
 
-- **Auth:** None
-
-## Batch Operations
-
-Batch entry points let callers move or burn tokens for many recipients in a single transaction.
-
-### `batch_transfer`
+### `set_compliance`
 
 ```rust
-fn batch_transfer(env: Env, from: Address, transfers: Vec<(Address, i128)>)
+fn set_compliance(env: Env, admin: Address, compliance: Address)
 ```
 
-Transfers tokens from `from` to each `(to, amount)` pair. Each transfer is individually compliance-checked; the whole call reverts if any transfer fails.
+Points the token at a different compliance contract. Because the token knows only
+the compliance *interface* (`is_allowed`), the concrete contract can be swapped.
+**Auth:** `admin`.
 
-- **Auth:** `from`
-- **Errors:** `InsufficientBalance (1)`, `ComplianceCheckFailed (4)`
-
-### `batch_transfer_from`
+### `get_metadata`
 
 ```rust
-fn batch_transfer_from(env: Env, spender: Address, from: Address, transfers: Vec<(Address, i128)>)
+fn get_metadata(env: Env) -> AssetMetadata
 ```
 
-Batch variant of `transfer_from`, consuming the caller's allowance.
+Returns the full metadata record.
 
-- **Auth:** `spender`
-- **Errors:** `InsufficientBalance (1)`, `InsufficientAllowance (2)`, `ComplianceCheckFailed (4)`
+## Code example
 
-### `batch_burn`
+Transfer with the JS SDK, going through the compliance gate:
 
-```rust
-fn batch_burn(env: Env, from: Address, amounts: Vec<i128>)
+```ts
+import { Contract, TransactionBuilder, nativeToScVal, Address } from "@stellar/stellar-sdk";
+
+const token = new Contract("CBMCWLSQ…4ECZ");
+const op = token.call(
+  "transfer",
+  new Address(from).toScVal(),
+  new Address(to).toScVal(),
+  nativeToScVal(10000n, { type: "i128" }), // 100.00 @ 2 decimals
+);
+// build → simulate → sign with Freighter → submit
 ```
 
-Burns multiple amounts from `from` in a single call.
+## Events
 
-- **Auth:** `from`
-- **Errors:** `InsufficientBalance (1)`
+| Topic | Data | Emitted by |
+|-------|------|------------|
+| `("mint", admin)` | `total_supply` | `initialize` (initial mint) |
+| `("mint", to)` | `amount` | `mint` |
+| `("transfer", from, to)` | `amount` | `transfer` |
+| `("burn", from)` | `amount` | `burn` |
+| `("pause",)` / `("unpause",)` | `admin` | `pause` / `unpause` |
+| `("valuation",)` | `new_valuation` | `update_valuation` |
+| `("setcomp",)` | `compliance` | `set_compliance` |
 
-## Admin
+## Security considerations
 
-### `admin`
-
-```rust
-fn admin(env: Env) -> Address
-```
-
-Returns the current admin address.
-
-- **Auth:** None
-
-### `set_admin`
-
-```rust
-fn set_admin(env: Env, new_admin: Address)
-```
-
-Hands over admin rights to `new_admin`. The caller must be the current admin.
-
-- **Auth:** `admin`
-- **Errors:** `Unauthorized (3)`
-
-### `mint`
-
-```rust
-fn mint(env: Env, to: Address, amount: i128)
-```
-
-Mints `amount` to `to`. Only the admin may mint.
-
-- **Auth:** `admin`
-- **Errors:** `Unauthorized (3)`, `ComplianceCheckFailed (4)`
-
-## Minimum Holding Period
-
-### `set_min_holding_period`
-
-```rust
-fn set_min_holding_period(env: Env, period: u64)
-```
-
-Sets the minimum holding period (in ledgers — see the glossary) that a holder must retain tokens before transferring. Only the admin may update it.
-
-- **Auth:** `admin`
-- **Errors:** `Unauthorized (3)`
-
-### `get_min_holding_period`
-
-```rust
-fn get_min_holding_period(env: Env) -> u64
-```
-
-Returns the current minimum holding period in ledgers.
-
-- **Auth:** None
-
-## Dividends
-
-Dividend distribution mechanics are documented in the [dividend contract reference](/docs/contracts/dividend).
-
-### `set_dividend_deadline`
-
-```rust
-fn set_dividend_deadline(env: Env, deadline: u64)
-```
-
-Sets the ledger at which dividend claims expire. Only the admin may update it.
-
-- **Auth:** `admin`
-- **Errors:** `Unauthorized (3)`
-
-### `reclaim_dividends`
-
-```rust
-fn reclaim_dividends(env: Env, holder: Address)
-```
-
-Reclaims unclaimed dividends for `holder` after the deadline has passed. Only the admin may call this.
-
-- **Auth:** `admin`
-- **Errors:** `Unauthorized (3)`, `DividendDeadlineNotReached (5)`
-
-### `cancel_dividend`
-
-```rust
-fn cancel_dividend(env: Env, dividend_id: u64)
-```
-
-Cancels a pending dividend distribution. Only the admin may cancel.
-
-- **Auth:** `admin`
-- **Errors:** `Unauthorized (3)`, `DividendNotFound (6)`
-
-## Pagination
-
-### `get_holders`
-
-```rust
-fn get_holders(env: Env, start: u32, limit: u32) -> Vec<Address>
-```
-
-Returns a page of token holders starting at `start`, up to `limit` entries. Use this to enumerate holders without loading the full set.
-
-- **Auth:** None
-
-## Error Codes
-
-See the [error codes reference](/docs/contracts/errors) for the shared table across contracts.
-
-| Code | Name | Description |
-|------|------|-------------|
-| 1 | `InsufficientBalance` | Balance too low for the operation |
-| 2 | `InsufficientAllowance` | Allowance too low for the operation |
-| 3 | `Unauthorized` | Caller is not authorized |
-| 4 | `ComplianceCheckFailed` | Compliance check rejected the transfer |
-| 5 | `DividendDeadlineNotReached` | Dividend deadline has not passed yet |
-| 6 | `DividendNotFound` | Referenced dividend does not exist |
+- **Admin is fully trusted** for minting, pausing, valuation and swapping the
+  compliance contract. Use a secure key or multisig for the admin account.
+- **Gate coupling:** transfers depend on the compliance contract being live and
+  correct. `set_compliance` is powerful — pointing at a permissive contract would
+  disable the gate. Restrict admin access accordingly.
+- **Integer amounts:** all amounts are integers in the token's `decimals` base;
+  there is no floating point. Reject `amount <= 0` (the contract does).
+- **Pause is a kill-switch:** while paused, no value can move. This is intentional
+  for incident response and regulatory holds.
