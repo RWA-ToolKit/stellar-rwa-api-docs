@@ -1,0 +1,88 @@
+export const metadata = {
+  title: "Contributing Walkthrough",
+  description: "A step-by-step walkthrough of making your first docs contribution, with a placeholder for a future video/GIF.",
+  canonical: "/docs/contributing-walkthrough",
+  lastReviewed: "2026-11-19",
+};
+
+# Contributing Walkthrough
+
+<LastReviewed date={metadata.lastReviewed} />
+
+<CalloutBox variant="note">
+**Placeholder page.** This page describes the contribution flow in text so it's
+useful right away. A short screen-recorded video or GIF covering the same
+steps is planned (see [#776](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/issues/776))
+but not yet recorded — nothing below is a real or implied video link.
+</CalloutBox>
+
+This walks through making your first contribution to the docs site, from clone
+to opened PR. Full policy lives in
+[CONTRIBUTING.md](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/blob/main/CONTRIBUTING.md);
+this page is the condensed, step-by-step version for a first-timer.
+
+## 1. Fork and clone
+
+```bash
+git clone https://github.com/<your-username>/stellar-rwa-api-docs.git
+cd stellar-rwa-api-docs
+```
+
+Remember: contributions belong in `docs/` only — `api/` is maintainer-only
+(see [CONTRIBUTING.md](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/blob/main/CONTRIBUTING.md#scope-contributors-work-in-docs-only)).
+
+*(Screenshot to be added here: terminal showing a successful clone.)*
+
+## 2. Install and run the docs site locally
+
+```bash
+cd docs
+npm ci
+npm run dev      # http://localhost:3000
+```
+
+Open `http://localhost:3000` in your browser and confirm the site loads before
+you start editing.
+
+*(Screenshot to be added here: the docs site homepage running locally.)*
+
+## 3. Make your change
+
+Edit or add an `.mdx` file under `docs/app/docs/`. If you add a new page,
+also add an entry to `docs/components/nav-data.json` so it shows up in the
+sidebar.
+
+*(Screenshot to be added here: an MDX file open in an editor next to the
+rendered page.)*
+
+## 4. Run the local CI checks
+
+```bash
+npm run lint
+npm run check:mdx-samples
+npm run build
+```
+
+All three should pass before you open a PR — this is what CI will check.
+
+*(Screenshot to be added here: a passing terminal output for the three checks.)*
+
+## 5. Commit and open a PR
+
+```bash
+git checkout -b my-docs-change
+git add -A
+git commit -m "docs: describe your change"
+git push origin my-docs-change
+```
+
+Open a pull request against `RWA-ToolKit/stellar-rwa-api-docs`'s default
+branch, describing what changed and why.
+
+*(Screenshot to be added here: the GitHub "Open a pull request" screen.)*
+
+## What's next for this page
+
+Once a short video or GIF covering steps 1–5 is recorded, it will be embedded
+above as a proper walkthrough, and this placeholder notice will be removed.
+Track progress on [issue #776](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/issues/776).
