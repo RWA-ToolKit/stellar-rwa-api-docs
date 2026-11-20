@@ -1,0 +1,62 @@
+export const metadata = {
+  title: "Troubleshooting",
+  description: "Common errors when integrating with the Stellar RWA API, and how to fix them.",
+};
+
+# Troubleshooting
+
+## CORS errors when calling the API from a browser
+
+**You should not see these.** The API sends a permissive CORS policy on every
+response — `Access-Control-Allow-Origin: *`, with all methods and headers
+allowed (see `tower_http::cors::CorsLayer` in `api/src/routes/mod.rs`). There is
+no allowlist of origins to configure: any browser origin is permitted to call
+any endpoint.
+
+If a browser request is still being blocked, the request almost never reached
+the API's CORS layer in the first place. Check these, in order:
+
+<CalloutBox variant="warning" title="`No 'Access-Control-Allow-Origin' header is present`">
+This usually means the request **failed before a response came back** — a
+network error, a wrong URL, or a proxy/load balancer in front of the API that
+stripped the CORS headers. Open the Network tab and check the actual response
+status, not just the console error.
+</CalloutBox>
+
+- **Request went to the wrong host or port.** The API serves plain HTTP by
+  default (`http://localhost:8080` locally). A typo'd base URL, or calling
+  `https://` against a server that only speaks `http://`, fails before CORS is
+  ever evaluated and surfaces as a CORS-shaped error in the console.
+- **The request never left the browser.** Mixed content (an `https://` docs
+  site calling an `http://` API) is blocked by the browser itself, not by
+  CORS, and also shows up as a CORS-style failure.
+- **A reverse proxy or CDN in front of the API dropped the `Access-Control-*`
+  headers.** If you're running the API behind nginx, Cloudflare, or similar,
+  confirm the proxy passes response headers through unmodified — some default
+  configs strip unrecognized headers on error responses.
+- **Preflight (`OPTIONS`) is being blocked upstream.** Because `allow_methods`
+  and `allow_headers` are set to `Any`, the API itself answers preflight
+  requests for every method and header. If a proxy or firewall intercepts
+  `OPTIONS` requests before they reach the API, the browser never gets a
+  preflight response and the real request is blocked.
+- **You're checking a `404`/`500` response for CORS headers.** Error responses
+  go through the same `CorsLayer`, so they carry the same headers as a success
+  response. If a `curl -i` of the failing URL shows no `Access-Control-Allow-Origin`
+  header at all, the response didn't come from this API — check for a proxy
+  returning its own error page instead.
+
+### Quick check
+
+```bash
+curl -i -H "Origin: https://example.com" https://your-api-host/stats | grep -i access-control
+```
+
+A healthy response includes:
+
+```
+access-control-allow-origin: *
+```
+
+If that header is missing, the issue is upstream of the API (proxy, DNS, wrong
+URL) rather than CORS configuration — there is nothing to "allow" on the API
+side, since every origin is already allowed.

@@ -1,9 +1,13 @@
 export const metadata = {
   title: "Getting Started",
   description: "What the Stellar RWA Toolkit is, how asset tokenization works, and how to run it.",
+  canonical: "/docs/getting-started",
+  lastReviewed: "2026-09-28",
 };
 
 # Getting Started
+
+<LastReviewed date={metadata.lastReviewed} />
 
 The **Stellar RWA Toolkit** is an end-to-end system for tokenizing real-world
 assets (RWAs) — real estate, invoices, commodities — on Stellar using Soroban
@@ -14,6 +18,14 @@ It has three parts, each in its own repository:
 - **Contracts** — four Soroban contracts: `asset-token`, `compliance`, `registry`, `dividend`.
 - **API** — a Rust/Axum service that indexes all tokenized-asset activity and serves it over REST.
 - **Web app** — a Next.js front-end for issuers and investors.
+
+<CalloutBox variant="warning" title="Project maturity">
+The toolkit is early-stage (v0.1.0) and **deployed on Stellar Testnet only** —
+there is no mainnet deployment. The contracts and API have **not been externally
+audited**. Build and experiment against Testnet, but do not use this code to
+custody real value until it has been independently audited and reviewed for
+securities compliance.
+</CalloutBox>
 
 ## What "tokenizing a real-world asset" means
 
@@ -34,6 +46,11 @@ bypassed — is what makes a token suitable to represent a regulated real-world
 asset. See the [Compliance Guide](/docs/compliance-guide).
 </CalloutBox>
 
+<CalloutBox variant="tip" title="New to Stellar or Soroban?">
+Unfamiliar terms are defined in the [Glossary](/docs/glossary). If something goes
+wrong, start with [Troubleshooting](/docs/troubleshooting).
+</CalloutBox>
+
 ## How the pieces fit together
 
 ```
@@ -47,7 +64,9 @@ asset. See the [Compliance Guide](/docs/compliance-guide).
 ```
 
 - The **web app** signs and submits transactions through the user's wallet.
-- The **API** only reads: it indexes on-chain state every 10 seconds and never
+- The **API** only reads: it indexes on-chain state every 10 seconds via
+  `simulateTransaction` (the Soroban RPC method that runs a contract function
+  read-only without submitting anything to the network) and never
   holds a key or signs anything.
 
 ## Prerequisites
@@ -59,60 +78,227 @@ asset. See the [Compliance Guide](/docs/compliance-guide).
 
 ## Quickstart
 
-Run the API against the deployed Testnet contracts:
+The fastest way to see the API working is to run it locally against the deployed
+Testnet contracts — no wallet, no signing, no tokens required.
+
+### 1. Clone and start the API
 
 ```bash
-git clone https://github.com/your-org/stellar-rwa-api-docs
+git clone https://github.com/RWA-ToolKit/stellar-rwa-api-docs
 cd stellar-rwa-api-docs/api
-cp .env.example .env      # Testnet defaults are pre-filled
+cp .env.example .env      # Testnet contract IDs and RPC URL are pre-filled
 cargo run
 # → listening on 0.0.0.0:8080
 ```
 
-Then query it:
+The API is ready when you see `listening on 0.0.0.0:8080` in the terminal.
+It will start polling Soroban Testnet immediately; the first snapshot is
+available within ~10 seconds.
+
+### 2. Hit the live endpoints
+
+Open a second terminal and run these commands against `http://localhost:8080`.
+Data endpoints use the `/v1` prefix; the liveness probe is `/health`.
+
+**Check the liveness probe:**
 
 ```bash
-curl http://localhost:8080/stats
-curl http://localhost:8080/assets
+curl http://localhost:8080/health
 ```
 
-Run the docs site:
+```json
+{"status":"ok"}
+```
+
+**Fetch platform-wide stats:**
 
 ```bash
-cd ../docs
-npm install
-npm run dev               # http://localhost:3000
+curl http://localhost:8080/v1/stats
 ```
 
-## Network guide
-
-Everything is deployed on **Testnet**. The network passphrase is:
-
+```json
+{
+  "total_assets": 1,
+  "active_assets": 1,
+  "tvl_cents": "500000000",
+  "tvl_usd": 5000000.0,
+  "total_holders": 1,
+  "total_distributions": 0,
+  "last_indexed_ledger": 3514152,
+  "last_updated": "2026-07-09T08:43:12.101772791+00:00"
+}
 ```
-Test SDF Network ; September 2015
+
+`tvl_cents` is a string to avoid JavaScript precision loss; divide by 100 for
+dollars. `last_updated` is the wall-clock time of the most recent successful
+Soroban RPC poll.
+
+**List all tokenized assets:**
+
+```bash
+curl http://localhost:8080/v1/assets
 ```
 
-Point Freighter at Testnet and fund your account with the
-[friendbot](https://friendbot.stellar.org) before interacting.
+```json
+[
+  {
+    "id": 1,
+    "token_contract": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+    "issuer": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+    "name": "Manhattan Loft",
+    "symbol": "MLOFT",
+    "asset_type": "real_estate",
+    "description": "A tokenized loft in Manhattan",
+    "decimals": 7,
+    "total_supply": "50000000000000",
+    "valuation_cents": "500000000",
+    "valuation_usd": 5000000.0,
+    "holders": 1,
+    "active": true,
+    "paused": false,
+    "compliance_contract": "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU",
+    "created_at_ledger": 3502885,
+    "indexed_at_ledger": 3502885,
+    "index_error": null
+  }
+]
+```
 
-<CalloutBox variant="warning">
-These contracts are deployed on Testnet for demonstration. Do not use them to
-custody real value. A mainnet deployment requires a full securities-compliance
-and legal review.
+**Fetch the sample asset (id `1`) directly:**
+
+```bash
+curl http://localhost:8080/v1/assets/1
+```
+
+```json
+{
+  "id": 1,
+  "token_contract": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "issuer": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+  "name": "Manhattan Loft",
+  "symbol": "MLOFT",
+  "asset_type": "real_estate",
+  "description": "A tokenized loft in Manhattan",
+  "decimals": 7,
+  "total_supply": "50000000000000",
+  "valuation_cents": "500000000",
+  "valuation_usd": 5000000.0,
+  "holders": 1,
+  "active": true,
+  "paused": false,
+  "compliance_contract": "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU",
+  "created_at_ledger": 3502885,
+  "indexed_at_ledger": 3502885,
+  "index_error": null
+}
+```
+
+The response includes an `ETag` and `Cache-Control` header. Send the returned
+ETag on the next request; if the indexed snapshot has not changed, the API
+returns `304 Not Modified` with no body, so reuse your cached response:
+
+```bash
+# Capture the ETag from the first response
+curl -i http://localhost:8080/v1/assets/1
+# ETag: "ledger-3514152"
+# Cache-Control: public, max-age=10
+
+# Send the ETag on a later request (use the value your response returned)
+curl -i -H 'If-None-Match: "ledger-3514152"' http://localhost:8080/v1/assets/1
+# HTTP/1.1 304 Not Modified
+```
+
+**Check token holders for asset `1`:**
+
+```bash
+curl http://localhost:8080/v1/assets/1/holders
+```
+
+```json
+[
+  {
+    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+    "balance": "50000000000000",
+    "share_percent": 100.0
+  }
+]
+```
+
+Both the asset list and holder list support `offset` and `limit` query
+parameters. `offset` is the number of records to skip (starting at 0); `limit`
+defaults to 50 and is capped at 100:
+
+```bash
+# First and second pages of assets (20 per page)
+curl 'http://localhost:8080/v1/assets?offset=0&limit=20'
+curl 'http://localhost:8080/v1/assets?offset=20&limit=20'
+
+# First 10 holders, then the next 10 for asset 1
+curl 'http://localhost:8080/v1/assets/1/holders?offset=0&limit=10'
+curl 'http://localhost:8080/v1/assets/1/holders?offset=10&limit=10'
+```
+
+**Check the compliance summary for asset `1`:**
+
+```bash
+curl http://localhost:8080/v1/assets/1/compliance
+```
+
+```json
+{
+  "total_records": 1,
+  "approved": 1,
+  "suspended": 0,
+  "rejected": 0,
+  "pending": 0
+}
+```
+
+## Contract entry points
+
+The contracts expose more than the basic mint/transfer surface. The table below
+lists the entry points added after this page was first written, so you can find
+them in the contract source and the API.
+
+### Asset token (`asset-token`)
+
+- **SEP-41 token interface** — the asset token implements the SEP-41 fungible
+token standard (`allowance`, `approve`, `balance`, `transfer`, `transfer_from`,
+`burn`, `burn_from`, `decimals`, `name`, `symbol`), so wallets and DEXes that
+speak SEP-41 can interact with it directly.
+- **Batch operations** — `batch_transfer` and `batch_mint` accept a list of
+`(from, to, amount)` / `(to, amount)` entries and apply them in a single
+transaction, reverting the whole batch if any entry fails compliance.
+- **Admin handover** — `propose_admin` / `accept_admin` implement a two-step
+transfer of the contract admin role; the new admin must accept before the
+change takes effect.
+- **Minimum holding period** — `set_min_holding_period` configures a lock-up
+window; transfers that would move tokens before the period elapses revert.
+
+### Dividend (`dividend`)
+
+- **Dividend deadline** — `set_claim_deadline` sets the ledger after which
+claims are no longer accepted.
+- **Reclaim** — `reclaim_unclaimed` lets the issuer recover funds for
+unclaimed dividends once the deadline has passed.
+- **Cancel** — `cancel_distribution` cancels a distribution before it is
+finalized, refunding the issuer.
+
+### Pagination
+
+List endpoints on the API (`/v1/assets`, `/v1/assets/{id}/holders`) accept
+`offset` and `limit` as shown above. The contract-side list getters
+(`get_holders`, `get_distributions`) accept the same `start` / `limit` window so
+large sets can be read without exceeding the Soroban read-entry budget.
+
+<CalloutBox variant="tip" title="Verify against the source">
+The contract source is the source of truth for exact signatures. When in doubt,
+read the `#[contractimpl]` block in the relevant contract before relying on an
+entry point.
 </CalloutBox>
 
-## Deployed contract addresses (Testnet)
+## Next steps
 
-| Contract    | Contract ID |
-|-------------|-------------|
-| compliance  | `CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU` |
-| asset-token | `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ` |
-| registry    | `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` |
-| dividend    | `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX` |
-
-The admin / issuer account for the sample deployment is
-`GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA`, and the sample asset
-is **Manhattan Loft** (`MLOFT`), a `real_estate` asset valued at $5,000,000.
-
-Continue to the [Compliance Guide](/docs/compliance-guide) — the concept that
-makes this an RWA platform rather than a plain token factory.
+- [Compliance Guide](/docs/compliance-guide) — how allowlists and KYC gating work.
+- [API Reference](/docs/api-reference) — every endpoint and response shape.
+- [Troubleshooting](/docs/troubleshooting) — common errors and fixes.

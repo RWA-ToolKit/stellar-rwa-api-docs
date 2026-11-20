@@ -7,9 +7,20 @@
 
 use serde::Serialize;
 
+/// A recent contract event emitted by the indexer.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct Event {
+    pub id: u64,
+    pub contract: String,
+    pub event_type: String,
+    pub ledger: u32,
+    pub timestamp: Option<String>,
+    pub data: serde_json::Value,
+}
+
 /// A tokenized real-world asset, joined from the registry entry and the token
 /// contract metadata.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct Asset {
     pub id: u64,
     pub token_contract: String,
@@ -31,6 +42,24 @@ pub struct Asset {
     pub paused: bool,
     pub compliance_contract: String,
     pub created_at_ledger: u32,
+    /// Ledger number at which this asset was last successfully indexed.
+    pub indexed_at_ledger: u32,
+    /// Ledger number at which the dividend distributions for this asset were
+    /// last actually read from the chain.
+    ///
+    /// Unlike `indexed_at_ledger` (which advances every poll cycle),
+    /// `dividends_indexed_at_ledger` only advances when the
+    /// `DIVIDEND_CACHE_TTL` window expires and a fresh RPC call is made.
+    /// If this value lags behind `indexed_at_ledger` by more than the
+    /// poll interval, dividends are being served from the cache.
+    ///
+    /// `None` when the asset has never had its dividends successfully fetched
+    /// (e.g. the very first poll after startup, or after a long outage).
+    pub dividends_indexed_at_ledger: Option<u32>,
+    /// Non-null when the most recent per-asset index attempt failed.  The
+    /// global fields on [`Stats`] still reflect the last successful full
+    /// refresh; this tells consumers which individual assets may be stale.
+    pub index_error: Option<String>,
 }
 
 /// A single holder of an asset token.
@@ -43,12 +72,63 @@ pub struct Holder {
     pub share_percent: f64,
 }
 
+/// A single asset holding by an address across all assets.
+#[derive(Debug, Clone, Serialize)]
+pub struct AddressHolding {
+    pub address: String,
+    pub asset_id: u64,
+    pub asset_name: String,
+    pub symbol: String,
+    pub balance: String,
+    pub share_percent: f64,
+}
+
+/// The raw on-chain KYC record for one address within one asset's compliance
+/// contract. Persisted in the snapshot so routes can derive `allowed` without
+/// an extra RPC call.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct ComplianceRecord {
+    /// KYC status string, e.g. `"Approved"`, `"Suspended"`, `"Rejected"`, `"Pending"`.
+    pub status: String,
+    /// ISO jurisdiction code from the on-chain record.
+    pub jurisdiction: String,
+    /// Ledger-based expiry (`expires_at` field). `0` means no expiry set.
+    pub expires_at: u32,
+}
+
+/// Compliance status for a single address within an asset.
+#[derive(Debug, Clone, Serialize)]
+pub struct AddressCompliance {
+    pub address: String,
+    pub asset_id: u64,
+    pub asset_name: String,
+    pub symbol: String,
+    pub balance: String,
+    /// KYC status string from the on-chain record (`"Approved"`, `"Suspended"`, etc.).
+    /// `"none"` when the address is unknown to this asset's compliance contract.
+    pub status: String,
+    /// `true` when `status == "Approved"`, the record has not expired at the
+    /// latest indexed ledger, and the record's jurisdiction is not blocked.
+    pub allowed: bool,
+    /// ISO jurisdiction code, `null` when the address is unknown.
+    pub jurisdiction: Option<String>,
+    /// Ledger at which approval expires; `null` if no expiry or unknown address.
+    pub expires_at: Option<u32>,
+}
+
 /// Aggregate, non-PII summary of an asset's compliance allowlist.
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct ComplianceSummary {
     /// Total addresses that have ever been added to the allowlist.
     pub total_records: usize,
-    /// Addresses currently passing the on-chain `is_allowed` gate.
+    /// Addresses whose stored KYC status is `Approved`.
+    ///
+    /// This reflects the stored status field only, not the on-chain
+    /// `is_allowed` gate — a record can count as `approved` here while
+    /// failing `is_allowed` (e.g. an expired record, or one in a
+    /// jurisdiction later blocked via `is_jurisdiction_blocked`). Treat
+    /// this as "ever approved by compliance", not "currently permitted
+    /// to transact".
     pub approved: usize,
     pub suspended: usize,
     pub rejected: usize,
@@ -75,10 +155,17 @@ pub struct Distribution {
     pub total_amount: String,
     /// Amount claimed so far (raw i128, as a string).
     pub distributed: String,
-    /// Percentage of the pool claimed, 0–100 with two decimals.
+    /// Percentage of the pool claimed, rounded to two decimals.
+    ///
+    /// Under normal conditions this is in the range 0–100. When
+    /// `overflow_detected` is `true` the value will exceed 100, exposing the
+    /// raw on-chain anomaly rather than silently clamping it.
     pub claimed_percent: f64,
+    /// `true` when `distributed` exceeds `total_amount`, which can happen if
+    /// the on-chain dividend contract allows double-claim vectors. Callers
+    /// should treat this as a data-integrity warning.
+    pub overflow_detected: bool,
     pub completed: bool,
-    pub snapshot_ledger: u32,
     pub created_at_ledger: u32,
 }
 
@@ -90,7 +177,7 @@ pub struct Stats {
     /// Total value locked across active assets, in USD cents (string).
     pub tvl_cents: String,
     pub tvl_usd: f64,
-    /// Distinct approved holders across all assets.
+    /// Distinct addresses with a positive token balance across all assets.
     pub total_holders: usize,
     pub total_distributions: usize,
     /// The last ledger the indexer successfully read from.
@@ -100,8 +187,28 @@ pub struct Stats {
 }
 
 /// Standard error body returned by the API.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct ApiErrorBody {
     pub error: String,
     pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_body_serialization() {
+        let error = ApiErrorBody {
+            error: "invalid_request".to_string(),
+            message: "Asset not found".to_string(),
+        };
+
+        let json = serde_json::to_value(&error).expect("serialization should succeed");
+
+        assert_eq!(json["error"], "invalid_request");
+        assert_eq!(json["message"], "Asset not found");
+        assert!(json.is_object());
+        assert_eq!(json.as_object().unwrap().len(), 2);
+    }
 }

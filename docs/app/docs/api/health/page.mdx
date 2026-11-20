@@ -1,0 +1,58 @@
+export const metadata = {
+  title: "API · Health & Indexer Lag",
+  description: "How GET /health reports the last successful poll, ledger lag and staleness.",
+  canonical: "/docs/api/health",
+  lastReviewed: "2026-09-26",
+};
+
+# Health & indexer lag
+
+<LastReviewed date={metadata.lastReviewed} />
+
+`GET /health` returns `200` with `"status": "ok"` while the indexer is polling
+normally, and `503` with `"status": "degraded"` when it has stalled.
+
+| Field | Type | Unit | Nullable | Meaning |
+| --- | --- | --- | --- | --- |
+| `status` | string | — | No | `ok` or `degraded` |
+| `snapshot_age_seconds` | integer | Seconds | Yes | Age of the served snapshot; JSON `null` before a successful refresh |
+| `max_age_seconds` | integer | Seconds | No | Stall threshold |
+| `consecutive_failures` | integer | Failed polls | No | Consecutive failed polls since the last success |
+| `last_poll_at` | string | RFC 3339 timestamp | Yes | Time of the last successful poll; JSON `null` before one succeeds |
+| `last_poll_age_seconds` | integer | Seconds | Yes | Seconds since the last successful poll; JSON `null` before one succeeds |
+| `last_indexed_ledger` | integer | Ledger sequence | No | Ledger reached by the last successful poll; `0` before one succeeds |
+| `ledger_lag` | integer | Ledgers | Yes | Estimated ledgers closed since that poll; JSON `null` before one succeeds |
+
+## Threshold
+
+The indexer is reported unhealthy when the last successful poll is older than
+`max_age_seconds`. The default is three poll intervals (30 seconds). Override it
+with the `RWA_HEALTH_MAX_POLL_AGE_SECS` environment variable.
+
+## Staleness during an RPC outage
+
+The indexer counts consecutive failed polls and reports the count as
+`consecutive_failures` in `/health`. While polls are failing, or the last
+successful poll is older than the threshold, every response carries:
+
+- `X-Data-Stale: true`
+- `X-Data-Age-Seconds`: seconds since the last successful poll
+- `X-Indexer-Consecutive-Failures`: current failure streak
+
+The previous snapshot keeps being served. When a poll succeeds again, the
+headers disappear and the recovery is logged.
+
+## Error responses
+
+`GET /health` returns its own status document even on `503`: the body is the
+same field set shown above with `"status": "degraded"`, not the shared error
+body. Any other error from this route (for example a `500` from an internal
+failure) uses the shared error shape documented in
+[Errors](/docs/api/errors).
+
+## What to read next
+
+- [API Overview](/docs/api/overview) — full endpoint list and the health endpoint's role.
+- [Rate Limits & Caching](/docs/api/rate-limits) — ETag headers and caching for data endpoints.
+- [Architecture Overview](/docs/architecture) — how the 10-second polling model affects freshness.
+- [Indexer Metrics](/docs/metrics) — Prometheus metrics for alerting on indexer health.

@@ -1,0 +1,84 @@
+export const metadata = {
+  title: "API Changelog",
+  description: "Changes to the documented public surface of the Stellar RWA API, by version.",
+  canonical: "/docs/changelog",
+  lastReviewed: "2026-09-28",
+};
+
+# API Changelog
+
+<LastReviewed date={metadata.lastReviewed} />
+
+This page tracks changes to the **documented public surface** of the Stellar RWA
+API: endpoints, query parameters, response fields, headers, and status codes.
+Internal refactors, tests, CI, and docs-only changes are left out; the
+repository-wide history lives in
+[`CHANGELOG.md`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/blob/main/CHANGELOG.md).
+
+The running service reports its version from `GET /version`, which reads the
+`version` in `api/Cargo.toml`. The current version is **0.1.0**.
+
+## Unreleased
+
+Merged to `main` after 0.1.0 and not yet tagged. These ship in the next release.
+
+### Added
+
+- `GET /version` returning `{ version, release }`.
+- Per-asset `indexed_at_ledger` and `index_error` fields.
+- `offset` / `limit` pagination on `/assets` and `/assets/:id/holders`
+  (default 50, max 100).
+- `GET /assets/:id/distributions/:did` for a single dividend distribution.
+- `GET /events`.
+- Sparse fieldsets (`?fields=`) on the asset endpoints.
+- Per-address lookups: `GET /holders/:address`,
+  `GET /holders/:address/compliance`, and `GET /compliance/:address`.
+- `GET /metrics` (Prometheus) for indexer health.
+- Rate limiting and `Cache-Control` / `ETag` headers on snapshot-backed routes —
+  see [Rate Limits & Caching](/docs/api/rate-limits).
+
+### Changed
+
+- **Breaking:** data routes moved under the `/v1` prefix (for example
+  `/v1/assets`). `/`, `/version`, `/health`, and `/metrics` stay at the root.
+- Dividend distributions gain `overflow_detected`, and `claimed_percent` is no
+  longer clamped at 100 when an overflow is detected.
+- `total_holders` counts distinct addresses with a positive balance.
+
+### Fixed
+
+- Dividends from the previous snapshot are preserved when an RPC read fails
+  instead of being reported as zero.
+
+## 0.1.0 — 2026-07-09
+
+Initial release.
+
+- `GET /stats`, `/assets` (with `?asset_type` and `?active` filters),
+  `/assets/:id`, `/assets/:id/holders`, `/assets/:id/compliance`,
+  `/assets/:id/dividends`, and `/health`.
+- Compliance summaries are non-PII: counts and a jurisdiction breakdown only.
+
+## Updating this page
+
+Update this page in the same pull request as any change to the documented API
+surface:
+
+1. Add a bullet under **Unreleased**, in the matching **Added**, **Changed**,
+   **Deprecated**, **Removed**, or **Fixed** group
+   ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories).
+   Describe the effect on an integrator, not the implementation.
+2. Prefix anything that can break an existing client with **Breaking:** and
+   say what to change.
+3. Skip changes that don't alter documented behaviour (tests, refactors, CI,
+   typo fixes).
+4. On release (see `RELEASING.md`), rename **Unreleased** to
+   `<version> — <YYYY-MM-DD>`, matching the tag and the `CHANGELOG.md` section,
+   and start a new empty **Unreleased** section above it.
+
+## What to read next
+
+- [API Overview](/docs/api/overview) — the current endpoint list and versioning policy.
+- [OpenAPI Specification](/docs/api/openapi) — machine-readable spec reflecting the current API surface.
+- [Getting Started](/docs/getting-started) — run the API and verify the current version with `GET /version`.
+- [Architecture Overview](/docs/architecture) — the stability contract between the API, contracts, and web app.
