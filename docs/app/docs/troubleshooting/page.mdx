@@ -1,108 +1,62 @@
 export const metadata = {
   title: "Troubleshooting",
-  description: "Common integration failures with the Stellar RWA Toolkit, their symptoms and fixes.",
-  canonical: "/docs/troubleshooting",
+  description: "Common errors when integrating with the Stellar RWA API, and how to fix them.",
 };
 
 # Troubleshooting
 
-The failures integrators hit most often, each with a symptom and a fix. If a term is
-unfamiliar, see the [Glossary](/docs/glossary).
+## CORS errors when calling the API from a browser
 
-## 1. `429 Too Many Requests` from the API
+**You should not see these.** The API sends a permissive CORS policy on every
+response — `Access-Control-Allow-Origin: *`, with all methods and headers
+allowed (see `tower_http::cors::CorsLayer` in `api/src/routes/mod.rs`). There is
+no allowlist of origins to configure: any browser origin is permitted to call
+any endpoint.
 
-**Symptom.** Requests intermittently fail with HTTP `429` and a plain-text body
-(`Too Many Requests! Wait for <n>s`), not the usual JSON error.
+If a browser request is still being blocked, the request almost never reached
+the API's CORS layer in the first place. Check these, in order:
 
-**Cause.** The API applies a per-IP token bucket: 5 requests per second sustained, burst of 20.
+<CalloutBox variant="warning" title="`No 'Access-Control-Allow-Origin' header is present`">
+This usually means the request **failed before a response came back** — a
+network error, a wrong URL, or a proxy/load balancer in front of the API that
+stripped the CORS headers. Open the Network tab and check the actual response
+status, not just the console error.
+</CalloutBox>
 
-**Fix.** Back off with capped exponential delay and jitter, and retry only idempotent requests.
-The API does not send `Retry-After`. The indexer only refreshes about every 10 seconds, so poll no
-faster than every 10 to 15 seconds. Use `ETag` / `If-None-Match` to save bandwidth, though a `304`
-still counts toward the limit. See [Rate Limits & Caching](/docs/api/rate-limits).
+- **Request went to the wrong host or port.** The API serves plain HTTP by
+  default (`http://localhost:8080` locally). A typo'd base URL, or calling
+  `https://` against a server that only speaks `http://`, fails before CORS is
+  ever evaluated and surfaces as a CORS-shaped error in the console.
+- **The request never left the browser.** Mixed content (an `https://` docs
+  site calling an `http://` API) is blocked by the browser itself, not by
+  CORS, and also shows up as a CORS-style failure.
+- **A reverse proxy or CDN in front of the API dropped the `Access-Control-*`
+  headers.** If you're running the API behind nginx, Cloudflare, or similar,
+  confirm the proxy passes response headers through unmodified — some default
+  configs strip unrecognized headers on error responses.
+- **Preflight (`OPTIONS`) is being blocked upstream.** Because `allow_methods`
+  and `allow_headers` are set to `Any`, the API itself answers preflight
+  requests for every method and header. If a proxy or firewall intercepts
+  `OPTIONS` requests before they reach the API, the browser never gets a
+  preflight response and the real request is blocked.
+- **You're checking a `404`/`500` response for CORS headers.** Error responses
+  go through the same `CorsLayer`, so they carry the same headers as a success
+  response. If a `curl -i` of the failing URL shows no `Access-Control-Allow-Origin`
+  header at all, the response didn't come from this API — check for a proxy
+  returning its own error page instead.
 
-## 2. A stale or wrong contract id
+### Quick check
 
-**Symptom.** Simulations fail with a "contract not found" style error, or the API returns `404`
-for an asset you expect to exist.
+```bash
+curl -i -H "Origin: https://example.com" https://your-api-host/stats | grep -i access-control
+```
 
-**Cause.** The contract id was copied from an old deployment, or belongs to another network.
-Only the registry and dividend ids are fixed; asset-token ids are discovered, not hard-coded.
+A healthy response includes:
 
-**Fix.** Take the fixed ids from
-[Getting Started](/docs/getting-started#deployed-contract-addresses-testnet), and discover
-asset-token ids from the registry's `get_all_assets` or the API's `/assets`. Do not cache ids
-across redeployments.
+```
+access-control-allow-origin: *
+```
 
-## 3. Network passphrase mismatch
-
-**Symptom.** Signing or submission fails with a bad-signature or `txBadAuth` style error, or a
-wallet refuses to sign.
-
-**Cause.** The transaction was built with one network passphrase and signed or submitted on
-another, for example `Networks.PUBLIC` in code while Freighter or the RPC URL points at Testnet.
-
-**Fix.** Use the same network everywhere: the passphrase in `TransactionBuilder`, the passphrase
-passed to the wallet's `signTransaction`, the RPC URL, and the contract ids. The examples use
-`Networks.TESTNET` with `https://soroban-testnet.stellar.org`.
-
-## 4. Decoding XDR values incorrectly
-
-**Symptom.** A read returns something like `{"_value": ...}`, a `BigInt` where you expected a
-number, or a decode error.
-
-**Cause.** Contract results are `ScVal`s. Reading `retval` without converting it, or treating
-`i128`/`u128` amounts as JavaScript numbers, gives wrong values.
-
-**Fix.** Convert with `scValToNative(sim.result.retval)` and handle amounts as `bigint`. Check for
-`rpc.Api.isSimulationError(sim)` first. Decode errors are not retried by the indexer because they
-fail identically each time, so fix the request or parsing rather than retrying. If you can,
-prefer the REST API, which returns plain JSON. See the [Integration Guide](/docs/integration).
-
-## 5. A transfer reverts with `SenderNotCompliant` or `RecipientNotCompliant`
-
-**Symptom.** A `transfer` or `mint` fails with error `7` (`SenderNotCompliant`) or `8`
-(`RecipientNotCompliant`).
-
-**Cause.** The named party failed `is_allowed`: not on the allowlist, status other than
-`Approved`, an expired approval, or a blocked jurisdiction.
-
-**Fix.** Call `is_allowed` for that address on the asset's current compliance contract, then
-inspect `get_record` to see which condition failed. Approve or re-approve with
-`add_to_allowlist`, or review the jurisdiction block. Also check that the issuer address was
-approved before `initialize`. See the [Compliance Guide](/docs/compliance-guide).
-
-## 6. The API says `approved` but the transfer still fails
-
-**Symptom.** `/assets/:id/compliance` counts an address as approved, yet the on-chain transfer
-reverts.
-
-**Cause.** The API reports each record's stored status. It does not evaluate expiry or
-jurisdiction blocks the way `is_allowed` does.
-
-**Fix.** Use `is_allowed` through simulation to decide whether a transfer will pass. Treat the API
-counts as an audit summary only.
-
-## 7. API data looks stale (`X-Data-Stale: true`)
-
-**Symptom.** Responses carry `X-Data-Stale: true`, `/health` reports unhealthy, or
-`last_indexed_ledger` in `/v1/stats` stops advancing.
-
-**Cause.** The indexer cannot reach Soroban RPC, or the RPC provider is lagging. The API keeps
-serving the last good snapshot and does not fail over.
-
-**Fix.** Check `consecutive_failures` in `/health`. If the RPC endpoint is down, switch
-`RWA_RPC_URL` and restart. A non-testnet URL also requires `RWA_REGISTRY_ID` and
-`RWA_DIVIDEND_ID`. See [Health](/docs/api/health) and the
-[Integration Guide](/docs/integration).
-
-## 8. An add-to-allowlist call fails with `InvalidExpiry` or `InvalidJurisdiction`
-
-**Symptom.** `add_to_allowlist` reverts with compliance error `4` or `6`.
-
-**Cause.** `expires_at` was non-zero and not in the future (`expires_at <= current ledger`), for
-example a wall-clock timestamp instead of a ledger sequence. Or the jurisdiction was not exactly
-two letters.
-
-**Fix.** Compute expiry as the current ledger plus an offset, or pass `0` for no expiry. Use a
-two-letter ISO code such as `US`. See [Time & Ledgers](/docs/time-and-ledgers).
+If that header is missing, the issue is upstream of the API (proxy, DNS, wrong
+URL) rather than CORS configuration — there is nothing to "allow" on the API
+side, since every origin is already allowed.
