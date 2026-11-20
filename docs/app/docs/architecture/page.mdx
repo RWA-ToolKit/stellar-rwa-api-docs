@@ -1,153 +1,60 @@
 export const metadata = {
-  title: "Architecture overview",
-  description: "How the four Soroban contracts fit together, and how the three repositories sit around them.",
-  canonical: "/docs/architecture",
-  lastReviewed: "2026-09-28",
+  title: "Architecture",
+  description: "How the indexer, API, and web app fit together, and what performance to expect.",
 };
 
-# Architecture overview
+# Architecture
 
-<LastReviewed date={metadata.lastReviewed} />
+The system has three parts — contracts, API, and web app — connected as
+described in [Getting Started](/docs/getting-started). This page focuses on
+the API's internals and the performance envelope integrators should plan
+around.
 
-The Stellar RWA Toolkit is split across three repositories. Each owns a distinct
-layer; they interact only through well-defined interfaces.
+## The indexer
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                       stellar-rwa-web                                │
-│  (Next.js front-end — issuers & investors)                           │
-│                                                                      │
-│   • Freighter  ──sign──▶  Soroban RPC  ──submit──▶  contracts        │
-│   • fetch()   ──────────▶  REST API   (read-only data)               │
-└──────────────────────────────────────────────────────────────────────┘
-         ▲                          ▲
-         │  REST JSON               │  Soroban RPC
-         │                         │  simulateTransaction
-┌────────┴──────────┐    ┌─────────┴────────────────────────────────┐
-│  stellar-rwa-     │    │  Stellar network (Testnet / Mainnet)      │
-│  api-docs / api   │    │                                           │
-│  (Rust / Axum)    │    │  ┌─────────────┐  ┌──────────────────┐   │
-│                   │    │  │  registry   │  │  compliance      │   │
-│  polls every 10 s │◀───│  └─────────────┘  └──────────────────┘   │
-│  never signs      │    │  ┌─────────────┐  ┌──────────────────┐   │
-│  never submits    │    │  │  dividend   │  │  asset-token ×N  │   │
-└───────────────────┘    │  └─────────────┘  └──────────────────┘   │
-                         │           stellar-rwa-contracts            │
-                         └───────────────────────────────────────────┘
-```
+`api/src/indexer/mod.rs` runs a background task that polls Soroban RPC every
+`POLL_INTERVAL` (**10 seconds**) via `simulateTransaction` view calls, decodes
+the returned `ScVal`s, and swaps in a new immutable snapshot behind an
+`ArcSwap`. There is no database in v1 — every `GET` request clones the current
+snapshot out of memory.
 
-| Repository | Language / stack | Owns | Open to contributors? |
-|---|---|---|---|
-| [`stellar-rwa-contracts`](https://github.com/RWA-ToolKit/stellar-rwa-contracts) | Rust · Soroban SDK | The four on-chain programs; all business logic and compliance rules | Maintainer-only |
-| [`stellar-rwa-api-docs`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs) — `api/` | Rust · Axum · tokio | Read-only indexer; polls Soroban RPC, caches state in memory, serves JSON | Maintainer-only |
-| [`stellar-rwa-api-docs`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs) — `docs/` | Next.js 14 · MDX | This documentation site | Open — see [CONTRIBUTING.md](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/blob/main/CONTRIBUTING.md) |
-| [`stellar-rwa-web`](https://github.com/RWA-ToolKit/stellar-rwa-web) | Next.js · Freighter API | Issuer and investor front-end; the only layer that signs transactions | Maintainer-only |
+A single failed read is retried in place up to `MAX_READ_ATTEMPTS` (4 attempts)
+with jittered exponential backoff between `RETRY_BASE_DELAY` (150ms) and
+`RETRY_MAX_DELAY` (2s), so a transient RPC blip does not fail a whole refresh
+cycle. If a full cycle still fails, the API keeps serving the last good
+snapshot rather than erroring.
 
-## How data flows
+## Performance and SLO expectations
 
-**Writes (user → chain)**
+These are the concrete numbers integrators can design around today:
 
-1. A user opens the web app and connects Freighter.
-2. The web app builds a Soroban transaction and asks Freighter to sign it.
-3. The signed transaction is submitted to Soroban RPC and lands on the ledger.
-4. The contract executes — for example, an `asset-token` transfer triggers
-   cross-contract `is_allowed` checks in the `compliance` contract.
-
-**Reads (chain → API → web app)**
-
-1. The API's background indexer calls `simulateTransaction` on Soroban RPC every
-   10 seconds, decoding the returned `ScVal` (Stellar Contract Value — the
-   binary-encoded type Soroban uses to pass data in and out of contracts) with
-   `stellar-xdr` (the XDR codec library; XDR is the wire format Stellar uses
-   for all on-chain data).
-2. The decoded state is held in an in-memory snapshot (no database in v1). For
-   how that snapshot grows, what it costs per request, and the bounding
-   strategy, see [Snapshot Memory](/docs/snapshot-memory).
-3. The web app — and any other client — fetches that snapshot over REST. This is
-   cheaper and simpler than every client simulating its own contract calls.
+| Characteristic | Value | Source |
+|---|---|---|
+| Indexer poll interval | 10s (`POLL_INTERVAL`) | `api/src/indexer/mod.rs` |
+| Max data staleness (healthy indexer) | ~10s, bounded by poll interval | `api/src/indexer/mod.rs` |
+| Snapshot read latency | Sub-millisecond — an `Arc` clone of an in-memory structure, no I/O | `api/src/indexer/mod.rs` (`snapshot()`) |
+| HTTP response time (cache hit, `304`) | Single comparison, no snapshot clone | `api/src/routes/mod.rs` (`cache_headers`) |
+| HTTP response time (cache miss) | Dominated by JSON serialization of the snapshot, not RPC — typically single-digit milliseconds for the Testnet dataset sizes | `api/src/routes/stats.rs`, `routes/assets.rs` |
+| Per-IP rate limit | 5 req/s sustained, burst of 20 | `api/src/routes/mod.rs` (`RATE_LIMIT_PER_SECOND`, `RATE_LIMIT_BURST`) |
+| Cache freshness header | `Cache-Control: public, max-age=10` on all snapshot-backed endpoints | `api/src/routes/mod.rs` (`insert_cache_headers`) |
+| RPC read retries before failing a refresh | 4 attempts, 150ms–2s backoff | `api/src/indexer/mod.rs` (`MAX_READ_ATTEMPTS`, `RETRY_BASE_DELAY`, `RETRY_MAX_DELAY`) |
 
 <CalloutBox variant="note">
-The API is a **read-only cache**, not the source of truth. The Soroban ledger is.
-If you need data fresher than ~10 seconds, simulate the relevant view call
-directly with the Stellar JS SDK — see the [Integration Guide](/docs/integration#reading-contracts-directly).
+These numbers describe the indexer and transport layer. The dominant cost at
+scale is rebuilding the snapshot once per poll cycle as the number of assets,
+holders, and distributions grows — see
+[Performance / Benchmarks](/docs/performance) for how that scaling
+characteristic is (and should be) measured.
 </CalloutBox>
 
-## How the indexer rebuilds state
+### What this means for integrators
 
-The indexer does **not** replay contract events to derive state. On every cycle
-it re-reads the *current* contract state through simulated view calls and builds
-a brand-new snapshot from scratch.
-
-**The polling model**
-
-1. Every 10 seconds (`POLL_INTERVAL` in `api/src/indexer/mod.rs`) a background
-   task starts a refresh cycle.
-2. It calls `get_all_assets` on the `registry`, then for each asset reads
-   `get_metadata` on the `asset-token`, the allowlist and balances via the
-   `compliance` contract, and `get_distributions_for_asset` on the `dividend`
-   contract.
-3. The results are assembled into a new snapshot (assets, holders, compliance
-   summaries, dividends and `/stats`) and swapped in atomically. Readers see
-   either the old snapshot or the new one — never a half-built mix. See
-   [Snapshot Memory](/docs/snapshot-memory) for the memory and per-request cost
-   implications of this design.
-4. Individual reads retry transient RPC errors in place with short backoff. If
-   the cycle still fails, the previous snapshot keeps being served and the next
-   attempt waits one poll interval (or the RPC's `Retry-After`, if it sent one).
-
-Because each cycle is a full re-read, there is no event cursor to fall behind and
-no replay after a restart: a freshly started API is empty until its first
-successful cycle, then fully current.
-
-**Freshness implications**
-
-- **Lag.** Snapshot data trails the ledger by up to one poll interval plus the
-  time the cycle takes. `last_indexed_ledger` and `last_updated` on
-  [`/stats`](/docs/api/overview) tell you which ledger and when.
-- **Dividends lag more.** Distribution lists are cached per asset for 60 seconds
-  inside the indexer, so a new or claimed distribution can take up to ~60 seconds
-  to appear.
-- **Partial staleness.** If a single asset's reads fail, that asset keeps its
-  previous data and carries an `index_error`, while the rest of the snapshot
-  updates normally. Treat an asset with `index_error` as possibly stale.
-- **HTTP caching.** Snapshot-backed responses carry
-  `Cache-Control: public, max-age=10` and an `ETag` derived from
-  `last_indexed_ledger`, so polling faster than every 10 seconds only returns
-  the same data (or a `304`). See [Rate Limits & Caching](/docs/api/rate-limits).
-- **In-memory only.** Nothing is persisted; a restart discards the snapshot and
-  the indexer rebuilds it on the next cycle.
-
-## What the API does and does not do
-
-| Does | Does not |
-|---|---|
-| Poll Soroban RPC and cache the result | Hold private keys |
-| Serve plain JSON over REST | Sign or submit transactions |
-| Decode XDR `ScVal` from contract view calls | Store data persistently (in-memory only) |
-| Provide aggregated stats (TVL, holder counts) | Enforce any access control beyond rate limiting |
-
-Because the API never holds keys or submits transactions, it has a minimal attack
-surface. All write operations go through the web app → Freighter → Soroban RPC
-path, where the user's wallet is the only key holder.
-
-## Interface contracts
-
-The three layers communicate through two stable interfaces:
-
-- **Soroban contract ABI** — the method names and `ScVal` types exposed by the
-  four contracts. (ABI = Application Binary Interface — the contract's public
-  function signatures and argument types.) The API's `indexer/mod.rs` and the web app's SDK calls both
-  depend on this.
-- **REST API schema** — the JSON shapes documented in the [API Reference](/docs/api/overview).
-  The web app fetches from these endpoints; you can too.
-
-Changes to either interface are versioned. The API currently has no URL
-versioning (all paths are `/...`); a `v2` prefix will be added when breaking
-changes are needed.
-
-## What to read next
-
-- [Getting Started](/docs/getting-started) — run the API locally and make your first requests.
-- [API Overview](/docs/api/overview) — versioning, caching, and all endpoint conventions.
-- [Compliance Guide](/docs/compliance-guide) — deep dive into the on-chain transfer gate.
-- [Contract Reference: Asset Token](/docs/contracts/asset-token) — the token contract's full method surface.
+- Don't poll the API faster than once per `POLL_INTERVAL` (10s) expecting new
+  data — you will just get `304 Not Modified` or an identical body.
+- Budget for the per-IP rate limit (5 req/s, burst 20) if you fan out requests
+  across multiple assets; batch via a shared client where possible.
+- Treat `last_updated` on `GET /stats` (see
+  [API Overview → Data freshness](/docs/api/overview#data-freshness)) as the
+  authoritative staleness signal rather than assuming a fixed 10s bound — a
+  degraded RPC backend can push it further out, and the API will still answer
+  with `200 OK`.
