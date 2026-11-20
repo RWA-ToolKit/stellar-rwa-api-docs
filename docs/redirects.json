@@ -1,0 +1,11 @@
+{
+  "$schema": "Redirect map for renamed/removed documentation pages. Each entry is { \"source\": old path, \"destination\": new path, \"permanent\": true|false }. `source` and `destination` are site-relative paths (no domain). Consumed by docs/next.config.mjs via Next.js's `redirects()` hook, so a browser or bookmark hitting an old URL is forwarded automatically instead of landing on a 404.",
+  "redirects": [
+    {
+      "_comment": "Illustrative example: when a page under docs/app is renamed or moved, add an entry here instead of leaving the old URL to 404. This specific entry predates any real page move in this repo's history (see CHANGELOG.md / git log — no doc page has been renamed yet) and is kept as a worked example for the next person who renames one; delete it once a real entry exists, or replace it when the first real rename happens.",
+      "source": "/docs/api",
+      "destination": "/docs/api/overview",
+      "permanent": true
+    }
+  ]
+}
