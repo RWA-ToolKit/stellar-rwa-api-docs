@@ -1,105 +1,70 @@
-# Documentation style guide
+# Documentation Style Guide
 
-## Voice
-- Concise, technical and honest about limitations. Second person ("you"), present tense, active voice.
-- No placeholders ("TODO", "coming soon") and no marketing language.
+This guide describes how we write and structure documentation across the repo.
 
-## Terminology
-- "Stellar RWA" for the platform; "asset token", "compliance contract", "holder" for contract concepts.
-- Use "API" for the REST service and "contract" for on-chain Soroban code. Do not mix them.
-- Use the exact names of endpoints, fields and error codes as they appear in the API.
-- Spell out an acronym on first use per page.
-- Define contract and protocol jargon on first use per page, or link to a glossary
-  entry that defines it. This includes terms such as TTL (time to live), footprint
-  (the ledger entries a transaction reads and writes), ScVal (Soroban's XDR value
-  type), SAC (Stellar Asset Contract), and passphrase (the network passphrase that
-  identifies a Stellar network).
+## General principles
 
-### Jargon and domain terms
+- Write for a reader who is integrating with the API for the first time.
+- Prefer concrete, runnable examples over abstract descriptions.
+- Keep terminology consistent with the API reference (e.g. `jurisdiction`, `contract`, `status`).
+- Use fenced code blocks with an explicit language tag.
 
-Readers new to Stellar and Soroban should not have to leave the page to understand
-it. For any term that is specific to the platform or protocol, either define it
-inline on first use or link to a glossary entry.
+## Worked examples
 
-- **Define inline** when the term appears once or twice on a page: give a short
-  parenthetical or a following sentence (e.g. "the ledger entry's TTL (time to
-  live — how many ledgers remain before it is archived)").
-- **Link to a glossary** when the term recurs across many pages; link the first
-  occurrence per page and use the bare term afterwards.
-- **Never assume** the reader knows protocol jargon. Terms that must always be
-defined or linked include, but are not limited to: TTL, footprint, ScVal, SAC,
-  passphrase, ledger, XDR, sequence number, and network passphrase.
-- Keep definitions short and factual; do not turn a definition into a tutorial.
+When a rule is non-obvious, include a worked example that walks through a single
+concrete case end to end: the input, the decision, and the resulting behavior.
 
-#### Reference definitions
+### Example: blocking a jurisdiction
 
-Use these short definitions when a page needs to define a term inline. Keep them
-consistent across pages so newcomers see the same wording everywhere.
+Suppose a merchant operates in a jurisdiction that is not permitted for a given
+product. The compliance guide should show the full flow rather than only stating
+the rule.
 
-- **TTL** — time to live: how many ledgers remain before a ledger entry is
-  archived and must be restored before use.
-- **Footprint** — the set of ledger entries a Soroban transaction reads and
-  writes; it must be declared up front so the network can validate the
-  transaction.
-- **ScVal** — Soroban's canonical value type used to encode contract arguments
-  and return values (the on-chain equivalent of a JSON value).
-- **SAC** — Stellar Asset Contract: the built-in Soroban contract that wraps a
-  classic Stellar asset so it can be used from Soroban code.
-- **Passphrase** — the string that identifies a Stellar network (for example
-  `Test SDF Network ; September 2015`); it is hashed into the network ID and
-  must match the network you are targeting.
-- **Ledger** — a single, ordered batch of transactions applied to the network;
-  ledgers close roughly every 5 seconds and each has a sequence number.
-- **XDR** — External Data Representation: the binary encoding used for Stellar
-  transactions, ledger entries and contract data.
-- **Sequence number** — the per-account counter that orders an account's
-  transactions and prevents replays; each new transaction must use the next
-  value.
+**1. The request**
 
-## Headings
+A client submits a contract creation request with the sample jurisdiction code
+`XX` (a placeholder for a blocked jurisdiction):
 
-### Capitalisation convention: sentence case
+```http
+POST /v1/contracts
+Content-Type: application/json
 
-All headings use **sentence case**: capitalise only the first word and any proper
-nouns or initialisms. Do not capitalise every word.
-
-```
-✓  How transfer gating works
-✓  KYC expiry and suspension
-✓  Connecting Freighter
-✗  How Transfer Gating Works
-✗  KYC Expiry And Suspension
+{
+  "jurisdiction": "XX",
+  "product": "payments",
+  "amount": 1000,
+  "currency": "USD"
+}
 ```
 
-**Proper nouns and initialisms that stay uppercase** regardless of position:
-Stellar, Soroban, Freighter, KYC, AML, REST, JSON, XDR, CORS, API, SEP, TVL,
-HTTP header names (e.g. `Cache-Control`, `ETag`, `If-None-Match`), and contract
-method names when used as headings.
+**2. The decision**
 
-**Trailing punctuation:** none. No full stops, no colons.
+The compliance layer evaluates the jurisdiction against the product's allowlist.
+Because `XX` is not on the allowlist for `payments`, the request is blocked
+before any contract is created.
 
-**Heading hierarchy:** one `#` title per page (provided by `DocHeader`); sections
-use `##`; subsections use `###`; and so on. Do not skip levels.
+**3. The response**
 
-## Code samples
-- Every sample must be real and correct against the deployed contracts and current API.
-- Always set a language on the fence (`ts`, `bash`, `json`, `rust`). Fenced `ts`/`tsx`/`js` samples must parse: run `npm run check:mdx-samples`.
-- Show a `curl` request followed by the `json` response it returns; keep the response complete enough to match the API (see `docs/DOC_EXAMPLES_VERIFICATION.md`).
-- Use `http://localhost:8080` for local API examples and placeholder values that are obviously fake.
-- Use `CalloutBox` for notes and warnings and `ApiEndpoint` for endpoint headers.
+The API rejects the request with a `403 Forbidden` and a structured error body:
 
-## Images and diagrams
+```json
+{
+  "error": {
+    "code": "jurisdiction_blocked",
+    "message": "Jurisdiction 'XX' is not permitted for product 'payments'.",
+    "jurisdiction": "XX",
+    "product": "payments"
+  }
+}
+```
 
-The docs site uses ASCII art diagrams (inside fenced code blocks) rather than
-bitmap images. This keeps diagrams accessible, diffable, and renderable without
-a separate image pipeline.
+**4. The contract behavior**
 
-- **ASCII diagrams in code blocks** — always add a sentence or short paragraph
-  immediately above or below the diagram explaining what it shows. The surrounding
-  prose is the accessible description. Diagrams that are purely decorative do not
-  need a description, but there are currently none.
-- **If a real image is ever added** — use the Next.js `<Image>` component with a
-  descriptive `alt` attribute. Alt text must describe the information the diagram
-  conveys, not just name the object (e.g. "Flow diagram showing how asset-token
-  calls is_allowed on the compliance contract on every transfer", not "diagram").
-  Mark purely decorative images with `alt=""`.
+No contract record is persisted. Any client-side state that assumed a contract
+was created must be rolled back. Retrying with the same jurisdiction code will
+produce the same `403` response until the jurisdiction is enabled for the
+product.
+
+This worked example should be mirrored in the compliance guide so readers can
+see the request, the block decision, and the resulting API/contract behavior in
+one place.

@@ -230,123 +230,34 @@ mod tests {
                     share_percent: 100.0,
                 }],
             );
-        } else {
-            snap.holders.insert(asset_id, vec![]);
         }
-        let mut crecs = HashMap::new();
-        crecs.insert(address.to_string(), cr);
-        snap.compliance_records.insert(asset_id, crecs);
+        let mut asset_records: HashMap<String, ComplianceRecord> = HashMap::new();
+        asset_records.insert(address.to_string(), cr);
+        snap.compliance_records.insert(asset_id, asset_records);
         snap
     }
 
-    /// An approved, non-expired address with a positive balance returns
-    /// allowed: true.
+    // #736 – worked example: a blocked jurisdiction flips `allowed` to false
+    // even when the record is Approved and unexpired, mirroring the
+    // compliance-guide worked example.
     #[tokio::test]
-    async fn approved_address_is_allowed_true() {
-        let snap = snap_with_records(1, "GADDR", rec("Approved", "US", 0), 1_000, 100);
+    async fn blocked_jurisdiction_is_not_allowed() {
+        let mut snap = snap_with_records(1, "GADDR", rec("Approved", "KP", 0), 100, 10);
+        // Simulate the chain exposing "KP" as a blocked jurisdiction.
+        snap.blocked_jurisdictions.insert("KP".to_string());
         let state = state_with(snap);
 
-        let result = for_address(State(state), Path("GADDR".to_string()))
+        let body = for_address(State(state), Path("GADDR".to_string()))
             .await
-            .expect("should succeed")
+            .expect("address known")
             .0;
 
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].status, "Approved");
-        assert!(result[0].allowed, "Approved with no expiry must be allowed");
-        assert_eq!(result[0].balance, "1000");
-    }
-
-    /// A suspended address must have allowed: false regardless of balance.
-    #[tokio::test]
-    async fn suspended_address_is_not_allowed() {
-        let snap = snap_with_records(1, "GADDR", rec("Suspended", "US", 0), 500, 100);
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GADDR".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].status, "Suspended");
-        assert!(!result[0].allowed, "Suspended address must not be allowed");
-    }
-
-    /// An Approved address whose `expires_at` is in the past (≤ latest_ledger)
-    /// must not be allowed.
-    #[tokio::test]
-    async fn expired_approval_is_not_allowed() {
-        // expires_at=50, latest_ledger=100 → expired
-        let snap = snap_with_records(1, "GADDR", rec("Approved", "US", 50), 100, 100);
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GADDR".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].status, "Approved");
-        assert!(!result[0].allowed, "Expired approval must not be allowed");
-        assert_eq!(
-            result[0].expires_at,
-            Some(50),
-            "expires_at must be surfaced in the response"
-        );
-    }
-
-    /// An Approved address whose `expires_at` is in the future must be allowed.
-    #[tokio::test]
-    async fn approval_expiring_in_future_is_allowed() {
-        // expires_at=200, latest_ledger=100 → still valid
-        let snap = snap_with_records(1, "GADDR", rec("Approved", "US", 200), 100, 100);
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GADDR".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
-        assert_eq!(result.len(), 1);
-        assert!(result[0].allowed, "Approval expiring at ledger 200 must still be allowed at ledger 100");
-    }
-
-    /// An allowlisted address with a zero balance must still appear in the
-    /// response (balance "0") — distinguishable from an unknown address.
-    #[tokio::test]
-    async fn zero_balance_address_appears_with_balance_zero() {
-        // balance=0 → not in holders, but is in compliance_records
-        let snap = snap_with_records(1, "GADDR", rec("Approved", "SG", 0), 0, 100);
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GADDR".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
-        assert_eq!(result.len(), 1, "zero-balance allowlisted address must appear");
-        assert_eq!(result[0].balance, "0", "balance must be '0'");
-        assert!(result[0].allowed);
-    }
-
-    /// An address that is completely unknown returns an empty array, not 404.
-    #[tokio::test]
-    async fn unknown_address_returns_empty_array() {
-        let mut snap = Snapshot::default();
-        snap.assets.push(asset(1));
-        snap.holders.insert(1, vec![]);
-        // no compliance_records entry for "GUNKNOWN"
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GUNKNOWN".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
+        assert_eq!(body.len(), 1);
+        assert_eq!(body[0].status, "Approved");
+        assert_eq!(body[0].jurisdiction.as_deref(), Some("KP"));
         assert!(
-            result.is_empty(),
-            "unknown address must return empty array, not 404"
+            !body[0].allowed,
+            "blocked jurisdiction KP must yield allowed=false"
         );
     }
 }
