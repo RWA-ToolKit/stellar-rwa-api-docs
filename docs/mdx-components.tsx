@@ -1,6 +1,7 @@
 import type { MDXComponents } from "mdx/types";
 import Link from "next/link";
 import { CalloutBox } from "@/components/CalloutBox";
+import { BreakingChangeCallout } from "@/components/BreakingChangeCallout";
 import { CodeBlock } from "@/components/CodeBlock";
 import { ApiEndpoint } from "@/components/ApiEndpoint";
 import { ErrorCodeTable } from "@/components/ErrorCodeTable";
@@ -62,6 +63,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     h5,
     h6,
     CalloutBox,
+    BreakingChangeCallout,
     CodeBlock,
     ApiEndpoint,
     ErrorCodeTable,

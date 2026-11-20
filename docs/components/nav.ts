@@ -25,13 +25,6 @@ export const NAV: NavSection[] = [
     ],
   },
   {
-    title: "Architecture",
-    items: [
-      { title: "Overview", href: "/docs/architecture" },
-      { title: "Performance & Benchmarks", href: "/docs/performance" },
-    ],
-  },
-  {
     title: "API Reference",
     items: [
       { title: "Overview", href: "/docs/api/overview" },
@@ -47,7 +40,7 @@ export const NAV: NavSection[] = [
       { title: "Compliance Guide", href: "/docs/compliance-guide" },
       { title: "Web App Guide", href: "/docs/web-app" },
       { title: "Integration", href: "/docs/integration" },
-      { title: "Troubleshooting", href: "/docs/troubleshooting" },
+      { title: "Versioning", href: "/docs/versioning" },
     ],
   },
 ];

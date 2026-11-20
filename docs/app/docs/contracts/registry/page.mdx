@@ -1,46 +1,17 @@
 export const metadata = {
   title: "Registry Contract",
   description: "Canonical on-chain index of every tokenized asset, plus total value locked.",
-  canonical: "/docs/contracts/registry",
-  lastReviewed: "2026-09-26",
-};
+  lastReviewed: "2026-07-09",
+
 
 # Registry Contract
-
-<LastReviewed date={metadata.lastReviewed} />
 
 A canonical, on-chain index of every tokenized asset on the platform. Each issuer
 registers their asset-token contract here; the registry assigns a monotonically
 increasing id and tracks issuer, type, valuation and active status. It also reports
 total value locked (TVL) across active assets.
 
-**Testnet:** [`CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3`](https://stellar.expert/explorer/testnet/contract/CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3) — all addresses in [Getting Started → Deployed contract addresses](/docs/getting-started#deployed-contract-addresses-testnet)
-
-## Glossary
-
-New to Stellar/Soroban? These terms appear throughout this page:
-
-- **Soroban** — Stellar's smart-contract platform. Contracts are written in Rust
-  and compiled to WebAssembly.
-- **ScVal** — *Soroban Contract Value*, the typed value representation used when
-  calling a contract. JavaScript/TypeScript callers convert native values to
-  `ScVal` with `nativeToScVal` (and back with `scValToNative`).
-- **Address** — A Stellar account (`G…`) or contract (`C…`) identifier. In Soroban
-  it is passed as an `Address` value, not a plain string.
-- **SAC (Stellar Asset Contract)** — The built-in contract that wraps a classic
-  Stellar asset (e.g. USDC) so it can be used from Soroban. Not used directly by
-  the registry, but referenced by asset tokens.
-- **Footprint** — The set of ledger entries a transaction reads and writes. It
-  must be declared up front so the network can validate and price the call;
-  `simulateTransaction` computes it for you.
-- **TTL (time-to-live)** — How many ledgers a stored contract entry (or its code)
-  remains live before it must be extended. Expired entries are archived and must
-  be restored before use.
-- **Passphrase** — The network identifier string (e.g. `Test SDF Network ; September 2015`
-  for testnet, `Public Global Stellar Network ; September 2015` for mainnet) used
-  to sign and submit transactions to the correct network.
-- **TVL (total value locked)** — The summed `valuation` of all *active* assets,
-  in USD cents. See [`total_value_locked`](#total_value_locked--asset_count).
+**Testnet:** `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3`
 
 ## Data types
 
@@ -89,52 +60,16 @@ fn get_asset(env: Env, asset_id: u64) -> AssetEntry
 
 Fetches a single asset. **Errors:** `AssetNotFound (4)`.
 
-### `get_assets_by_issuer` / `get_assets_by_type`
+### `get_assets_by_issuer` / `get_assets_by_type` / `get_all_assets`
 
 ```rust
 fn get_assets_by_issuer(env: Env, issuer: Address) -> Vec<AssetEntry>
 fn get_assets_by_type(env: Env, asset_type: String) -> Vec<AssetEntry>
+fn get_all_assets(env: Env) -> Vec<AssetEntry>
 ```
 
-Filtered list helpers. These back the API's `/assets` endpoint and the web
-app's explore page.
-
-### `get_all_assets`
-
-```rust
-fn get_all_assets(env: Env, start_id: u64, limit: u32) -> Vec<AssetEntry>
-```
-
-Returns a page of registered assets starting from `start_id` (inclusive),
-capped at `limit` entries. Page through the full registry by calling again
-with `start_id = last_returned_id + 1` until the returned slice is shorter
-than `limit`.
-
-```ts
-// Page through all assets in TypeScript
-const REGISTRY = "CBX5SMLT…PUR3";
-const PAGE = 50;
-let startId = 0n;
-const all: AssetEntry[] = [];
-do {
-  const op = new Contract(REGISTRY).call(
-    "get_all_assets",
-    nativeToScVal(startId, { type: "u64" }),
-    nativeToScVal(PAGE, { type: "u32" }),
-  );
-  // build → simulate → scValToNative(retval)
-  const page: AssetEntry[] = await simulate(op);
-  all.push(...page);
-  if (page.length < PAGE) break;
-  startId = BigInt(page[page.length - 1].id) + 1n;
-} while (true);
-```
-
-<CalloutBox variant="note">
-Deployments from before pagination was introduced accept no arguments.
-The reference API indexer automatically detects this and falls back to
-the legacy zero-argument call, so it works with both contract versions.
-</CalloutBox>
+Query helpers returning filtered or complete lists. These back the API's
+`/assets` endpoint and the web app's explore page.
 
 ### `deactivate_asset`
 
@@ -155,166 +90,35 @@ fn asset_count(env: Env) -> u64
 `total_value_locked` sums `valuation` across **active** assets, in USD cents.
 `asset_count` returns the total registered (active or not).
 
-### `active_count`
-
-```rust
-fn active_count(env: Env) -> u64
-```
-
-Returns the number of registered assets whose `active` flag is `true`.
-Unlike `asset_count`, it excludes assets deactivated by an administrator. It is
-read-only and requires no authorization.
-
-### Count and valuation units
-
-`asset_count` is a historical registration count; it does not decrease when an
-asset is deactivated. `active_count` is the currently listed count and can only
-decrease through `deactivate_asset`. `total_value_locked` is an `i128` sum of
-issuer-declared `valuation` values in **USD cents** (for example, `500_000_000`
-represents USD 5,000,000.00). It is not a token balance or a live oracle price.
-
-### Authority summary
-
-| Method | Authority |
-|---|---|
-| `initialize` | The supplied admin signs once |
-| `register_asset` | The issuer signs |
-| `deactivate_asset` | Stored admin |
-| `get_asset`, `get_assets_by_issuer`, `get_assets_by_type`, `get_all_assets`, `total_value_locked`, `asset_count`, `active_count` | Public read |
-
-## Worked example
-
-This end-to-end example runs against the current Testnet deployment above. It
-registers an asset, reads it back, and checks the aggregate counters. Every call
-is a read or a single signed invocation, so it works as-is once you have a funded
-Testnet keypair and a deployed asset-token contract.
+## Code example
 
 ```ts
-import {
-  Contract,
-  Keypair,
-  Networks,
-  Address,
-  nativeToScVal,
-  scValToNative,
-  TransactionBuilder,
-  rpc,
-} from "@stellar/stellar-sdk";
-
-const REGISTRY = "CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3";
-const server = new rpc.Server("https://soroban-testnet.stellar.org");
-const issuer = Keypair.fromSecret(process.env.STELLAR_SECRET!);
-const tokenContract = "C…your deployed asset-token contract…";
-
-// 1. Simulate a read-only call and decode the result.
-async function read<T>(method: string, ...args: any[]): Promise<T> {
-  const op = new Contract(REGISTRY).call(method, ...args);
-  const account = await server.getAccount(issuer.publicKey());
-  const tx = new TransactionBuilder(account, {
-    fee: "100",
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(op)
-    .setTimeout(30)
-    .build();
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error);
-  return scValToNative(sim.result!.retval) as T;
-}
-
-// 2. Register an asset (issuer signs).
-const registerOp = new Contract(REGISTRY).call(
+const registry = new Contract("CBX5SMLT…PUR3");
+// register a freshly deployed asset token
+const op = registry.call(
   "register_asset",
-  new Address(issuer.publicKey()).toScVal(),
+  new Address(issuer).toScVal(),
   new Address(tokenContract).toScVal(),
   nativeToScVal("Manhattan Loft", { type: "string" }),
   nativeToScVal("real_estate", { type: "string" }),
   nativeToScVal(500_000_000n, { type: "i128" }), // $5,000,000 in cents
 );
-const account = await server.getAccount(issuer.publicKey());
-const tx = new TransactionBuilder(account, {
-  fee: "100",
-  networkPassphrase: Networks.TESTNET,
-})
-  .addOperation(registerOp)
-  .setTimeout(30)
-  .build();
-const prepared = await server.prepareTransaction(tx);
-prepared.sign(issuer);
-const sent = await server.sendTransaction(prepared);
-const result = await server.pollTransaction(sent.hash);
-if (result.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
-  throw new Error(`register_asset failed: ${result.status}`);
-}
-const assetId = scValToNative(result.returnValue!) as bigint;
-console.log("registered asset id", assetId);
-
-// 3. Read the entry back and confirm the counters moved.
-const entry = await read<{ id: bigint; name: string; active: boolean }>(
-  "get_asset",
-  nativeToScVal(assetId, { type: "u64" }),
-);
-console.log(entry.name, entry.active); // "Manhattan Loft" true
-
-const count = await read<bigint>("asset_count");
-const active = await read<bigint>("active_count");
-const tvl = await read<bigint>("total_value_locked");
-console.log({ count, active, tvl }); // tvl includes the new 500_000_000
 ```
-
-<CalloutBox variant="note">
-The example targets the paginated `get_all_assets(start_id, limit)` signature
-shown above. If you point it at an older deployment that predates pagination,
-call `get_all_assets` with no arguments instead.
-</CalloutBox>
 
 ## Events
 
 | Topic | Data | Emitted by |
 |-------|------|------------|
 | `("register", issuer)` | `id` | `register_asset` |
-| `("deactivate",)` | `asset_id` | `deactivate_asset` |
-
-## Error codes
-
-<ErrorCodeTable
-  contract="Registry"
-  codes={[
-    { code: 1, name: "AlreadyInitialized", cause: "initialize was called after the registry was already initialized.", remediation: "Use the existing registry instance; initialization can only be performed once." },
-    { code: 2, name: "NotInitialized", cause: "register_asset was called before the registry was initialized.", remediation: "Have the registry admin initialize the contract before registering assets." },
-    { code: 3, name: "Unauthorized", cause: "deactivate_asset was called by an address other than the stored admin.", remediation: "Submit the deactivation with authorization from the stored admin address." },
-    { code: 4, name: "AssetNotFound", cause: "The requested asset id does not identify an entry in the registry.", remediation: "Check the asset id against the registered assets and retry with a valid id." },
-    { code: 5, name: "InvalidValuation", cause: "register_asset was given a negative valuation.", remediation: "Provide a non-negative valuation in USD cents." },
-  ]}
-/>
+| `("deactvate",)` | `asset_id` | `deactivate_asset` |
 
 ## Security considerations
 
 - **The registry is an index, not a source of truth for balances.** Supply and
   balances live in the asset-token contract; the registry's `valuation` is the
   issuer-declared figure at registration (updatable on the token via
-  `update_valuation`, not mirrored here automatically). See the
-  [Asset Token Contract](/docs/contracts/asset-token) for supply, balances and
-  valuation updates.
+  `update_valuation`, not mirrored here automatically).
 - **Anyone can register** an asset (auth is the issuer, not the admin). Consumers
   should treat listing in the registry as *self-attestation*, and rely on the
-  compliance contract for the actual holding restrictions. See the
-  [Compliance Contract](/docs/contracts/compliance) for holding restrictions and
-  the [Compliance Guide](/docs/guides/compliance) for the end-to-end flow.
+  compliance contract for the actual holding restrictions.
 - **Deactivation is admin-only** and only affects TVL and listing, not the token.
-  See [`deactivate_asset`](#deactivate_asset) above.
-
-## Related reference pages
-
-- [Asset Token Contract](/docs/contracts/asset-token) — the token contract each registry entry points to; source of supply, balances and `update_valuation`.
-- [Compliance Contract](/docs/contracts/compliance) — holding restrictions that listing in the registry does not enforce.
-- [API · Assets](/docs/api/assets) — the REST endpoint backed by `get_all_assets`.
-- [Getting Started](/docs/getting-started) — deployed registry contract address and quickstart.
-- [Architecture Overview](/docs/architecture) — how the registry fits into the four-contract platform.
-
-## What to read next
-
-- [Asset Token Contract](/docs/contracts/asset-token) — the token contract each registry entry points to.
-- [API · Assets](/docs/api/assets) — the REST endpoint backed by `get_all_assets`.
-- [Getting Started](/docs/getting-started) — deployed registry contract address and quickstart.
-- [Architecture Overview](/docs/architecture) — how the registry fits into the four-contract platform.
