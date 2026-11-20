@@ -1,0 +1,154 @@
+export const metadata = {
+  title: "API · Holder position",
+  description: "A holder's positions and claimable amounts across all assets in one request.",
+  canonical: "/docs/api/holder-position",
+  lastReviewed: "2026-09-26",
+};
+
+# Holder position
+
+<LastReviewed date={metadata.lastReviewed} />
+
+<ApiEndpoint method="GET" path="/holders/:address/position" description="Positions and claimable dividends for one address across all assets." />
+
+Returns a holder's positions and claimable dividends across every asset in a single
+request. Use it to render a portfolio view without issuing one request per asset.
+
+## Request
+
+`GET /v1/holders/:address/position`
+
+**Path parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `address` | string | Yes | Stellar account address of the holder |
+
+There are no query parameters. The response always covers every asset in which the
+address holds a positive balance.
+
+```bash
+curl "$API_BASE_URL/v1/holders/$ADDRESS/position"
+```
+
+### Example response
+
+```json
+{
+  "address": "G...",
+  "asset_count": 1,
+  "total_value_usd": 50.0,
+  "positions": [
+    {
+      "asset_id": 1,
+      "asset_name": "Test Asset",
+      "symbol": "TST",
+      "balance": "250",
+      "share_percent": 25.0,
+      "value_usd": 50.0,
+      "claimable": [
+        { "distribution_id": 7, "payment_token": "C...", "amount": "200" }
+      ]
+    }
+  ]
+}
+```
+
+## Response
+
+**Response schema** (`HolderPosition`):
+
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `address` | string | — | No | Holder account address |
+| `asset_count` | integer | Assets | No | Number of returned positions |
+| `total_value_usd` | number | USD | No | Sum of position values |
+| `positions` | `PositionEntry[]` | One entry per asset | No | Positions are sorted by balance, largest first |
+
+`PositionEntry` fields:
+
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `asset_id` | integer | Registry id | No | |
+| `asset_name` | string | — | No | |
+| `symbol` | string | — | No | Asset-token symbol |
+| `balance` | string | Asset-token base units | No | Exact balance as a decimal string |
+| `share_percent` | number | Percent | No | Share of total supply |
+| `value_usd` | number | USD | No | Estimated value of the position |
+| `claimable` | `Claimable[]` | One entry per open distribution | No | Estimated claim amounts |
+
+`Claimable` fields:
+
+| Field | Type | Unit | Nullable | Description |
+|-------|------|------|----------|-------------|
+| `distribution_id` | integer | Distribution id | No | |
+| `payment_token` | string | — | No | Payment-token contract address |
+| `amount` | string | Payment-token base units | No | Estimated unclaimed amount as a decimal string |
+
+- `value_usd` is the holder's `share_percent` of the asset valuation.
+- `claimable` lists each open distribution with the holder's pro-rata share
+  (`balance / total_supply`) of the unclaimed pool, in payment-token base units.
+  It is an estimate from indexed data, not an on-chain claim quote.
+- An address with no holdings returns **HTTP 200** with a well-formed body: `asset_count` is `0`, `total_value_usd` is `0`, and `positions` is `[]` — an empty array, never `null` and never an error. Clients can rely on this shape and iterate `positions` without a null check.
+
+## Errors
+
+Error responses use the shared two-field error body (`error` and `message`) defined in `error_body.rs`. See [API · Errors](/docs/api/errors) for the canonical shape and the full list of codes.
+
+| Status | `error` | When |
+|---|---|---|
+| `400` | `bad_request` | The `:address` path segment is not a valid Stellar account address |
+| `429` | `too_many_requests` | The rate limit for this endpoint was exceeded |
+
+```json
+{
+  "error": "bad_request",
+  "message": "invalid Stellar account address"
+}
+```
+
+### Empty positions
+
+An address with no holdings returns `asset_count: 0`, `total_value_usd: 0`, and an
+empty `positions` array:
+
+```json
+{
+  "address": "G...",
+  "asset_count": 0,
+  "total_value_usd": 0.0,
+  "positions": []
+}
+```
+
+<CalloutBox variant="note" title="Claimable amounts are estimates">
+`claimable` amounts are computed from indexed data at the time of the request. They
+are not an on-chain claim quote: balances, distribution state, or the unclaimed pool
+may change between this response and a subsequent `claim` call. For an exact amount,
+call the dividend contract's `claimable` function live — see the
+[Integration Guide](/docs/integration).
+</CalloutBox>
+
+<CalloutBox variant="tip" title="Position unit conversions">
+Because asset tokens and payment tokens may use different decimal bases, always scale each amount using its corresponding token decimals:
+
+```ts
+// 1. Convert asset token balance (e.g. TST with decimals = 2):
+const rawBalance = BigInt(position.balance); // "250"
+const assetDecimals = 2;
+const displayBalance = Number(rawBalance) / (10 ** assetDecimals);
+// => 2.50 TST
+
+// 2. Convert claimable dividend (e.g. USDC payment token with decimals = 7):
+const rawClaimable = BigInt(position.claimable[0].amount); // "200"
+const paymentDecimals = 7;
+const displayClaimable = Number(rawClaimable) / (10 ** paymentDecimals);
+// => 0.0000200 USDC
+```
+</CalloutBox>
+## What to read next
+
+- [API · Holders](/docs/api/holders) — list all holders for a single asset.
+- [API · Dividends](/docs/api/dividends) — full distribution history for an asset.
+- [Dividend Contract](/docs/contracts/dividend) — `claimable` and `claim` function reference.
+- [Integration Guide](/docs/integration) — call `claimable` live for an exact on-chain quote.

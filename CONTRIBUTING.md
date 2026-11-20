@@ -40,12 +40,89 @@ adding a new documentation page — is fair game in `docs/`.
 
 ## Local setup
 
+This monorepo contains two independent projects with separate toolchains:
+
+### Docs (Next.js + MDX) — Open to contributions
+
 ```bash
 cd docs
-npm install
+npm ci
 npm run dev      # http://localhost:3000
-npm run build    # must pass before you open a PR
+npm run lint     # ESLint — catches style and import issues
+npm run build    # Next.js production build — must pass before you open a PR
 ```
+
+#### Local CI checks
+
+Before pushing, run the two checks that CI will run on your PR:
+
+**1. MDX sample checker**
+
+```bash
+cd docs
+npm run check:mdx-samples
+```
+
+This extracts every fenced `ts`, `tsx`, `js`, and `jsx` code block from `.mdx`
+files under `docs/app/` and verifies that each one parses as valid JavaScript or
+TypeScript. It checks **syntax only** — it does not run the samples, resolve
+imports, or type-check them. Blocks fenced as `bash`, `json`, `rust`, or other
+languages are skipped. Run this any time you add or change a TypeScript example.
+
+**2. Production build**
+
+```bash
+cd docs
+npm run build
+```
+
+A passing build confirms that all MDX pages compile, internal links resolve, and
+Next.js can generate the static site. This is the same command CI runs; a PR
+cannot be merged if it fails.
+
+Both commands are referenced from `docs/CONTRIBUTING-DOCS.md`, which also covers
+adding pages and updating navigation.
+
+#### Search index
+
+`docs/lib/search-index.json` is a **generated artifact** — do not edit it by
+hand. It is produced by `docs/scripts/build-search-index.mjs`, which scans every
+`.mdx` file under `docs/app/docs/` and writes the index used by the site search.
+
+The index is rebuilt automatically:
+
+- `npm run build` runs it first via the `prebuild` script, and
+- `npm run dev` regenerates it as part of the dev workflow.
+
+If you **add, rename, or remove a page**, run the generator explicitly so the
+committed index stays current:
+
+```bash
+cd docs
+npm run build:search   # regenerate docs/lib/search-index.json only
+# or
+npm run build          # full build, which also regenerates the index
+```
+
+Commit the updated `docs/lib/search-index.json` alongside your page changes.
+=======
+
+### API (Rust) — Maintainer-only
+
+The API uses standard Rust tooling. While PRs modifying `api/` will not be accepted,
+you can set up the environment locally to understand the codebase or verify builds:
+
+```bash
+cd api
+cargo build           # Compile the API
+cargo test            # Run unit tests
+cargo fmt --check     # Check code formatting (Rust style)
+cargo clippy          # Lint for common mistakes and idioms
+cargo fmt             # Auto-format code (apply changes)
+```
+
+Our CI runs these checks on every push (see `.github/workflows/`), so understanding
+these commands helps you see what the automated checks look for.
 
 ## Submitting a PR
 
@@ -63,3 +140,11 @@ Found a problem with the API? Open an issue with:
 - the API version (from `GET /`).
 
 We'll pick it up from there.
+
+## Releasing (maintainers only)
+
+The api crate is versioned from `api/Cargo.toml`, and the `/` endpoint surfaces
+that same version to consumers. The release process is documented in
+[RELEASING.md](./RELEASING.md): a maintainer runs a small `git-cliff` step,
+bumps the version, and tags. PRs that touch the api crate are still
+maintainer-only per the scope rule above — a release PR is no exception.

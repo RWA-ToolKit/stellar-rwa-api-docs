@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Children, isValidElement, type ReactNode } from "react";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
@@ -13,19 +13,43 @@ interface ApiEndpointProps {
   method?: Method;
   path: string;
   description?: ReactNode;
+  /**
+   * Optional example: the first child is the request, the second the
+   * response. Shown side by side on wide screens, stacked on narrow ones.
+   */
+  children?: ReactNode;
 }
 
+const PANEL_LABELS = ["Request", "Response"];
+
 /** A method + path banner used to head an API reference section. */
-export function ApiEndpoint({ method = "GET", path, description }: ApiEndpointProps) {
+export function ApiEndpoint({ method = "GET", path, description, children }: ApiEndpointProps) {
+  const panels = Children.toArray(children).filter(isValidElement);
   return (
-    <div className="my-6 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+    <div
+      role="region"
+      aria-label={`API endpoint: ${method} ${path}`}
+      className="my-6 rounded-xl border border-white/10 bg-white/[0.03] p-4"
+    >
       <div className="flex flex-wrap items-center gap-3">
         <span className={`rounded-md border px-2.5 py-1 font-mono text-xs font-bold ${METHOD_STYLES[method]}`}>
           {method}
         </span>
         <code className="font-mono text-sm text-base-100">{path}</code>
       </div>
-      {description && <p className="mt-2 text-sm text-base-200/75">{description}</p>}
+      {description && <p className="mt-2 text-sm text-base-200">{description}</p>}
+      {panels.length > 0 && (
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {panels.map((panel, i) => (
+            <div key={i} className="min-w-0 [&_pre]:my-0">
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-base-300">
+                {PANEL_LABELS[i] ?? ""}
+              </div>
+              {panel}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

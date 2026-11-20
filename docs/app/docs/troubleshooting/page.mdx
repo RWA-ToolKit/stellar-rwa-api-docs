@@ -1,0 +1,108 @@
+export const metadata = {
+  title: "Troubleshooting",
+  description: "Common integration failures with the Stellar RWA Toolkit, their symptoms and fixes.",
+  canonical: "/docs/troubleshooting",
+};
+
+# Troubleshooting
+
+The failures integrators hit most often, each with a symptom and a fix. If a term is
+unfamiliar, see the [Glossary](/docs/glossary).
+
+## 1. `429 Too Many Requests` from the API
+
+**Symptom.** Requests intermittently fail with HTTP `429` and a plain-text body
+(`Too Many Requests! Wait for <n>s`), not the usual JSON error.
+
+**Cause.** The API applies a per-IP token bucket: 5 requests per second sustained, burst of 20.
+
+**Fix.** Back off with capped exponential delay and jitter, and retry only idempotent requests.
+The API does not send `Retry-After`. The indexer only refreshes about every 10 seconds, so poll no
+faster than every 10 to 15 seconds. Use `ETag` / `If-None-Match` to save bandwidth, though a `304`
+still counts toward the limit. See [Rate Limits & Caching](/docs/api/rate-limits).
+
+## 2. A stale or wrong contract id
+
+**Symptom.** Simulations fail with a "contract not found" style error, or the API returns `404`
+for an asset you expect to exist.
+
+**Cause.** The contract id was copied from an old deployment, or belongs to another network.
+Only the registry and dividend ids are fixed; asset-token ids are discovered, not hard-coded.
+
+**Fix.** Take the fixed ids from
+[Getting Started](/docs/getting-started#deployed-contract-addresses-testnet), and discover
+asset-token ids from the registry's `get_all_assets` or the API's `/assets`. Do not cache ids
+across redeployments.
+
+## 3. Network passphrase mismatch
+
+**Symptom.** Signing or submission fails with a bad-signature or `txBadAuth` style error, or a
+wallet refuses to sign.
+
+**Cause.** The transaction was built with one network passphrase and signed or submitted on
+another, for example `Networks.PUBLIC` in code while Freighter or the RPC URL points at Testnet.
+
+**Fix.** Use the same network everywhere: the passphrase in `TransactionBuilder`, the passphrase
+passed to the wallet's `signTransaction`, the RPC URL, and the contract ids. The examples use
+`Networks.TESTNET` with `https://soroban-testnet.stellar.org`.
+
+## 4. Decoding XDR values incorrectly
+
+**Symptom.** A read returns something like `{"_value": ...}`, a `BigInt` where you expected a
+number, or a decode error.
+
+**Cause.** Contract results are `ScVal`s. Reading `retval` without converting it, or treating
+`i128`/`u128` amounts as JavaScript numbers, gives wrong values.
+
+**Fix.** Convert with `scValToNative(sim.result.retval)` and handle amounts as `bigint`. Check for
+`rpc.Api.isSimulationError(sim)` first. Decode errors are not retried by the indexer because they
+fail identically each time, so fix the request or parsing rather than retrying. If you can,
+prefer the REST API, which returns plain JSON. See the [Integration Guide](/docs/integration).
+
+## 5. A transfer reverts with `SenderNotCompliant` or `RecipientNotCompliant`
+
+**Symptom.** A `transfer` or `mint` fails with error `7` (`SenderNotCompliant`) or `8`
+(`RecipientNotCompliant`).
+
+**Cause.** The named party failed `is_allowed`: not on the allowlist, status other than
+`Approved`, an expired approval, or a blocked jurisdiction.
+
+**Fix.** Call `is_allowed` for that address on the asset's current compliance contract, then
+inspect `get_record` to see which condition failed. Approve or re-approve with
+`add_to_allowlist`, or review the jurisdiction block. Also check that the issuer address was
+approved before `initialize`. See the [Compliance Guide](/docs/compliance-guide).
+
+## 6. The API says `approved` but the transfer still fails
+
+**Symptom.** `/assets/:id/compliance` counts an address as approved, yet the on-chain transfer
+reverts.
+
+**Cause.** The API reports each record's stored status. It does not evaluate expiry or
+jurisdiction blocks the way `is_allowed` does.
+
+**Fix.** Use `is_allowed` through simulation to decide whether a transfer will pass. Treat the API
+counts as an audit summary only.
+
+## 7. API data looks stale (`X-Data-Stale: true`)
+
+**Symptom.** Responses carry `X-Data-Stale: true`, `/health` reports unhealthy, or
+`last_indexed_ledger` in `/v1/stats` stops advancing.
+
+**Cause.** The indexer cannot reach Soroban RPC, or the RPC provider is lagging. The API keeps
+serving the last good snapshot and does not fail over.
+
+**Fix.** Check `consecutive_failures` in `/health`. If the RPC endpoint is down, switch
+`RWA_RPC_URL` and restart. A non-testnet URL also requires `RWA_REGISTRY_ID` and
+`RWA_DIVIDEND_ID`. See [Health](/docs/api/health) and the
+[Integration Guide](/docs/integration).
+
+## 8. An add-to-allowlist call fails with `InvalidExpiry` or `InvalidJurisdiction`
+
+**Symptom.** `add_to_allowlist` reverts with compliance error `4` or `6`.
+
+**Cause.** `expires_at` was non-zero and not in the future (`expires_at <= current ledger`), for
+example a wall-clock timestamp instead of a ledger sequence. Or the jurisdiction was not exactly
+two letters.
+
+**Fix.** Compute expiry as the current ledger plus an offset, or pass `0` for no expiry. Use a
+two-letter ISO code such as `US`. See [Time & Ledgers](/docs/time-and-ledgers).

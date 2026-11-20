@@ -1,0 +1,21 @@
+name: OpenAPI
+
+on:
+  push:
+    paths:
+      - "docs/public/openapi-v1.yaml"
+      - ".github/workflows/openapi.yml"
+  pull_request:
+    paths:
+      - "docs/public/openapi-v1.yaml"
+      - ".github/workflows/openapi.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npx --yes @apidevtools/swagger-cli@4 validate docs/public/openapi-v1.yaml

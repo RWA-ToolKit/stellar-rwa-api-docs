@@ -8,7 +8,8 @@ license = "Apache-2.0"
 [dependencies]
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors", "limit", "timeout", "trace"] }
 tower_governor = "0.5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
@@ -20,8 +21,24 @@ thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+rand = "0.9"
 url = "2"
+
+[dev-dependencies]
+insta = { version = "1", features = ["json"] }
+serde_json = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bin]]
 name = "stellar-rwa-api"
 path = "src/main.rs"
+
+[lib]
+name = "stellar_rwa_api"
+path = "src/lib.rs"
+
+[[bench]]
+name = "registry_scaling"
+harness = false
