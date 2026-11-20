@@ -1,0 +1,1559 @@
+[
+  {
+    "id": "/docs/api/assets",
+    "title": "API · Assets",
+    "pageTitle": "API · Assets",
+    "href": "/docs/api/assets",
+    "section": "API Reference",
+    "description": "List all tokenized assets, or fetch one by id.",
+    "content": "Assets Replace $API_BASE_URL in examples with your configured API base URL (see API Overview )."
+  },
+  {
+    "id": "/docs/api/assets#list-assets",
+    "title": "API · Assets › List assets",
+    "pageTitle": "API · Assets",
+    "href": "/docs/api/assets#list-assets",
+    "section": "API Reference",
+    "description": "List assets",
+    "content": "Returns an array of asset objects. Query parameters (all optional) Name Type Notes asset_type string Filter by class: real_estate , invoice , commodity active boolean Filter by active status fields string Sparse fieldset: comma-separated list such as id,name,active . offset integer Skip the first N matching assets. Default: 0 . limit integer Page size. Default: 50 ; maximum: 100 . Results are paginated to keep large collections bounded. Use offset and limit together to walk the list in chunks. curl \"$API_BASE_URL/assets?asset_type=real_estate&active=true&offset=0&limit=50\" Response schema (per asset): Field Type Notes id number Registry id token_contract string Asset-token contract issuer string Issuer account name string symbol string asset_type string real_estate \\ invoice \\ commodity description string valuation_cents string Valuation in USD cents ( i128 string). Divide by 100 to get USD dollars. valuation_usd number Valuation in USD dollars ( f64 convenience float, equal to valuation_cents / 100 ). decimals number Number of decimal places used by this asset token (e.g. 2 ). total_supply string Total supply in base units ( i128 string in the token's decimals base). Divide by 10 ** decimals to get the human-readable token amount. holders number Addresses with a positive balance active boolean paused boolean compliance_contract string Gate for this asset created_at_ledger number indexed_at_ledger number Most recent ledger successfully indexed for this asset index_error string or null Per-asset index error, if the latest refresh failed Example curl $API_BASE_URL/assets [ { \"id\": 1, \"token_contract\": \"CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ\", \"issuer\": \"GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA\", \"name\": \"Manhattan Loft\", \"symbol\": \"MLOFT\", \"asset_type\": \"real_estate\", \"description\": \"A tokenized loft in Manhattan\", \"valuation_cents\": \"500000000\", \"valuation_usd\": 5000000.0, \"decimals\": 2, \"total_supply\": \"1000000\", \"holders\": 1, \"active\": true, \"paused\": false, \"compliance_contract\": \"CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU\", \"created_at_ledger\": 3502885, \"indexed_at_ledger\": 3502885, \"index_error\": null } ]"
+  },
+  {
+    "id": "/docs/api/assets#get-an-asset",
+    "title": "API · Assets › Get an asset",
+    "pageTitle": "API · Assets",
+    "href": "/docs/api/assets#get-an-asset",
+    "section": "API Reference",
+    "description": "Get an asset",
+    "content": "Path parameters Name Type Notes id number Registry id (e.g. 1 ) Example curl $API_BASE_URL/assets/1 Returns a single asset object with the schema above. You can also request a sparse fieldset with ?fields= ; for example: curl \"$API_BASE_URL/assets/1?fields=id,name,active,indexed_at_ledger\" Errors { \"error\": \"not_found\", \"message\": \"no asset with id 999\" } Returned with status 404 when no asset has the given id. A non-numeric id ( /assets/abc ) is rejected with 400 by the router. Both total_supply and valuation_cents are 128-bit integers returned as strings to prevent rounding in JavaScript runtimes. // 1. Converting total_supply (base units to display tokens): // Given total_supply = \"1000000\" and decimals = 2: const rawSupply = BigInt(asset.total_supply); const displaySupply = Number(rawSupply) / (10 ** asset.decimals); // => 10,000.00 MLOFT // 2. Converting valuation_cents (USD cents to USD dollars): // Given valuation_cents = \"500000000\": const rawCents = BigInt(asset.valuation_cents); const displayUsd = Number(rawCents) / 100; // => 5000000.00 ($5,000,000.00 USD)"
+  },
+  {
+    "id": "/docs/api/assets-query",
+    "title": "API · Filtering and sorting assets",
+    "pageTitle": "API · Filtering and sorting assets",
+    "href": "/docs/api/assets-query",
+    "section": "API Reference",
+    "description": "Filter and sort the asset list server-side.",
+    "content": "Filtering and sorting assets GET /v1/assets accepts these query parameters: Parameter Values Description asset_type e.g. real_estate Only assets of this class. active true , false Only active or inactive assets. sort valuation Sort by USD valuation (ordered by valuation_cents in USD cents). order asc , desc (default) Direction; requires sort . offset , limit integers Pagination (limit defaults to 50, max 100). curl \"$API_BASE_URL/v1/assets?asset_type=real_estate&sort=valuation&order=asc\" Invalid or unknown parameters return 400 with a body of the form {\"error\": \"invalid_parameter\", \"message\": \"...\"} ."
+  },
+  {
+    "id": "/docs/api/compliance",
+    "title": "API · Compliance",
+    "pageTitle": "API · Compliance",
+    "href": "/docs/api/compliance",
+    "section": "API Reference",
+    "description": "Non-PII compliance summary for a tokenized asset.",
+    "content": "Compliance Replace $API_BASE_URL in examples with your configured API base URL (see API Overview ). Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes counts, not addresses — no personally identifying information leaves the API. Path parameters Name Type Notes id number Registry id Response schema Field Type Notes total_records number Addresses ever added to the allowlist approved number Stored KYC status is Approved — not the same as currently passing is_allowed suspended number rejected number pending number with_expiry number Records with a non-zero expires_at jurisdictions array { jurisdiction, count } breakdown Example curl $API_BASE_URL/assets/1/compliance { \"total_records\": 1, \"approved\": 1, \"suspended\": 0, \"rejected\": 0, \"pending\": 0, \"with_expiry\": 0, \"jurisdictions\": [ { \"jurisdiction\": \"US\", \"count\": 1 } ] } Errors Returns 404 with { \"error\": \"not_found\", … } when the asset id is unknown. An asset's holder set can itself be sensitive. This endpoint gives issuers and analysts the shape of an allowlist — how many are approved, where they're based, how many approvals carry expiries — without publishing who they are. The per-address KYC records live only on-chain and in the issuer's own tooling. approved (and the other status counts) reflect each record's stored status field, not the on-chain is_allowed check the compliance contract actually enforces at transfer time. A record can be counted as approved here while is_allowed would reject it — for example an approval that has expired ( expires_at in the past) or one whose jurisdiction has since been blocked via is_jurisdiction_blocked . Use with_expiry together with the current time, and cross-reference jurisdictions against the contract's blocked-jurisdiction list, if you need a true count of holders currently permitted to transact. Do not treat approved as that number on its own. The jurisdictions breakdown reflects the jurisdiction field of each KYC record. Combined with the contract's is_jurisdiction_blocked , it helps issuers audit their geographic exposure. See the Compliance Guide ."
+  },
+  {
+    "id": "/docs/api/compliance#address-compliance",
+    "title": "API · Compliance › Address compliance",
+    "pageTitle": "API · Compliance",
+    "href": "/docs/api/compliance#address-compliance",
+    "section": "API Reference",
+    "description": "Address compliance",
+    "content": "Returns the compliance authorization and token balance for an address across all assets it holds. curl \"$API_BASE_URL/compliance/GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA\" [ { \"address\": \"GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA\", \"asset_id\": 1, \"asset_name\": \"Manhattan Loft\", \"symbol\": \"MLOFT\", \"balance\": \"1000000\", \"status\": \"approved\", \"allowed\": true } ] Response schema (per record): Field Type Description address string Stellar account address asset_id number Registry asset id asset_name string Name of the asset symbol string Token symbol balance string Token balance in base units ( i128 string in the asset token's decimals base). Divide by 10 decimals to obtain human-readable units. status string Stored KYC status (e.g. approved , pending ) allowed boolean Current compliance authorization flag ( true if permitted to transact) // Balance is in base units; divide by 10 decimals (found in the asset's metadata): const displayBalance = Number(BigInt(record.balance)) / (10 ** decimals);"
+  },
+  {
+    "id": "/docs/api/dividends",
+    "title": "API · Dividends",
+    "pageTitle": "API · Dividends",
+    "href": "/docs/api/dividends",
+    "section": "API Reference",
+    "description": "Distribution history for a tokenized asset.",
+    "content": "Dividends Replace $API_BASE_URL in examples with your configured API base URL (see API Overview ). Returns every dividend distribution created for the asset's token, ordered by creation ledger (newest first). Path parameters Name Type Notes id number Registry id Response schema (per distribution): Field Type Notes id number Distribution id asset_token string The asset paid out on payment_token string Token used to pay total_amount string Pool size in payment-token base units ( i128 string). Divide by 10 ** payment_token_decimals to get human-readable units. distributed string Claimed so far in payment-token base units ( i128 string). Divide by 10 ** payment_token_decimals to get human-readable units. claimed_percent number Percentage of pool claimed, 0–100 with 2 decimal places ( f64 ). overflow_detected boolean true when distributed exceeds total_amount (on-chain anomaly, not an API bug) completed boolean true once fully claimed created_at_ledger number Example curl $API_BASE_URL/assets/1/dividends [ { \"id\": 1, \"asset_token\": \"CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ\", \"payment_token\": \"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC\", \"total_amount\": \"100000000000\", \"distributed\": \"25000000000\", \"claimed_percent\": 25.0, \"overflow_detected\": false, \"completed\": false, \"created_at_ledger\": 3510000 } ] An asset with no distributions returns an empty array [] . Errors Returns 404 with { \"error\": \"not_found\", … } when the asset id is unknown."
+  },
+  {
+    "id": "/docs/api/dividends#get-a-single-distribution",
+    "title": "API · Dividends › Get a single distribution",
+    "pageTitle": "API · Dividends",
+    "href": "/docs/api/dividends#get-a-single-distribution",
+    "section": "API Reference",
+    "description": "Get a single distribution",
+    "content": "Path parameters Name Type Notes id number Registry id did number Distribution id Response schema Same shape as a single item from the list above. Example curl $API_BASE_URL/assets/1/distributions/1 { \"id\": 1, \"asset_token\": \"CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ\", \"payment_token\": \"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC\", \"total_amount\": \"100000000000\", \"distributed\": \"25000000000\", \"claimed_percent\": 25.0, \"completed\": false, \"created_at_ledger\": 3510000 } Errors Returns 404 with { \"error\": \"not_found\", … } when the asset id or the distribution id is unknown. total_amount and distributed are measured in the payment token's base units, not the asset token's. Classic Stellar assets (SACs) such as USDC use 7 decimals, whereas other tokens may specify different decimals. // Converting distribution amounts for a payment token with 7 decimals (e.g. SAC USDC): const paymentDecimals = 7; // Pool size: const rawTotal = BigInt(distribution.total_amount); // \"100000000000\" const displayTotal = Number(rawTotal) / (10 paymentDecimals); // => 10,000.0 USDC // Claimed so far: const rawDistributed = BigInt(distribution.distributed); // \"25000000000\" const displayDistributed = Number(rawDistributed) / (10 paymentDecimals); // => 2,500.0 USDC"
+  },
+  {
+    "id": "/docs/api/errors",
+    "title": "API · Error Bodies",
+    "pageTitle": "API · Error Bodies",
+    "href": "/docs/api/errors",
+    "section": "API Reference",
+    "description": "The single JSON error shape returned by every route of the Stellar RWA API, with the full list of error codes.",
+    "content": "Error Bodies Every error response, from any route or from the server itself, has the same JSON shape and an application/json content type: { \"error\": \"not_found\", \"message\": \"no asset with id 999\" } Field Type Description error string Stable, machine-readable code. Branch on this. message string Human-readable explanation. Do not parse it. The body contains exactly these two fields. Headers such as Retry-After are preserved on the response."
+  },
+  {
+    "id": "/docs/api/errors#error-codes",
+    "title": "API · Error Bodies › Error codes",
+    "pageTitle": "API · Error Bodies",
+    "href": "/docs/api/errors#error-codes",
+    "section": "API Reference",
+    "description": "Error codes",
+    "content": "HTTP status error When 400 bad_request Malformed query string or path parameter 401 unauthorized /metrics called without a valid bearer token 404 not_found Unknown asset, distribution or route 405 method_not_allowed Any method other than GET 408 request_timeout The request exceeded the server timeout 413 payload_too_large The request body exceeded the size limit 429 too_many_requests The per-IP rate limit was exceeded 500 internal_server_error Unexpected server error 503 service_unavailable The service cannot answer right now GET /health is a status report rather than an error: it returns its own JSON status document, with a 503 status while the snapshot is stale."
+  },
+  {
+    "id": "/docs/api/events",
+    "title": "API · Events",
+    "pageTitle": "API · Events",
+    "href": "/docs/api/events",
+    "section": "API Reference",
+    "description": "Recent contract events emitted by the indexer.",
+    "content": "Events The API exposes a compact event stream for clients that need to react to state changes without polling the full asset list. The payload is a JSON array ordered newest-first. curl \"$API_BASE_URL/events?limit=20\" [ { \"id\": 42, \"contract\": \"CDL...\", \"event_type\": \"Transfer\", \"ledger\": 3514152, \"timestamp\": \"2026-07-09T08:43:12.101772791+00:00\", \"data\": { \"from\": \"GA...\", \"to\": \"GB...\", \"amount\": \"100\" } } ] Each event includes the contract address, event name, ledger, timestamp (when available), and the raw payload emitted by the contract. Response schema: Field Type Description id number Sequential event ID contract string Address of the contract emitting the event event_type string Event name (e.g. Transfer , Mint , Burn , Valuation , created , claim ) ledger number Ledger sequence number where the event was recorded timestamp string or null ISO 8601 timestamp of ledger close data object Event-specific data payload Event payload amount units: Amounts inside data depend on the contract and event type, in accordance with the contracts specification: Event type Amount field Unit / Base Conversion Transfer , Mint , Burn data.amount Asset token base units ( i128 string) Number(BigInt(data.amount)) / 10 token.decimals Valuation data.new_valuation USD cents ( i128 string) Number(BigInt(data.new_valuation)) / 100 Dividend created data.total_amount Payment token base units ( i128 string) Number(BigInt(data.total_amount)) / 10 payment_token.decimals Dividend claim data.amount Payment token base units ( i128 string) Number(BigInt(data.amount)) / 10 payment_token.decimals // For a Transfer event with amount = \"100\" and token decimals = 2: const rawAmount = BigInt(event.data.amount); const displayAmount = Number(rawAmount) / (10 2); // => 1.00 token"
+  },
+  {
+    "id": "/docs/api/field-selection",
+    "title": "API · Field selection",
+    "pageTitle": "API · Field selection",
+    "href": "/docs/api/field-selection",
+    "section": "API Reference",
+    "description": "Request partial responses with the fields parameter.",
+    "content": "Field selection Every JSON data endpoint under /v1 (assets, holders, events, dividends and single-record endpoints) accepts ?fields= with a comma-separated list of field names. Each returned object then contains only those fields. curl \"$API_BASE_URL/v1/assets?fields=id,symbol,valuation_usd\" curl \"$API_BASE_URL/v1/assets/1/holders?fields=address,balance\" Requesting a field that does not exist returns 400 : {\"error\": \"invalid_parameter\", \"message\": \"unknown field nope ; available fields: ...\"} Fields are validated against the first record of a list, so an empty list is returned as-is. When selecting amount fields like balance , remember that values are returned in raw base units. If you plan to format the balance for display, include decimals in your field list (or query the parent asset) so you can convert balance / 10 ** decimals . Similarly, note that valuation_cents is in USD cents while valuation_usd is in USD dollars."
+  },
+  {
+    "id": "/docs/api/health",
+    "title": "API · Health & Indexer Lag",
+    "pageTitle": "API · Health & Indexer Lag",
+    "href": "/docs/api/health",
+    "section": "API Reference",
+    "description": "How GET /health reports the last successful poll, ledger lag and staleness.",
+    "content": "Health & indexer lag GET /health returns 200 with \"status\": \"ok\" while the indexer is polling normally, and 503 with \"status\": \"degraded\" when it has stalled. Field Meaning snapshot_age_seconds Age of the served snapshot last_poll_at Time of the last successful poll (RFC 3339) last_poll_age_seconds Seconds since the last successful poll last_indexed_ledger Ledger reached by the last successful poll ledger_lag Estimated ledgers closed since that poll (about 5 seconds each) max_age_seconds Stall threshold"
+  },
+  {
+    "id": "/docs/api/health#threshold",
+    "title": "API · Health & Indexer Lag › Threshold",
+    "pageTitle": "API · Health & Indexer Lag",
+    "href": "/docs/api/health#threshold",
+    "section": "API Reference",
+    "description": "Threshold",
+    "content": "The indexer is reported unhealthy when the last successful poll is older than max_age_seconds . The default is three poll intervals (30 seconds). Override it with the RWA_HEALTH_MAX_POLL_AGE_SECS environment variable."
+  },
+  {
+    "id": "/docs/api/health#staleness-during-an-rpc-outage",
+    "title": "API · Health & Indexer Lag › Staleness during an RPC outage",
+    "pageTitle": "API · Health & Indexer Lag",
+    "href": "/docs/api/health#staleness-during-an-rpc-outage",
+    "section": "API Reference",
+    "description": "Staleness during an RPC outage",
+    "content": "The indexer counts consecutive failed polls and reports the count as consecutive_failures in /health . While polls are failing, or the last successful poll is older than the threshold, every response carries: - X-Data-Stale: true - X-Data-Age-Seconds : seconds since the last successful poll - X-Indexer-Consecutive-Failures : current failure streak The previous snapshot keeps being served. When a poll succeeds again, the headers disappear and the recovery is logged."
+  },
+  {
+    "id": "/docs/api/holder-position",
+    "title": "API · Holder position",
+    "pageTitle": "API · Holder position",
+    "href": "/docs/api/holder-position",
+    "section": "API Reference",
+    "description": "A holder",
+    "content": "Holder position curl \"$API_BASE_URL/v1/holders/$ADDRESS/position\" { \"address\": \"G...\", \"asset_count\": 1, \"total_value_usd\": 50.0, \"positions\": [ { \"asset_id\": 1, \"asset_name\": \"Test Asset\", \"symbol\": \"TST\", \"balance\": \"250\", \"share_percent\": 25.0, \"value_usd\": 50.0, \"claimable\": [ { \"distribution_id\": 7, \"payment_token\": \"C...\", \"amount\": \"200\" } ] } ] } Response schema: Field Type Unit / Description address string Stellar account address asset_count number Count of assets held with a positive balance total_value_usd number Total estimated value across all held positions in USD dollars ( f64 ) positions array Array of asset position objects positions[].asset_id number Registry asset id positions[].asset_name string Name of the asset positions[].symbol string Token symbol positions[].balance string Holder's token balance in base units ( i128 string in the asset's decimals base). Divide by 10 ** decimals to obtain the token amount. positions[].share_percent number Share of the asset's total supply owned, 0–100 with 2 decimal places ( f64 ) positions[].value_usd number Estimated position value in USD dollars ( f64 ), calculated from share_percent of the asset's valuation positions[].claimable array Unclaimed pro-rata shares across open dividend distributions positions[].claimable[].distribution_id number Distribution identifier positions[].claimable[].payment_token string Contract address of the token used to pay the dividend positions[].claimable[].amount string Estimated claimable dividend in payment-token base units ( i128 string). Divide by 10 payment_decimals (e.g. 7 for SAC USDC). - value_usd is the holder's share_percent of the asset valuation. - claimable lists each open distribution with the holder's pro-rata share ( balance / total_supply ) of the unclaimed pool, in payment-token base units. It is an estimate from indexed data, not an on-chain claim quote. - An address with no holdings returns an empty positions array. Because asset tokens and payment tokens may use different decimal bases, always scale each amount using its corresponding token decimals: // 1. Convert asset token balance (e.g. TST with decimals = 2): const rawBalance = BigInt(position.balance); // \"250\" const assetDecimals = 2; const displayBalance = Number(rawBalance) / (10 assetDecimals); // => 2.50 TST // 2. Convert claimable dividend (e.g. USDC payment token with decimals = 7): const rawClaimable = BigInt(position.claimable[0].amount); // \"200\" const paymentDecimals = 7; const displayClaimable = Number(rawClaimable) / (10 ** paymentDecimals); // => 0.0000200 USDC"
+  },
+  {
+    "id": "/docs/api/holders",
+    "title": "API · Holders",
+    "pageTitle": "API · Holders",
+    "href": "/docs/api/holders",
+    "section": "API Reference",
+    "description": "Holder list with balances for a tokenized asset.",
+    "content": "Holders Replace $API_BASE_URL in examples with your configured API base URL (see API Overview ). Returns every address that is on the asset's compliance allowlist and holds a positive balance. The asset-token contract does not enumerate holders directly, so the indexer derives this from the allowlist intersected with balances. Path parameters Name Type Notes id number Registry id Query parameters (all optional) Name Type Notes offset integer Skip the first N holders. Default: 0 . limit integer Page size. Default: 50 ; maximum: 100 . Response schema (per holder): Field Type Notes address string Holder account balance string Balance in base units ( i128 string in the asset token's decimals base). Divide by 10 ** decimals (from the asset's metadata) to get the display balance. share_percent number Share of total token supply, 0–100 with 2 decimal places ( balance / total_supply * 100 ). Example curl $API_BASE_URL/assets/1/holders [ { \"address\": \"GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA\", \"balance\": \"1000000\", \"share_percent\": 100.0 } ] Errors Returns 404 with { \"error\": \"not_found\", … } when the asset id is unknown. An asset with holders but none currently holding a positive balance returns an empty array [] . Holder balances are raw integers on-chain. To format a balance for end users, query the asset's decimals value and scale the integer: // Given holder.balance = \"1000000\" and asset.decimals = 2: const rawBalance = BigInt(holder.balance); const displayBalance = Number(rawBalance) / (10 ** asset.decimals); // => 10,000.00 tokens Holders are sorted by balance, largest first. share_percent is computed from balance / total_supply at index time, so it reflects the most recent 10-second refresh."
+  },
+  {
+    "id": "/docs/api/openapi",
+    "title": "API · OpenAPI Specification",
+    "pageTitle": "API · OpenAPI Specification",
+    "href": "/docs/api/openapi",
+    "section": "API Reference",
+    "description": "Machine-readable OpenAPI 3 specification covering every v1 route of the Stellar RWA API.",
+    "content": "OpenAPI specification The v1 surface is described by an OpenAPI 3 document, served by the docs site at /openapi-v1.yaml . It lists / , /version , /health , /metrics and every route under /v1 , and can be fed to client generators or contract-testing tools. The spec source lives at docs/public/openapi-v1.yaml and is linted in CI by the OpenAPI workflow on every change."
+  },
+  {
+    "id": "/docs/api/overview",
+    "title": "API Overview",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview",
+    "section": "API Reference",
+    "description": "How the read-only Stellar RWA indexing API works, and its conventions.",
+    "content": "API Overview The Stellar RWA API is a read-only REST service that indexes all tokenized asset activity on Stellar and serves it as JSON. It is written in Rust (Axum + tokio) and holds no keys — it never signs or submits transactions. Base URL: Set via environment variable NEXT_PUBLIC_API_BASE_URL (defaults to http://localhost:8080 for development). Readers should replace examples with their configured URL. An OpenAPI 3.0 specification is available at /openapi.json — use it with Swagger UI, Postman, or to generate SDK clients. See Integration Guide for examples."
+  },
+  {
+    "id": "/docs/api/overview#non-goals",
+    "title": "API Overview › Non-goals",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#non-goals",
+    "section": "API Reference",
+    "description": "Non-goals",
+    "content": "The API is deliberately limited. It does not : - Hold keys. No secret key is configured or stored. The only account it knows about, RWA_READ_SOURCE , is a public address used as the unsigned source of simulated view calls. - Sign or submit transactions. Every contract read is a simulateTransaction envelope with an empty signature set that is never sent to the network. Every route is a GET ; there is no write endpoint. - Change on-chain state. Issuing, transferring, allowlisting and dividend claims all happen through the web app, signed by the user's wallet (see Integration Guide ). - Act as the source of truth. It is a ~10-second-old in-memory cache of the Soroban ledger, with no database. Trust implication: compromising the API cannot move funds, change an allowlist, or authorize anything on-chain — there is nothing to steal and no signing path to abuse. The worst a faulty or malicious API can do is serve stale or incorrect data, so verify anything security-critical against the ledger directly before acting on it. See Architecture for how this fits the wider system."
+  },
+  {
+    "id": "/docs/api/overview#how-indexing-works",
+    "title": "API Overview › How indexing works",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#how-indexing-works",
+    "section": "API Reference",
+    "description": "How indexing works",
+    "content": "A background task polls Soroban RPC every 10 seconds. On each tick it reads the current state of the four contracts by simulating view calls — get_all_assets on the registry, then per-asset get_metadata , get_allowlist , balance and get_distributions_for_asset — and rebuilds an in-memory snapshot. For the full polling model and what it means for data freshness, see How the indexer rebuilds state . State is kept in memory (no database in v1). If the RPC is briefly unreachable, the indexer logs the error, keeps serving the last good snapshot, and retries on the next tick. The API never panics on a transient failure."
+  },
+  {
+    "id": "/docs/api/overview#operational-details",
+    "title": "API Overview › Operational details",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#operational-details",
+    "section": "API Reference",
+    "description": "Operational details",
+    "content": ""
+  },
+  {
+    "id": "/docs/api/overview#authentication-and-rate-limiting",
+    "title": "API Overview › Authentication and rate limiting",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#authentication-and-rate-limiting",
+    "section": "API Reference",
+    "description": "Authentication and rate limiting",
+    "content": "There is currently no authentication required to call the data endpoints (everything under /v1 , plus / , /version and /health ). The one exception is the operator-only /metrics endpoint, which requires a bearer token. The API applies request throttling, and its /v1 data routes support HTTP caching with Cache-Control and ETags. The X-RateLimit-* response headers described in the reference are planned; caching is already available: See Rate Limits &amp; Caching for the active ETag conditional-request flow and cache headers, along with the planned rate-limit response headers and polling recommendations."
+  },
+  {
+    "id": "/docs/api/overview#data-freshness-and-caching",
+    "title": "API Overview › Data freshness and caching",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#data-freshness-and-caching",
+    "section": "API Reference",
+    "description": "Data freshness and caching",
+    "content": "The API refreshes its in-memory state approximately every 10 seconds by polling Soroban RPC. This means: - Data lags the ledger by ~10 seconds on average. - Two requests made within the same 10-second window will return identical data. - If Soroban RPC is temporarily unreachable, the API continues serving the last successful snapshot (no error, just stale data). For integrations where you need real-time data, consider reading contracts directly via Soroban RPC."
+  },
+  {
+    "id": "/docs/api/overview#metrics-endpoint",
+    "title": "API Overview › Metrics endpoint",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#metrics-endpoint",
+    "section": "API Reference",
+    "description": "Metrics endpoint",
+    "content": "GET /metrics exposes indexer health in the Prometheus text exposition format ( Content-Type: text/plain; version=0.0.4 ). It is intended for operators, not API consumers, and is not part of the /v1 namespace or its stability promise. Authentication The endpoint is protected by a static bearer token configured on the server: Environment variable Purpose RWA_METRICS_TOKEN Shared secret that scrapers must present. Scrapers send it in the Authorization header: curl -H \"Authorization: Bearer $RWA_METRICS_TOKEN\" http://localhost:8080/metrics - The header must be exactly Bearer ; the token is compared verbatim. - A missing, malformed or wrong token returns 401 Unauthorized with the plain text body metrics authentication required . - If RWA_METRICS_TOKEN is unset or empty , the endpoint is disabled and every request returns 401 . There is no way to expose metrics without a token. - The variable is read on every request, but since it comes from the process environment, rotating it means restarting the API with the new value. Treat RWA_METRICS_TOKEN like any other secret: generate a long random value (for example openssl rand -hex 32 ), keep it out of source control, and serve the API over TLS so the token is not sent in clear text. Exposed metrics Metric Type Labels Description rwa_indexer_refresh_duration_seconds summary — Wall-clock time of each indexer refresh (one sample per poll tick, successful or not). Rendered with quantile series plus _sum and _count . rwa_indexer_refresh_total counter outcome = success \\ failure Number of completed refresh attempts. A failure means the whole tick failed and the previous snapshot kept being served. rwa_indexer_asset_read_errors_total counter asset_id , read = get_metadata \\ compliance \\ dividends \\ dividend_decode Per-asset RPC reads that failed during an otherwise successful refresh. Series only appear after they are first recorded, so a freshly started API may return an empty body until the first refresh completes, and rwa_indexer_asset_read_errors_total is absent until a read actually fails. Useful alert starting points: Refreshes are failing rate(rwa_indexer_refresh_total{outcome=\"failure\"}[5m]) > 0 No successful refresh in the last minute (normal cadence is ~10s) increase(rwa_indexer_refresh_total{outcome=\"success\"}[1m]) == 0 A specific asset keeps failing to read increase(rwa_indexer_asset_read_errors_total[15m]) > 0 For snapshot age, use GET /health , which returns 503 with \"status\": \"degraded\" once the snapshot is older than three poll intervals. Example scrape configuration Store the token in a file readable by Prometheus and reference it with credentials_file , so it never appears in the config itself: scrape_configs: - job_name: stellar-rwa-api scrape_interval: 15s metrics_path: /metrics scheme: https authorization: type: Bearer credentials_file: /etc/prometheus/secrets/rwa-metrics-token static_configs: - targets: [\"rwa-api.example.com\"] A scrape interval of 10–15 seconds matches the indexer's poll cadence; scraping faster does not yield new data."
+  },
+  {
+    "id": "/docs/api/overview#versioning-and-stability",
+    "title": "API Overview › Versioning and stability",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#versioning-and-stability",
+    "section": "API Reference",
+    "description": "Versioning and stability",
+    "content": "All data endpoints are served under the /v1 prefix (for example GET /v1/assets/:id ). The path prefix is the compatibility contract: a client written against /v1 should keep working, unmodified, for as long as /v1 is served. GET /version returns the running server version so clients can log or report it, but clients should not need to branch on it."
+  },
+  {
+    "id": "/docs/api/overview#what-v1-covers",
+    "title": "API Overview › What /v1 covers",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#what-v1-covers",
+    "section": "API Reference",
+    "description": "What /v1 covers",
+    "content": "The stability promise applies to every route under /v1 , including its path and query parameters, response JSON shapes, field types and meanings, HTTP status codes, and the error body format and error codes. It does not cover operator-facing routes ( /metrics , /health , / ), the exact values of rate-limit budgets, the indexing interval, or anything marked as experimental or planned in these docs."
+  },
+  {
+    "id": "/docs/api/overview#changes-that-may-ship-without-a-version-bump",
+    "title": "API Overview › Changes that may ship without a version bump",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#changes-that-may-ship-without-a-version-bump",
+    "section": "API Reference",
+    "description": "Changes that may ship without a version bump",
+    "content": "These are additive or behavioural changes that a well-behaved client already tolerates. Clients must ignore unknown fields and unknown enum values to benefit from them. - Adding new endpoints under /v1 . - Adding new optional query parameters with a default that preserves the current behaviour. - Adding new fields to response objects. - Adding new values to open-ended string enums (for example a new event type or a new error code for a previously unhandled case). - Adding new response headers. - Changing the wording of human-readable message strings. - Changing ordering where the order is not documented as guaranteed. - Tuning operational limits (rate limits, timeouts, body size, poll interval) and fixing bugs so behaviour matches the documentation."
+  },
+  {
+    "id": "/docs/api/overview#changes-that-require-a-new-version",
+    "title": "API Overview › Changes that require a new version",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#changes-that-require-a-new-version",
+    "section": "API Reference",
+    "description": "Changes that require a new version",
+    "content": "These are breaking and will only ship under a new prefix ( /v2 ): - Removing or renaming an endpoint, field, or query parameter. - Changing a field's type or encoding (for example turning a decimal string such as total_supply into a number) or its units (for example cents to dollars). - Making an optional parameter required, or changing a default in a way that alters results. - Changing the status code or error code returned for an existing condition. - Changing the meaning of an existing field or the semantics of an endpoint. - Changing pagination, ETag, or error-body structure."
+  },
+  {
+    "id": "/docs/api/overview#deprecation-policy",
+    "title": "API Overview › Deprecation policy",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#deprecation-policy",
+    "section": "API Reference",
+    "description": "Deprecation policy",
+    "content": "- When /v2 is introduced, /v1 keeps running alongside it; the two are served from the same process and index. - A deprecation is announced in these docs and the changelog before anything is removed, and /v1 remains available for at least 6 months after /v2 is generally available. - Individual /v1 fields or endpoints may be marked deprecated in the docs and the OpenAPI spec ( deprecated: true ) ahead of time, but are not removed from /v1 itself. - Security fixes may change behaviour without notice when there is no compatible alternative; such changes will be called out in the changelog."
+  },
+  {
+    "id": "/docs/api/overview#amount-units-and-conventions",
+    "title": "API Overview › Amount units and conventions",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#amount-units-and-conventions",
+    "section": "API Reference",
+    "description": "Amount units and conventions",
+    "content": "All monetary amounts and token supplies in the API reference adhere to strict unit rules that agree with the underlying Soroban contracts: - Large integers are strings. Token amounts, valuations, balances, and dividend pools are 128-bit signed integers ( i128 ) on-chain. To eliminate precision loss in JavaScript and other IEEE 754 floating-point runtimes, they are serialized as decimal strings ( total_supply , valuation_cents , tvl_cents , balance , total_amount , distributed ). - Valuations are USD cents. valuation_cents (on assets) and tvl_cents (on stats) represent valuations in USD cents ( 1 USD = 100 cents ). To convert to dollar display values, divide by 100: `` typescript const cents = BigInt(asset.valuation_cents); // \"500000000\" const dollars = Number(cents) / 100; // 5000000.00 ($5,000,000.00) ` - Convenience floats. For quick display and charting, valuations also provide a valuation_usd and tvl_usd ( f64 US dollars), and percentages are given as numbers ( share_percent , claimed_percent ). - Token amounts are in the token's own decimals base. Asset balances ( balance ) and supplies ( total_supply ) are given as raw integer base units. Divide by 10 decimals (where decimals is the asset's configured decimal places, e.g. 2 or 7 ): ` typescript const rawSupply = BigInt(asset.total_supply); // \"1000000\" const displaySupply = Number(rawSupply) / (10 asset.decimals); // 10000.00 ` - Dividend pools use payment-token base units. In dividend distributions, total_amount , distributed , and claimable shares are measured in base units of the payment token (e.g. Classic Stellar assets / SAC tokens like USDC typically use 7 decimals): ` typescript const rawDividend = BigInt(distribution.total_amount); // \"100000000000\" const paymentDecimals = 7; const displayDividend = Number(rawDividend) / (10 paymentDecimals); // 10000.0 USDC ` Amount field Format Unit Conversion to display valuation_cents string ( i128 ) USD cents Number(BigInt(valuation_cents)) / 100 valuation_usd number ( f64 ) USD dollars Already in USD tvl_cents string ( i128 ) USD cents Number(BigInt(tvl_cents)) / 100 tvl_usd number ( f64 ) USD dollars Already in USD total_supply string ( i128 ) Asset token base units Number(BigInt(total_supply)) / 10 decimals balance string ( i128 ) Asset token base units Number(BigInt(balance)) / 10 decimals total_amount string ( i128 ) Payment token base units Number(BigInt(total_amount)) / 10 payment_decimals distributed string ( i128 ) Payment token base units Number(BigInt(distributed)) / 10 ** payment_decimals`"
+  },
+  {
+    "id": "/docs/api/overview#endpoints",
+    "title": "API Overview › Endpoints",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#endpoints",
+    "section": "API Reference",
+    "description": "Endpoints",
+    "content": "Plus GET / (self-describing index) and GET /health (liveness)."
+  },
+  {
+    "id": "/docs/api/overview#error-responses",
+    "title": "API Overview › Error responses",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#error-responses",
+    "section": "API Reference",
+    "description": "Error responses",
+    "content": "The response body depends on where an error is generated. Resource-not-found errors use the API's JSON format: { \"error\": \"not_found\", \"message\": \"no asset with id 999\" } For this API-generated JSON body, error is a machine-readable code and message is a human-readable explanation. Request-extraction failures and middleware errors are generated by the HTTP framework and may instead return plain text. Branch on the HTTP status; do not assume every failure uses the JSON shape above. Common errors: HTTP status Body format Meaning 400 Bad Request Plain-text diagnostic A path parameter or query value cannot be parsed, such as a non-numeric asset :id or malformed pagination value. 401 Unauthorized Plain text /metrics was called without a valid bearer token. 404 Not Found JSON {\"error\":\"not_found\",\"message\":\"...\"} for a missing resource The requested asset or distribution does not exist. An unknown URL may use the framework's not-found response instead. 429 Too Many Requests Plain-text throttle message The per-IP rate limit was exceeded. See Rate Limits & Caching for the response and backoff guidance. 500 Internal Server Error Not a stable API error shape An unexpected server failure occurred. Treat the body as diagnostic and report persistent failures. 503 Service Unavailable JSON health status GET /health reports degraded when the indexed snapshot is too old. The body includes snapshot_age_seconds and max_age_seconds . Only the resource-not-found JSON body is a stable API error schema today. The plain-text framework and middleware messages are useful for debugging, but clients should not parse them to decide how to handle a failure."
+  },
+  {
+    "id": "/docs/api/overview#cors",
+    "title": "API Overview › CORS",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#cors",
+    "section": "API Reference",
+    "description": "CORS",
+    "content": "All origins, methods and headers are allowed, so the docs site and the web app can call the API directly from the browser."
+  },
+  {
+    "id": "/docs/api/overview#stats-response",
+    "title": "API Overview › /stats response",
+    "pageTitle": "API Overview",
+    "href": "/docs/api/overview#stats-response",
+    "section": "API Reference",
+    "description": "/stats response",
+    "content": "{ \"total_assets\": 1, \"active_assets\": 1, \"tvl_cents\": \"500000000\", \"tvl_usd\": 5000000.0, \"total_holders\": 1, \"total_distributions\": 0, \"last_indexed_ledger\": 3514152, \"last_updated\": \"2026-07-09T08:43:12.101772791+00:00\" } Response schema: Field Type Unit / Description total_assets number Total number of assets registered in the registry contract active_assets number Count of active assets tvl_cents string Total value locked across active assets in USD cents ( i128 string). Divide by 100 for USD dollars. tvl_usd number Total value locked in USD dollars ( f64 float convenience field, equal to tvl_cents / 100 ) total_holders number Count of distinct approved addresses with a positive balance across all assets total_distributions number Total dividend distributions created across all assets last_indexed_ledger number Most recent ledger read by the indexer last_updated string or null RFC 3339 timestamp of the last successful index refresh total_holders is the count of distinct approved addresses across all assets; last_indexed_ledger is the ledger the most recent successful refresh read from."
+  },
+  {
+    "id": "/docs/api/rate-limits",
+    "title": "API · Rate Limits & Caching",
+    "pageTitle": "API · Rate Limits & Caching",
+    "href": "/docs/api/rate-limits",
+    "section": "API Reference",
+    "description": "Rate-limit headers, ETag-based conditional requests, and Cache-Control guidance for the Stellar RWA API.",
+    "content": "Rate Limits & Caching Rate limiting is keyed by client IP and uses a token bucket shared across API routes. Conditional requests are enabled on the /v1 data routes."
+  },
+  {
+    "id": "/docs/api/rate-limits#rate-limits",
+    "title": "API · Rate Limits & Caching › Rate limits",
+    "pageTitle": "API · Rate Limits & Caching",
+    "href": "/docs/api/rate-limits#rate-limits",
+    "section": "API Reference",
+    "description": "Rate limits",
+    "content": "The default sustained rate is 5 requests per second per client IP , with a maximum burst of 20 requests . Tokens refill at one every 200 ms; this is a token bucket, not a fixed one-minute window. The limit is shared across API routes and can be changed with RWA_RATE_LIMIT_PER_SECOND and RWA_RATE_LIMIT_BURST ."
+  },
+  {
+    "id": "/docs/api/rate-limits#when-the-limit-is-exceeded",
+    "title": "API · Rate Limits & Caching › When the limit is exceeded",
+    "pageTitle": "API · Rate Limits & Caching",
+    "href": "/docs/api/rate-limits#when-the-limit-is-exceeded",
+    "section": "API Reference",
+    "description": "When the limit is exceeded",
+    "content": "When a request arrives before a token is available, the API responds with HTTP 429 Too Many Requests . The default middleware response is plain text, not the API's JSON error format: HTTP/1.1 429 Too Many Requests Too Many Requests! Wait for s The number of seconds varies with the time until the next token is available. The API does not currently send Retry-After or X-RateLimit-* headers. On 429 , pause for at least the indicated number of seconds when present, with a minimum one-second delay. Otherwise, use exponential backoff with jitter (and cap the delay), and retry only idempotent requests. For polling use cases, the indexer refreshes its state about every 10 seconds, so polling more frequently does not provide fresher data. Use a 10–15 second polling interval and back off promptly after a 429 ."
+  },
+  {
+    "id": "/docs/api/rate-limits#http-caching-with-etags",
+    "title": "API · Rate Limits & Caching › HTTP caching with ETags",
+    "pageTitle": "API · Rate Limits & Caching",
+    "href": "/docs/api/rate-limits#http-caching-with-etags",
+    "section": "API Reference",
+    "description": "HTTP caching with ETags",
+    "content": "Snapshot-backed /v1 data endpoints return a strong ETag derived from the latest indexed ledger, along with Cache-Control: public, max-age=10 . /health and other non-data routes do not return these cache headers."
+  },
+  {
+    "id": "/docs/api/rate-limits#how-it-works",
+    "title": "API · Rate Limits & Caching › How it works",
+    "pageTitle": "API · Rate Limits & Caching",
+    "href": "/docs/api/rate-limits#how-it-works",
+    "section": "API Reference",
+    "description": "How it works",
+    "content": "1. Make a normal request — the response includes an ETag header. 2. On the next request, send the value back in If-None-Match . 3. If the snapshot has not changed, the server returns 304 Not Modified with an empty body, saving bandwidth. The request still counts toward the rate limit. 4. If the snapshot has changed, the server returns 200 OK with the new body and a new ETag . First request — capture the ETag API_BASE_URL includes /v1, for example http://localhost:8080/v1 curl -i \"$API_BASE_URL/assets/1\" HTTP/1.1 200 OK ETag: \"ledger-3514152\" Cache-Control: public, max-age=10 Second request — send the ETag back curl -i -H 'If-None-Match: \"ledger-3514152\"' \"$API_BASE_URL/assets/1\" HTTP/1.1 304 Not Modified (empty body)"
+  },
+  {
+    "id": "/docs/api/rate-limits#typescript-helper",
+    "title": "API · Rate Limits & Caching › TypeScript helper",
+    "pageTitle": "API · Rate Limits & Caching",
+    "href": "/docs/api/rate-limits#typescript-helper",
+    "section": "API Reference",
+    "description": "TypeScript helper",
+    "content": "const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? \"http://localhost:8080/v1\"; const etagCache = new Map (); const url = ${API}${path} ; const cached = etagCache.get(url); const headers: HeadersInit = cached ? { \"If-None-Match\": cached.etag } : {}; const res = await fetch(url, { headers }); if (res.status === 304 && cached) { // Server confirmed nothing changed — reuse the cached body. return cached.data as T; } if (!res.ok) throw new Error( API ${res.status} ); const data = (await res.json()) as T; const etag = res.headers.get(\"ETag\"); if (etag) etagCache.set(url, { etag, data }); return data; }"
+  },
+  {
+    "id": "/docs/api/rate-limits#which-endpoints-support-etags",
+    "title": "API · Rate Limits & Caching › Which endpoints support ETags?",
+    "pageTitle": "API · Rate Limits & Caching",
+    "href": "/docs/api/rate-limits#which-endpoints-support-etags",
+    "section": "API Reference",
+    "description": "Which endpoints support ETags?",
+    "content": "All snapshot-backed /v1 read endpoints support ETags. The /health endpoint does not return an ETag because liveness probes should always get a fresh response. Endpoint ETag GET /stats ✅ GET /events ✅ GET /assets ✅ GET /assets/:id ✅ GET /assets/:id/holders ✅ GET /assets/:id/compliance ✅ GET /assets/:id/dividends ✅ GET /assets/:id/distributions/:did ✅ GET /holders/:address ✅ GET /holders/:address/compliance ✅ GET /compliance/:address ✅ GET /health ❌"
+  },
+  {
+    "id": "/docs/api/rate-limits#cache-control",
+    "title": "API · Rate Limits & Caching › Cache-Control",
+    "pageTitle": "API · Rate Limits & Caching",
+    "href": "/docs/api/rate-limits#cache-control",
+    "section": "API Reference",
+    "description": "Cache-Control",
+    "content": "The API sets Cache-Control: public, max-age=10 on snapshot-backed responses, matching the indexer's approximately 10-second refresh interval. If you are fronting the API with a CDN, configure it to forward the If-None-Match / ETag headers so conditional requests reach the origin rather than being absorbed by the CDN's own cache."
+  },
+  {
+    "id": "/docs/api/rate-limits#recommendations-for-integrators",
+    "title": "API · Rate Limits & Caching › Recommendations for integrators",
+    "pageTitle": "API · Rate Limits & Caching",
+    "href": "/docs/api/rate-limits#recommendations-for-integrators",
+    "section": "API Reference",
+    "description": "Recommendations for integrators",
+    "content": "- Poll at the refresh interval. The indexer rebuilds state every ~10 seconds. Polling more frequently wastes budget without gaining fresher data. A 10–15 s interval is a good default. - Use ETags for asset detail pages. Asset metadata rarely changes. Send If-None-Match on every poll — most responses will be 304 . - Handle 429 responses. Back off with jitter; the API does not expose a remaining-request counter. - Cache locally for read-heavy UIs. If your frontend renders the same data across multiple components, fetch once and share the result rather than making one request per component. - Prefer the API over direct Soroban RPC for display data. The API reduces the number of outbound RPC calls your integration makes and returns pre-decoded JSON. Use direct RPC only when you need live data that has not been indexed yet."
+  },
+  {
+    "id": "/docs/api/request-ids",
+    "title": "API · Request IDs & Logging",
+    "pageTitle": "API · Request IDs & Logging",
+    "href": "/docs/api/request-ids",
+    "section": "API Reference",
+    "description": "Correlate a response with server logs using the request id.",
+    "content": "Request IDs & logging Every response carries an X-Request-Id header. Send your own X-Request-Id (up to 64 characters of letters, digits, - and _ ) to have it reused. JSON error bodies include the same value as request_id : { \"error\": \"not_found\", \"message\": \"Asset 7 not found\", \"request_id\": \"3f9a1c0b7d2e4a86\" } The server logs one structured line per request inside a span carrying request_id , method and path , with status , latency_ms , indexed_ledger and consecutive_failures , so a report can be matched to the indexer state at that moment. Set RUST_LOG to control verbosity."
+  },
+  {
+    "id": "/docs/architecture",
+    "title": "Architecture Overview",
+    "pageTitle": "Architecture Overview",
+    "href": "/docs/architecture",
+    "section": "Introduction",
+    "description": "How the three Stellar RWA repositories fit together: contracts, API, and web app.",
+    "content": "Architecture Overview The Stellar RWA Toolkit is split across three repositories. Each owns a distinct layer; they interact only through well-defined interfaces. ┌──────────────────────────────────────────────────────────────────────┐ │ stellar-rwa-web │ │ (Next.js front-end — issuers & investors) │ │ │ │ • Freighter ──sign──▶ Soroban RPC ──submit──▶ contracts │ │ • fetch() ──────────▶ REST API (read-only data) │ └──────────────────────────────────────────────────────────────────────┘ ▲ ▲ │ REST JSON │ Soroban RPC │ │ simulateTransaction ┌────────┴──────────┐ ┌─────────┴────────────────────────────────┐ │ stellar-rwa- │ │ Stellar network (Testnet / Mainnet) │ │ api-docs / api │ │ │ │ (Rust / Axum) │ │ ┌─────────────┐ ┌──────────────────┐ │ │ │ │ │ registry │ │ compliance │ │ │ polls every 10 s │◀───│ └─────────────┘ └──────────────────┘ │ │ never signs │ │ ┌─────────────┐ ┌──────────────────┐ │ │ never submits │ │ │ dividend │ │ asset-token ×N │ │ └───────────────────┘ │ └─────────────┘ └──────────────────┘ │ │ stellar-rwa-contracts │ └───────────────────────────────────────────┘"
+  },
+  {
+    "id": "/docs/architecture#repository-ownership",
+    "title": "Architecture Overview › Repository ownership",
+    "pageTitle": "Architecture Overview",
+    "href": "/docs/architecture#repository-ownership",
+    "section": "Introduction",
+    "description": "Repository ownership",
+    "content": "Repository Language / stack Owns Open to contributors? stellar-rwa-contracts Rust · Soroban SDK The four on-chain programs; all business logic and compliance rules Maintainer-only stellar-rwa-api-docs — api/ Rust · Axum · tokio Read-only indexer; polls Soroban RPC, caches state in memory, serves JSON Maintainer-only stellar-rwa-api-docs — docs/ Next.js 14 · MDX This documentation site Open — see CONTRIBUTING.md stellar-rwa-web Next.js · Freighter API Issuer and investor front-end; the only layer that signs transactions Maintainer-only"
+  },
+  {
+    "id": "/docs/architecture#how-data-flows",
+    "title": "Architecture Overview › How data flows",
+    "pageTitle": "Architecture Overview",
+    "href": "/docs/architecture#how-data-flows",
+    "section": "Introduction",
+    "description": "How data flows",
+    "content": "Writes (user → chain) 1. A user opens the web app and connects Freighter. 2. The web app builds a Soroban transaction and asks Freighter to sign it. 3. The signed transaction is submitted to Soroban RPC and lands on the ledger. 4. The contract executes — e.g., an asset-token transfer triggers a cross-contract is_allowed check in the compliance contract. Reads (chain → API → web app) 1. The API's background indexer calls simulateTransaction on Soroban RPC every 10 seconds, decoding the returned ScVal with stellar-xdr . 2. The decoded state is held in an in-memory snapshot (no database in v1). 3. The web app — and any other client — fetches that snapshot over REST. This is cheaper and simpler than every client simulating its own contract calls. The API is a read-only cache , not the source of truth. The Soroban ledger is. If you need data fresher than ~10 seconds, simulate the relevant view call directly with the Stellar JS SDK — see the Integration Guide ."
+  },
+  {
+    "id": "/docs/architecture#how-the-indexer-rebuilds-state",
+    "title": "Architecture Overview › How the indexer rebuilds state",
+    "pageTitle": "Architecture Overview",
+    "href": "/docs/architecture#how-the-indexer-rebuilds-state",
+    "section": "Introduction",
+    "description": "How the indexer rebuilds state",
+    "content": "The indexer does not replay contract events to derive state. On every cycle it re-reads the current contract state through simulated view calls and builds a brand-new snapshot from scratch. The polling model 1. Every 10 seconds ( POLL_INTERVAL in api/src/indexer/mod.rs ) a background task starts a refresh cycle. 2. It calls get_all_assets on the registry , then for each asset reads get_metadata on the asset-token , the allowlist and balances via the compliance contract, and get_distributions_for_asset on the dividend contract. 3. The results are assembled into a new snapshot (assets, holders, compliance summaries, dividends and /stats ) and swapped in atomically. Readers see either the old snapshot or the new one — never a half-built mix. 4. Individual reads retry transient RPC errors in place with short backoff. If the cycle still fails, the previous snapshot keeps being served and the next attempt waits one poll interval (or the RPC's Retry-After , if it sent one). Because each cycle is a full re-read, there is no event cursor to fall behind and no replay after a restart: a freshly started API is empty until its first successful cycle, then fully current. Freshness implications - Lag. Snapshot data trails the ledger by up to one poll interval plus the time the cycle takes. last_indexed_ledger and last_updated on /stats tell you which ledger and when. - Dividends lag more. Distribution lists are cached per asset for 60 seconds inside the indexer, so a new or claimed distribution can take up to ~60 seconds to appear. - Partial staleness. If a single asset's reads fail, that asset keeps its previous data and carries an index_error , while the rest of the snapshot updates normally. Treat an asset with index_error as possibly stale. - HTTP caching. Snapshot-backed responses carry Cache-Control: public, max-age=10 and an ETag derived from last_indexed_ledger , so polling faster than every 10 seconds only returns the same data (or a 304 ). See Rate Limits &amp; Caching . - In-memory only. Nothing is persisted; a restart discards the snapshot and the indexer rebuilds it on the next cycle."
+  },
+  {
+    "id": "/docs/architecture#contracts-on-stellar",
+    "title": "Architecture Overview › Contracts on Stellar",
+    "pageTitle": "Architecture Overview",
+    "href": "/docs/architecture#contracts-on-stellar",
+    "section": "Introduction",
+    "description": "Contracts on Stellar",
+    "content": "There are four Soroban contracts, each with a distinct responsibility: Contract Responsibility asset-token Fungible token (SEP-41) with compliance gating. One instance per RWA. compliance Per-asset allowlist, KYC records, jurisdiction rules, expiry. registry Global index of all tokenized assets on the platform. dividend Escrows and distributes payment-token dividends to token holders. asset-token and compliance are always deployed as a pair — each asset-token holds the address of its compliance contract and calls is_allowed on every transfer. The registry and dividend contracts are platform-wide singletons . See the Contract Reference for full method signatures."
+  },
+  {
+    "id": "/docs/architecture#what-the-api-does-and-does-not-do",
+    "title": "Architecture Overview › What the API does and does not do",
+    "pageTitle": "Architecture Overview",
+    "href": "/docs/architecture#what-the-api-does-and-does-not-do",
+    "section": "Introduction",
+    "description": "What the API does and does not do",
+    "content": "Does Does not Poll Soroban RPC and cache the result Hold private keys Serve plain JSON over REST Sign or submit transactions Decode XDR ScVal from contract view calls Store data persistently (in-memory only) Provide aggregated stats (TVL, holder counts) Enforce any access control beyond rate limiting Because the API never holds keys or submits transactions, it has a minimal attack surface. All write operations go through the web app → Freighter → Soroban RPC path, where the user's wallet is the only key holder."
+  },
+  {
+    "id": "/docs/architecture#interface-contracts",
+    "title": "Architecture Overview › Interface contracts",
+    "pageTitle": "Architecture Overview",
+    "href": "/docs/architecture#interface-contracts",
+    "section": "Introduction",
+    "description": "Interface contracts",
+    "content": "The three layers communicate through two stable interfaces: - Soroban contract ABI — the method names and ScVal types exposed by the four contracts. The API's indexer/mod.rs and the web app's SDK calls both depend on this. - REST API schema — the JSON shapes documented in the API Reference . The web app fetches from these endpoints; you can too. Changes to either interface are versioned. The API currently has no URL versioning (all paths are /... ); a v2 prefix will be added when breaking changes are needed."
+  },
+  {
+    "id": "/docs/changelog",
+    "title": "API Changelog",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog",
+    "section": "API Reference",
+    "description": "Changes to the documented public surface of the Stellar RWA API, by version.",
+    "content": "API Changelog This page tracks changes to the documented public surface of the Stellar RWA API: endpoints, query parameters, response fields, headers, and status codes. Internal refactors, tests, CI, and docs-only changes are left out; the repository-wide history lives in CHANGELOG.md . The running service reports its version from GET /version , which reads the version in api/Cargo.toml . The current version is 0.1.0 ."
+  },
+  {
+    "id": "/docs/changelog#unreleased",
+    "title": "API Changelog › Unreleased",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#unreleased",
+    "section": "API Reference",
+    "description": "Unreleased",
+    "content": "Merged to main after 0.1.0 and not yet tagged. These ship in the next release."
+  },
+  {
+    "id": "/docs/changelog#added",
+    "title": "API Changelog › Added",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#added",
+    "section": "API Reference",
+    "description": "Added",
+    "content": "- GET /version returning { version, release } . - Per-asset indexed_at_ledger and index_error fields. - offset / limit pagination on /assets and /assets/:id/holders (default 50, max 100). - GET /assets/:id/distributions/:did for a single dividend distribution. - GET /events . - Sparse fieldsets ( ?fields= ) on the asset endpoints. - Per-address lookups: GET /holders/:address , GET /holders/:address/compliance , and GET /compliance/:address . - GET /metrics (Prometheus) for indexer health. - Rate limiting and Cache-Control / ETag headers on snapshot-backed routes — see Rate Limits & Caching ."
+  },
+  {
+    "id": "/docs/changelog#changed",
+    "title": "API Changelog › Changed",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#changed",
+    "section": "API Reference",
+    "description": "Changed",
+    "content": "- Breaking: data routes moved under the /v1 prefix (for example /v1/assets ). / , /version , /health , and /metrics stay at the root. - Dividend distributions gain overflow_detected , and claimed_percent is no longer clamped at 100 when an overflow is detected. - total_holders counts distinct addresses with a positive balance."
+  },
+  {
+    "id": "/docs/changelog#fixed",
+    "title": "API Changelog › Fixed",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#fixed",
+    "section": "API Reference",
+    "description": "Fixed",
+    "content": "- Dividends from the previous snapshot are preserved when an RPC read fails instead of being reported as zero."
+  },
+  {
+    "id": "/docs/changelog#010-2026-07-09",
+    "title": "API Changelog › 0.1.0 — 2026-07-09",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#010-2026-07-09",
+    "section": "API Reference",
+    "description": "0.1.0 — 2026-07-09",
+    "content": "Initial release. - GET /stats , /assets (with ?asset_type and ?active filters), /assets/:id , /assets/:id/holders , /assets/:id/compliance , /assets/:id/dividends , and /health . - Compliance summaries are non-PII: counts and a jurisdiction breakdown only."
+  },
+  {
+    "id": "/docs/changelog#updating-this-page",
+    "title": "API Changelog › Updating this page",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#updating-this-page",
+    "section": "API Reference",
+    "description": "Updating this page",
+    "content": "Update this page in the same pull request as any change to the documented API surface: 1. Add a bullet under Unreleased , in the matching Added , Changed , Deprecated , Removed , or Fixed group ( Keep a Changelog categories). Describe the effect on an integrator, not the implementation. 2. Prefix anything that can break an existing client with Breaking: and say what to change. 3. Skip changes that don't alter documented behaviour (tests, refactors, CI, typo fixes). 4. On release (see RELEASING.md ), rename Unreleased to — , matching the tag and the CHANGELOG.md section, and start a new empty Unreleased section above it."
+  },
+  {
+    "id": "/docs/compliance-guide",
+    "title": "Compliance Guide",
+    "pageTitle": "Compliance Guide",
+    "href": "/docs/compliance-guide",
+    "section": "Concepts",
+    "description": "The core of an RWA platform — allowlists, transfer gating, jurisdictions, KYC expiry.",
+    "content": "Compliance Guide Compliance is what separates a real-world asset platform from a plain token factory. Anyone can mint a token; the hard part — and the regulated part — is controlling who is allowed to hold it . This guide explains the compliance model end to end: why it exists, how the allowlist works, how the on-chain transfer gate is enforced, and how issuers should operate it."
+  },
+  {
+    "id": "/docs/compliance-guide#why-compliance-matters-for-rwa",
+    "title": "Compliance Guide › Why compliance matters for RWA",
+    "pageTitle": "Compliance Guide",
+    "href": "/docs/compliance-guide#why-compliance-matters-for-rwa",
+    "section": "Concepts",
+    "description": "Why compliance matters for RWA",
+    "content": "A real-world asset — equity in a building, a trade invoice, a warehouse of copper — is almost always a regulated instrument . The law in most jurisdictions restricts who may own it: accredited investors only, residents of permitted countries only, parties who have cleared KYC/AML checks only. If those restrictions live only in a web app, they are worthless — anyone can call the contract directly and bypass the UI. For a token to credibly represent a regulated asset, the restriction must be enforced by the asset itself , at the protocol level, on every transfer. That is exactly what this platform does. An RWA token can only ever be held by an address the issuer has explicitly approved — and the token enforces that on-chain, on every single transfer, by asking a separate compliance contract for permission."
+  },
+  {
+    "id": "/docs/compliance-guide#how-the-allowlist-model-works",
+    "title": "Compliance Guide › How the allowlist model works",
+    "pageTitle": "Compliance Guide",
+    "href": "/docs/compliance-guide#how-the-allowlist-model-works",
+    "section": "Concepts",
+    "description": "How the allowlist model works",
+    "content": "The compliance contract maintains a KYC allowlist : a set of KycRecord s, one per address. Each record carries: - a status — Approved , Pending , Rejected , or Suspended - a jurisdiction — an ISO country code ( US , KE , DE , …) - a verified_at ledger and an expires_at ledger ( 0 = never expires) Only the compliance admin (the issuer or their compliance officer) can change the allowlist, via add_to_allowlist , suspend , and remove . Adding an address sets its status to Approved ; suspending flips it to Suspended but keeps the record for audit; removing deletes it entirely. An address is permitted to hold or receive the asset only if is_allowed returns true , which requires all three of: 1. status is Approved , 2. the approval has not expired, and 3. the address's jurisdiction is not blocked."
+  },
+  {
+    "id": "/docs/compliance-guide#how-transfer-gating-works",
+    "title": "Compliance Guide › How transfer gating works",
+    "pageTitle": "Compliance Guide",
+    "href": "/docs/compliance-guide#how-transfer-gating-works",
+    "section": "Concepts",
+    "description": "How transfer gating works",
+    "content": "This is the mechanism that makes the whole thing enforceable. The asset-token contract does not trust any off-chain system; on every transfer it makes cross-contract calls into the compliance contract for both parties: transfer(from, to, amount) ├─ from.require_auth() ├─ assert !paused ├─ compliance.is_allowed(from) ── cross-contract call ──▶ compliance contract ├─ compliance.is_allowed(to) ── cross-contract call ──▶ compliance contract └─ move balances + emit event If either is_allowed returns false , the transaction reverts — no balance moves, no event is emitted, the transfer simply cannot happen. The same check gates mint on the recipient, so tokens can never be minted into a non-approved wallet in the first place. Because the asset token depends only on the compliance interface ( is_allowed ), the concrete compliance contract can be swapped with set_compliance — for example to migrate to a stricter policy — without redeploying the token. Try to transfer the sample asset to an address that isn't on the allowlist. The transaction fails with RecipientNotCompliant (8) . That failure is the product working — the gate is doing its job."
+  },
+  {
+    "id": "/docs/compliance-guide#what-a-failed-gate-looks-like",
+    "title": "Compliance Guide › What a failed gate looks like",
+    "pageTitle": "Compliance Guide",
+    "href": "/docs/compliance-guide#what-a-failed-gate-looks-like",
+    "section": "Concepts",
+    "description": "What a failed gate looks like",
+    "content": "Contract error Meaning SenderNotCompliant (7) The from address failed is_allowed RecipientNotCompliant (8) The to address failed is_allowed Paused (6) Transfers are globally halted by the issuer"
+  },
+  {
+    "id": "/docs/compliance-guide#jurisdiction-restrictions",
+    "title": "Compliance Guide › Jurisdiction restrictions",
+    "pageTitle": "Compliance Guide",
+    "href": "/docs/compliance-guide#jurisdiction-restrictions",
+    "section": "Concepts",
+    "description": "Jurisdiction restrictions",
+    "content": "Beyond per-address control, issuers can block entire jurisdictions . Calling block_jurisdiction(\"US\") makes every approved address whose record says US fail is_allowed immediately — without editing a single individual record. Unblocking with unblock_jurisdiction(\"US\") restores them. This models a common real-world requirement: a regulatory change, sanction, or offering restriction that must apply to a whole country at once. Because the check happens inside is_allowed at read time, the effect is instantaneous and retroactive — there is no list to re-scan and no window where stale approvals still work. The API's /assets/:id/compliance endpoint surfaces the jurisdiction distribution (as counts) so issuers can audit their geographic exposure before making such a change."
+  },
+  {
+    "id": "/docs/compliance-guide#kyc-expiry-and-suspension",
+    "title": "Compliance Guide › KYC expiry and suspension",
+    "pageTitle": "Compliance Guide",
+    "href": "/docs/compliance-guide#kyc-expiry-and-suspension",
+    "section": "Concepts",
+    "description": "KYC expiry and suspension",
+    "content": "Approvals are not forever. Two mechanisms let issuers keep the allowlist current: - Expiry. add_to_allowlist takes an expires_at ledger. Once the current ledger reaches it, is_allowed returns false automatically — the holder can no longer transfer, and cannot receive more, until re-approved. An expires_at of 0 means the approval never expires. Because time is measured in ledger sequence numbers (~5 seconds each), a one-year approval is roughly +6,300,000 ledgers from now. - Suspension. suspend(address) sets the status to Suspended while keeping the record. This is the right tool for a temporary hold — a pending re-review, a compliance flag — because it is reversible with add_to_allowlist and preserves the audit trail. Use remove only when an address should be erased entirely. There is no background job expiring records. The check is evaluated live against the current ledger every time is_allowed runs. An approval that lapsed one second ago fails the very next transfer — no cron, no lag."
+  },
+  {
+    "id": "/docs/compliance-guide#worked-scenarios",
+    "title": "Compliance Guide › Worked scenarios",
+    "pageTitle": "Compliance Guide",
+    "href": "/docs/compliance-guide#worked-scenarios",
+    "section": "Concepts",
+    "description": "Worked scenarios",
+    "content": "These examples show how the live is_allowed gate affects a transfer. A transfer checks both the sender and recipient, so the error identifies which side failed. Scenario What the issuer or integrator sees Outcome and next step Unapproved recipient An address has no allowlist record, or its status is Pending or Rejected . is_allowed(recipient) returns false . The transfer reverts with RecipientNotCompliant (8) . Complete verification, then approve the recipient with add_to_allowlist ; retry only after the approval is in effect. Expired approval The record still says Approved , but the current ledger has reached expires_at . is_allowed returns false , and an outgoing transfer fails with SenderNotCompliant (7) ; an incoming transfer fails with RecipientNotCompliant (8) . Re-verify the holder and issue a new approval with a future expiry. Suspended holder The holder's record is retained for the audit trail but has status Suspended . is_allowed returns false . The holder cannot send ( SenderNotCompliant (7) ) or receive ( RecipientNotCompliant (8) ) until the compliance admin resolves the review and approves them again. Blocked jurisdiction The address has an otherwise valid approval, but its recorded jurisdiction is currently blocked. The jurisdiction check makes is_allowed return false immediately. Transfers from that holder fail with SenderNotCompliant (7) and transfers to them fail with RecipientNotCompliant (8) . Review the restriction before unblocking the jurisdiction or changing an individual's record. In all four cases, an off-chain status display is not a substitute for the contract check: use is_allowed for the asset's current compliance contract before submitting a transfer. The transaction itself remains authoritative and will revert if either party fails the gate."
+  },
+  {
+    "id": "/docs/compliance-guide#best-practices-for-issuers",
+    "title": "Compliance Guide › Best practices for issuers",
+    "pageTitle": "Compliance Guide",
+    "href": "/docs/compliance-guide#best-practices-for-issuers",
+    "section": "Concepts",
+    "description": "Best practices for issuers",
+    "content": "1. Secure the compliance admin key. It is the single most powerful key in the system — it decides who can hold your asset. Use multisig and hardware custody. 2. Prefer suspend over remove . Suspension is reversible and preserves the record for audits; removal is destructive. 3. Set sensible expiries. Time-bounded approvals force periodic re-KYC and keep your allowlist from silently drifting out of date. Choose an expiry that matches your re-verification cadence. 4. Approve the issuer first. The asset token mints the initial supply to the admin, so the admin must be approved on the compliance contract before initialize , or deployment fails with RecipientNotCompliant . 5. Coordinate distributions with balances. The dividend contract reads balances at claim time. If you need a clean snapshot, consider pausing the token around a distribution window. See the Dividend contract . 6. Use jurisdiction blocks deliberately. They are immediate and affect every holder in the region. Review the jurisdiction breakdown from the API first. 7. Treat registry listing as self-attestation. Anyone can register an asset; the binding control is the compliance contract, not the registry entry."
+  },
+  {
+    "id": "/docs/compliance-guide#putting-it-together",
+    "title": "Compliance Guide › Putting it together",
+    "pageTitle": "Compliance Guide",
+    "href": "/docs/compliance-guide#putting-it-together",
+    "section": "Concepts",
+    "description": "Putting it together",
+    "content": "The compliance contract is small, but it is the reason this platform can represent regulated assets at all. Every other piece — the token, the registry, the dividend escrow, the API, the web app — is built around the single invariant it enforces: > Only KYC-approved, unexpired, non-blocked addresses can ever hold the asset, > and the asset enforces this itself on every transfer. Next, see how issuers operate this in practice in the Web App Guide , or how to read compliance state programmatically in the Integration Guide ."
+  },
+  {
+    "id": "/docs/contracts/asset-token",
+    "title": "Asset Token Contract",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token",
+    "section": "Contract Reference",
+    "description": "Compliant RWA token — every transfer is gated by the compliance contract.",
+    "content": "Asset Token Contract This documentation is validated against the contract specification in docs/lib/contracts.ts . Method signatures must match the spec — if the contract changes, update both the docs and the spec. A compliant token representing a tokenized real-world asset. Every transfer is gated by an external compliance contract: both the sender and the recipient must pass is_allowed before any balance moves. Minting is gated on the recipient, so only KYC-approved addresses can ever hold the asset. Valuation is stored in USD cents ( i128 ). Amounts are integer token units in the token's own decimals base. Testnet: CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ"
+  },
+  {
+    "id": "/docs/contracts/asset-token#data-types",
+    "title": "Asset Token Contract › Data types",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#data-types",
+    "section": "Contract Reference",
+    "description": "Data types",
+    "content": "AssetMetadata is the single instance record describing the token: Field Type Notes name String Human-readable asset name symbol String Ticker, e.g. MLOFT asset_type String real_estate \\ invoice \\ commodity total_supply i128 Base units decimals u32 admin Address Issuer; the only account that can mint/pause compliance_contract Address The gate consulted on transfer/mint asset_description String valuation i128 USD cents paused bool"
+  },
+  {
+    "id": "/docs/contracts/asset-token#function-reference",
+    "title": "Asset Token Contract › Function reference",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#function-reference",
+    "section": "Contract Reference",
+    "description": "Function reference",
+    "content": ""
+  },
+  {
+    "id": "/docs/contracts/asset-token#initialize",
+    "title": "Asset Token Contract › initialize",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#initialize",
+    "section": "Contract Reference",
+    "description": "initialize",
+    "content": "fn initialize( env: Env, admin: Address, name: String, symbol: String, asset_type: String, total_supply: i128, decimals: u32, compliance_contract: Address, asset_description: String, valuation: i128, ) Initializes the token and mints the full total_supply to admin . The admin must already be compliance-approved to hold the initial supply. - Auth: admin - Errors: AlreadyInitialized (1) , InvalidAmount (5) if total_supply < 0 or valuation < 0 , RecipientNotCompliant (8) if the admin is not approved."
+  },
+  {
+    "id": "/docs/contracts/asset-token#transfer",
+    "title": "Asset Token Contract › transfer",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#transfer",
+    "section": "Contract Reference",
+    "description": "transfer",
+    "content": "fn transfer(env: Env, from: Address, to: Address, amount: i128) Moves amount from from to to . Both parties must be compliance-approved and the token must not be paused. - Auth: from - Errors: InvalidAmount (5) if amount transfer performs two cross-contract calls into the compliance contract — is_allowed(from) and is_allowed(to) — before touching balances. This is the on-chain transfer gate. See How transfer gating works ."
+  },
+  {
+    "id": "/docs/contracts/asset-token#mint",
+    "title": "Asset Token Contract › mint",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#mint",
+    "section": "Contract Reference",
+    "description": "mint",
+    "content": "fn mint(env: Env, admin: Address, to: Address, amount: i128) Mints new tokens to a compliance-approved recipient, increasing total_supply . - Auth: admin (must equal the stored admin) - Errors: Unauthorized (3) , InvalidAmount (5) , Paused (6) , RecipientNotCompliant (8) , Overflow (9) ."
+  },
+  {
+    "id": "/docs/contracts/asset-token#burn",
+    "title": "Asset Token Contract › burn",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#burn",
+    "section": "Contract Reference",
+    "description": "burn",
+    "content": "fn burn(env: Env, from: Address, amount: i128) Burns amount of the caller's own tokens, decreasing total_supply . - Auth: from - Errors: InvalidAmount (5) , InsufficientBalance (4) ."
+  },
+  {
+    "id": "/docs/contracts/asset-token#balance-total_supply",
+    "title": "Asset Token Contract › balance / total_supply",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#balance-total_supply",
+    "section": "Contract Reference",
+    "description": "balance / total_supply",
+    "content": "fn balance(env: Env, id: Address) -> i128 fn total_supply(env: Env) -> i128 View functions. balance returns 0 for an unknown address."
+  },
+  {
+    "id": "/docs/contracts/asset-token#pause-unpause",
+    "title": "Asset Token Contract › pause / unpause",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#pause-unpause",
+    "section": "Contract Reference",
+    "description": "pause / unpause",
+    "content": "fn pause(env: Env, admin: Address) fn unpause(env: Env, admin: Address) Halts or resumes all transfers and mints. Auth: admin . Errors: Unauthorized (3) ."
+  },
+  {
+    "id": "/docs/contracts/asset-token#update_valuation",
+    "title": "Asset Token Contract › update_valuation",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#update_valuation",
+    "section": "Contract Reference",
+    "description": "update_valuation",
+    "content": "fn update_valuation(env: Env, admin: Address, new_valuation: i128) Updates the recorded USD-cents valuation. Auth: admin . Errors: Unauthorized (3) , InvalidAmount (5) if negative."
+  },
+  {
+    "id": "/docs/contracts/asset-token#set_compliance",
+    "title": "Asset Token Contract › set_compliance",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#set_compliance",
+    "section": "Contract Reference",
+    "description": "set_compliance",
+    "content": "fn set_compliance(env: Env, admin: Address, compliance: Address) Points the token at a different compliance contract. Because the token knows only the compliance interface ( is_allowed ), the concrete contract can be swapped. Auth: admin ."
+  },
+  {
+    "id": "/docs/contracts/asset-token#get_metadata",
+    "title": "Asset Token Contract › get_metadata",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#get_metadata",
+    "section": "Contract Reference",
+    "description": "get_metadata",
+    "content": "fn get_metadata(env: Env) -> AssetMetadata Returns the full metadata record."
+  },
+  {
+    "id": "/docs/contracts/asset-token#code-example",
+    "title": "Asset Token Contract › Code example",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#code-example",
+    "section": "Contract Reference",
+    "description": "Code example",
+    "content": "Transfer with the JS SDK, going through the compliance gate: const token = new Contract(\"CBMCWLSQ…4ECZ\"); const op = token.call( \"transfer\", new Address(from).toScVal(), new Address(to).toScVal(), nativeToScVal(10000n, { type: \"i128\" }), // 100.00 @ 2 decimals ); // build → simulate → sign with Freighter → submit"
+  },
+  {
+    "id": "/docs/contracts/asset-token#events",
+    "title": "Asset Token Contract › Events",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#events",
+    "section": "Contract Reference",
+    "description": "Events",
+    "content": "Topic Data Emitted by (\"mint\", admin) total_supply initialize (initial mint) (\"mint\", to) amount mint (\"transfer\", from, to) amount transfer (\"burn\", from) amount burn (\"pause\",) / (\"unpause\",) admin pause / unpause (\"valuation\",) new_valuation update_valuation (\"setcomp\",) compliance set_compliance"
+  },
+  {
+    "id": "/docs/contracts/asset-token#error-codes",
+    "title": "Asset Token Contract › Error codes",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#error-codes",
+    "section": "Contract Reference",
+    "description": "Error codes",
+    "content": ""
+  },
+  {
+    "id": "/docs/contracts/asset-token#security-considerations",
+    "title": "Asset Token Contract › Security considerations",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#security-considerations",
+    "section": "Contract Reference",
+    "description": "Security considerations",
+    "content": "- Admin is fully trusted for minting, pausing, valuation and swapping the compliance contract. Use a secure key or multisig for the admin account. - Gate coupling: transfers depend on the compliance contract being live and correct. set_compliance is powerful — pointing at a permissive contract would disable the gate. Restrict admin access accordingly. - Integer amounts: all amounts are integers in the token's decimals base; there is no floating point. Reject amount <= 0 (the contract does). - Pause is a kill-switch: while paused, no value can move. This is intentional for incident response and regulatory holds."
+  },
+  {
+    "id": "/docs/contracts/compliance",
+    "title": "Compliance Contract",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance",
+    "section": "Contract Reference",
+    "description": "KYC allowlist and jurisdiction rules — the on-chain transfer gate.",
+    "content": "Compliance Contract Maintains the KYC allowlist and jurisdiction rules that gate who may hold or transfer a tokenized asset. The asset-token contract calls is_allowed on every transfer (for both sender and recipient) and on every mint (for the recipient). Time is expressed in ledger sequence numbers ( u32 ), not wall-clock dates. An expires_at of 0 means the approval never expires. Testnet: CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU"
+  },
+  {
+    "id": "/docs/contracts/compliance#data-types",
+    "title": "Compliance Contract › Data types",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#data-types",
+    "section": "Contract Reference",
+    "description": "Data types",
+    "content": "ComplianceStatus — Approved Pending Rejected Suspended . KycRecord : Field Type Notes address Address The KYC'd account status ComplianceStatus Only Approved passes the gate jurisdiction String ISO country code, e.g. US , KE , DE verified_at u32 Ledger at verification expires_at u32 Ledger of expiry; 0 = never"
+  },
+  {
+    "id": "/docs/contracts/compliance#function-reference",
+    "title": "Compliance Contract › Function reference",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#function-reference",
+    "section": "Contract Reference",
+    "description": "Function reference",
+    "content": ""
+  },
+  {
+    "id": "/docs/contracts/compliance#initialize",
+    "title": "Compliance Contract › initialize",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#initialize",
+    "section": "Contract Reference",
+    "description": "initialize",
+    "content": "fn initialize(env: Env, admin: Address) Sets the admin. Callable once. Auth: admin . Errors: AlreadyInitialized (1) ."
+  },
+  {
+    "id": "/docs/contracts/compliance#add_to_allowlist",
+    "title": "Compliance Contract › add_to_allowlist",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#add_to_allowlist",
+    "section": "Contract Reference",
+    "description": "add_to_allowlist",
+    "content": "fn add_to_allowlist( env: Env, admin: Address, address: Address, jurisdiction: String, expires_at: u32, ) Adds (or re-approves) an address, setting its status to Approved . If expires_at is non-zero it must be a future ledger. - Auth: admin - Errors: Unauthorized (5) , InvalidExpiry (4) if expires_at != 0 && expires_at <= now ."
+  },
+  {
+    "id": "/docs/contracts/compliance#suspend",
+    "title": "Compliance Contract › suspend",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#suspend",
+    "section": "Contract Reference",
+    "description": "suspend",
+    "content": "fn suspend(env: Env, admin: Address, address: Address) Sets an address's status to Suspended . The record is retained but is_allowed returns false until it is re-approved. Auth: admin . Errors: RecordNotFound (3) ."
+  },
+  {
+    "id": "/docs/contracts/compliance#remove",
+    "title": "Compliance Contract › remove",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#remove",
+    "section": "Contract Reference",
+    "description": "remove",
+    "content": "fn remove(env: Env, admin: Address, address: Address) Deletes the record entirely and drops the address from the allowlist. Auth: admin . Errors: RecordNotFound (3) ."
+  },
+  {
+    "id": "/docs/contracts/compliance#is_allowed",
+    "title": "Compliance Contract › is_allowed",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#is_allowed",
+    "section": "Contract Reference",
+    "description": "is_allowed",
+    "content": "fn is_allowed(env: Env, address: Address) -> bool The core gate. Returns true only if the address is Approved , and not expired ( expires_at == 0 now Every check the RWA token performs funnels through is_allowed . Understanding its three conditions — status, expiry, jurisdiction — is understanding the whole compliance model. See the Compliance Guide ."
+  },
+  {
+    "id": "/docs/contracts/compliance#get_record-get_allowlist",
+    "title": "Compliance Contract › get_record / get_allowlist",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#get_record-get_allowlist",
+    "section": "Contract Reference",
+    "description": "get_record / get_allowlist",
+    "content": "fn get_record(env: Env, address: Address) -> Option fn get_allowlist(env: Env) -> Vec get_record returns None for an unknown address. get_allowlist returns every address currently on the allowlist (any status except removed)."
+  },
+  {
+    "id": "/docs/contracts/compliance#block_jurisdiction-unblock_jurisdiction-is_jurisdiction_blocked",
+    "title": "Compliance Contract › block_jurisdiction / unblock_jurisdiction / is_jurisdiction_blocked",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#block_jurisdiction-unblock_jurisdiction-is_jurisdiction_blocked",
+    "section": "Contract Reference",
+    "description": "block_jurisdiction / unblock_jurisdiction / is_jurisdiction_blocked",
+    "content": "fn block_jurisdiction(env: Env, admin: Address, jurisdiction: String) fn unblock_jurisdiction(env: Env, admin: Address, jurisdiction: String) fn is_jurisdiction_blocked(env: Env, jurisdiction: String) -> bool Blocking a jurisdiction makes every approved address in that jurisdiction fail is_allowed , without touching individual records. Auth: admin for the mutating calls."
+  },
+  {
+    "id": "/docs/contracts/compliance#code-example",
+    "title": "Compliance Contract › Code example",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#code-example",
+    "section": "Contract Reference",
+    "description": "Code example",
+    "content": "Approve an investor in the US with a one-year expiry (~6.3M ledgers at 5s each): const compliance = new Contract(\"CBUERYDM…D2IU\"); const op = compliance.call( \"add_to_allowlist\", new Address(admin).toScVal(), new Address(investor).toScVal(), nativeToScVal(\"US\", { type: \"string\" }), nativeToScVal(currentLedger + 6_300_000, { type: \"u32\" }), );"
+  },
+  {
+    "id": "/docs/contracts/compliance#events",
+    "title": "Compliance Contract › Events",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#events",
+    "section": "Contract Reference",
+    "description": "Events",
+    "content": "Topic Data Emitted by (\"approved\", address) (jurisdiction, expires_at) add_to_allowlist (\"suspend\", address) () suspend (\"removed\", address) () remove (\"blockjur\",) jurisdiction block_jurisdiction (\"unblkjur\",) jurisdiction unblock_jurisdiction"
+  },
+  {
+    "id": "/docs/contracts/compliance#error-codes",
+    "title": "Compliance Contract › Error codes",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#error-codes",
+    "section": "Contract Reference",
+    "description": "Error codes",
+    "content": ""
+  },
+  {
+    "id": "/docs/contracts/compliance#security-considerations",
+    "title": "Compliance Contract › Security considerations",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#security-considerations",
+    "section": "Contract Reference",
+    "description": "Security considerations",
+    "content": "- Admin is the compliance authority. Whoever holds the admin key decides who can hold the asset. Protect it with multisig and clear operational controls. - Expiry is enforced at read time against the current ledger — an expired approval fails the gate immediately, with no cron job required. - Jurisdiction blocks are retroactive and immediate: blocking US instantly freezes every US holder's ability to transfer. Use deliberately. - remove vs suspend : suspend is reversible and keeps the audit record; remove erases it. Prefer suspend for temporary actions."
+  },
+  {
+    "id": "/docs/contracts/dividend",
+    "title": "Dividend Contract",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend",
+    "section": "Contract Reference",
+    "description": "Proportional yield/dividend distribution to asset-token holders.",
+    "content": "Dividend Contract Distributes yield/dividends to asset-token holders in proportion to their holdings. An issuer funds a distribution with a payment token; each holder then claims total_amount * balance / total_supply , paid from the escrow this contract holds. Each holder can claim a given distribution once. Balances are read at claim time from the asset token. Testnet: CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX"
+  },
+  {
+    "id": "/docs/contracts/dividend#data-types",
+    "title": "Dividend Contract › Data types",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#data-types",
+    "section": "Contract Reference",
+    "description": "Data types",
+    "content": "Distribution : Field Type Notes id u64 Assigned sequentially asset_token Address The asset being paid out on payment_token Address The token used to pay (e.g. USDC) total_amount i128 Pool size in payment-token base units distributed i128 Claimed so far created_at u32 Ledger at creation completed bool true once fully claimed"
+  },
+  {
+    "id": "/docs/contracts/dividend#function-reference",
+    "title": "Dividend Contract › Function reference",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#function-reference",
+    "section": "Contract Reference",
+    "description": "Function reference",
+    "content": ""
+  },
+  {
+    "id": "/docs/contracts/dividend#initialize",
+    "title": "Dividend Contract › initialize",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#initialize",
+    "section": "Contract Reference",
+    "description": "initialize",
+    "content": "fn initialize(env: Env, admin: Address) Sets the admin. Callable once. Auth: admin . Errors: AlreadyInitialized (1) ."
+  },
+  {
+    "id": "/docs/contracts/dividend#create_distribution",
+    "title": "Dividend Contract › create_distribution",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#create_distribution",
+    "section": "Contract Reference",
+    "description": "create_distribution",
+    "content": "fn create_distribution( env: Env, admin: Address, asset_token: Address, payment_token: Address, total_amount: i128, ) -> u64 Creates and funds a distribution, pulling total_amount of payment_token from the admin into the contract's escrow. Returns the distribution id. - Auth: admin (must equal the stored admin; the transfer also requires the admin's authorization) - Errors: Unauthorized (3) , InvalidAmount (5) if total_amount The admin must hold at least total_amount of the payment token and the transfer must succeed, or create_distribution reverts. Funds are escrowed in the dividend contract until claimed."
+  },
+  {
+    "id": "/docs/contracts/dividend#claimable",
+    "title": "Dividend Contract › claimable",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#claimable",
+    "section": "Contract Reference",
+    "description": "claimable",
+    "content": "fn claimable(env: Env, distribution_id: u64, holder: Address) -> i128 Returns the amount a holder can still claim: 0 if already claimed, if they hold nothing, or if the distribution is empty. Otherwise total_amount * balance / total_supply (floored by integer division)."
+  },
+  {
+    "id": "/docs/contracts/dividend#claim",
+    "title": "Dividend Contract › claim",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#claim",
+    "section": "Contract Reference",
+    "description": "claim",
+    "content": "fn claim(env: Env, distribution_id: u64, holder: Address) Pays the holder's proportional share from escrow and marks it claimed. - Auth: holder - Errors: DistributionNotFound (4) , AlreadyClaimed (7) , NothingToClaim (6) ."
+  },
+  {
+    "id": "/docs/contracts/dividend#get_distribution-get_distributions_for_asset-has_claimed",
+    "title": "Dividend Contract › get_distribution / get_distributions_for_asset / has_claimed",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#get_distribution-get_distributions_for_asset-has_claimed",
+    "section": "Contract Reference",
+    "description": "get_distribution / get_distributions_for_asset / has_claimed",
+    "content": "fn get_distribution(env: Env, distribution_id: u64) -> Distribution fn get_distributions_for_asset(env: Env, asset_token: Address) -> Vec fn has_claimed(env: Env, distribution_id: u64, holder: Address) -> bool View helpers. get_distributions_for_asset backs the API's /assets/:id/dividends endpoint."
+  },
+  {
+    "id": "/docs/contracts/dividend#code-example",
+    "title": "Dividend Contract › Code example",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#code-example",
+    "section": "Contract Reference",
+    "description": "Code example",
+    "content": "const dividend = new Contract(\"CAR4XY3C…2SYX\"); // issuer funds a 10,000-unit distribution in the payment token const create = dividend.call( \"create_distribution\", new Address(admin).toScVal(), new Address(assetToken).toScVal(), new Address(paymentToken).toScVal(), nativeToScVal(10_000_0000000n, { type: \"i128\" }), // 10,000 @ 7 decimals ); // a holder later claims their share const claim = dividend.call( \"claim\", nativeToScVal(1n, { type: \"u64\" }), new Address(holder).toScVal(), );"
+  },
+  {
+    "id": "/docs/contracts/dividend#events",
+    "title": "Dividend Contract › Events",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#events",
+    "section": "Contract Reference",
+    "description": "Events",
+    "content": "Topic Data Emitted by (\"created\", admin) (id, total_amount) create_distribution (\"claim\", holder) (distribution_id, amount) claim"
+  },
+  {
+    "id": "/docs/contracts/dividend#error-codes",
+    "title": "Dividend Contract › Error codes",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#error-codes",
+    "section": "Contract Reference",
+    "description": "Error codes",
+    "content": ""
+  },
+  {
+    "id": "/docs/contracts/dividend#security-considerations",
+    "title": "Dividend Contract › Security considerations",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#security-considerations",
+    "section": "Contract Reference",
+    "description": "Security considerations",
+    "content": "- Balances are read at claim time , not at snapshot. A holder who acquires more tokens after a distribution is created — but before claiming — claims on the larger balance. Issuers should be aware of this when timing distributions, or pause the token around distribution windows. - Integer division floors each share, so a tiny residual may remain in escrow after everyone claims; completed flips once distributed >= total_amount . - Escrow custody: funds live in the dividend contract between creation and claim. The contract only pays out via claim ; there is no admin withdrawal path. - Payment-token decimals differ from the asset token. Amounts here are in the payment token's base units (7 for classic Stellar assets / SACs)."
+  },
+  {
+    "id": "/docs/contracts/registry",
+    "title": "Registry Contract",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry",
+    "section": "Contract Reference",
+    "description": "Canonical on-chain index of every tokenized asset, plus total value locked.",
+    "content": "Registry Contract A canonical, on-chain index of every tokenized asset on the platform. Each issuer registers their asset-token contract here; the registry assigns a monotonically increasing id and tracks issuer, type, valuation and active status. It also reports total value locked (TVL) across active assets. Testnet: CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3"
+  },
+  {
+    "id": "/docs/contracts/registry#data-types",
+    "title": "Registry Contract › Data types",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#data-types",
+    "section": "Contract Reference",
+    "description": "Data types",
+    "content": "AssetEntry : Field Type Notes id u64 Assigned sequentially from 1 token_contract Address The asset-token contract issuer Address Who registered it name String asset_type String real_estate \\ invoice \\ commodity valuation i128 USD cents created_at u32 Ledger at registration active bool Excluded from TVL when false"
+  },
+  {
+    "id": "/docs/contracts/registry#function-reference",
+    "title": "Registry Contract › Function reference",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#function-reference",
+    "section": "Contract Reference",
+    "description": "Function reference",
+    "content": ""
+  },
+  {
+    "id": "/docs/contracts/registry#initialize",
+    "title": "Registry Contract › initialize",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#initialize",
+    "section": "Contract Reference",
+    "description": "initialize",
+    "content": "fn initialize(env: Env, admin: Address) Sets the admin and resets the counter. Callable once. Auth: admin . Errors: AlreadyInitialized (1) ."
+  },
+  {
+    "id": "/docs/contracts/registry#register_asset",
+    "title": "Registry Contract › register_asset",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#register_asset",
+    "section": "Contract Reference",
+    "description": "register_asset",
+    "content": "fn register_asset( env: Env, issuer: Address, token_contract: Address, name: String, asset_type: String, valuation: i128, ) -> u64 Registers a new asset and returns its assigned id. - Auth: issuer - Errors: NotInitialized (2) , InvalidValuation (5) if valuation < 0 ."
+  },
+  {
+    "id": "/docs/contracts/registry#get_asset",
+    "title": "Registry Contract › get_asset",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#get_asset",
+    "section": "Contract Reference",
+    "description": "get_asset",
+    "content": "fn get_asset(env: Env, asset_id: u64) -> AssetEntry Fetches a single asset. Errors: AssetNotFound (4) ."
+  },
+  {
+    "id": "/docs/contracts/registry#get_assets_by_issuer-get_assets_by_type-get_all_assets",
+    "title": "Registry Contract › get_assets_by_issuer / get_assets_by_type / get_all_assets",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#get_assets_by_issuer-get_assets_by_type-get_all_assets",
+    "section": "Contract Reference",
+    "description": "get_assets_by_issuer / get_assets_by_type / get_all_assets",
+    "content": "fn get_assets_by_issuer(env: Env, issuer: Address) -> Vec fn get_assets_by_type(env: Env, asset_type: String) -> Vec fn get_all_assets(env: Env) -> Vec Query helpers returning filtered or complete lists. These back the API's /assets endpoint and the web app's explore page."
+  },
+  {
+    "id": "/docs/contracts/registry#deactivate_asset",
+    "title": "Registry Contract › deactivate_asset",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#deactivate_asset",
+    "section": "Contract Reference",
+    "description": "deactivate_asset",
+    "content": "fn deactivate_asset(env: Env, admin: Address, asset_id: u64) Marks an asset inactive; it is then excluded from TVL. Auth: admin . Errors: Unauthorized (3) , AssetNotFound (4) ."
+  },
+  {
+    "id": "/docs/contracts/registry#total_value_locked-asset_count",
+    "title": "Registry Contract › total_value_locked / asset_count",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#total_value_locked-asset_count",
+    "section": "Contract Reference",
+    "description": "total_value_locked / asset_count",
+    "content": "fn total_value_locked(env: Env) -> i128 fn asset_count(env: Env) -> u64 total_value_locked sums valuation across active assets, in USD cents. asset_count returns the total registered (active or not)."
+  },
+  {
+    "id": "/docs/contracts/registry#code-example",
+    "title": "Registry Contract › Code example",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#code-example",
+    "section": "Contract Reference",
+    "description": "Code example",
+    "content": "const registry = new Contract(\"CBX5SMLT…PUR3\"); // register a freshly deployed asset token const op = registry.call( \"register_asset\", new Address(issuer).toScVal(), new Address(tokenContract).toScVal(), nativeToScVal(\"Manhattan Loft\", { type: \"string\" }), nativeToScVal(\"real_estate\", { type: \"string\" }), nativeToScVal(500_000_000n, { type: \"i128\" }), // $5,000,000 in cents );"
+  },
+  {
+    "id": "/docs/contracts/registry#events",
+    "title": "Registry Contract › Events",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#events",
+    "section": "Contract Reference",
+    "description": "Events",
+    "content": "Topic Data Emitted by (\"register\", issuer) id register_asset (\"deactvate\",) asset_id deactivate_asset"
+  },
+  {
+    "id": "/docs/contracts/registry#error-codes",
+    "title": "Registry Contract › Error codes",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#error-codes",
+    "section": "Contract Reference",
+    "description": "Error codes",
+    "content": ""
+  },
+  {
+    "id": "/docs/contracts/registry#security-considerations",
+    "title": "Registry Contract › Security considerations",
+    "pageTitle": "Registry Contract",
+    "href": "/docs/contracts/registry#security-considerations",
+    "section": "Contract Reference",
+    "description": "Security considerations",
+    "content": "- The registry is an index, not a source of truth for balances. Supply and balances live in the asset-token contract; the registry's valuation is the issuer-declared figure at registration (updatable on the token via update_valuation , not mirrored here automatically). - Anyone can register an asset (auth is the issuer, not the admin). Consumers should treat listing in the registry as self-attestation , and rely on the compliance contract for the actual holding restrictions. - Deactivation is admin-only and only affects TVL and listing, not the token."
+  },
+  {
+    "id": "/docs/getting-started",
+    "title": "Getting Started",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started",
+    "section": "Introduction",
+    "description": "What the Stellar RWA Toolkit is, how asset tokenization works, and how to run it.",
+    "content": "Getting Started The Stellar RWA Toolkit is an end-to-end system for tokenizing real-world assets (RWAs) — real estate, invoices, commodities — on Stellar using Soroban smart contracts, with compliance enforced on-chain . It has three parts, each in its own repository: - Contracts — four Soroban contracts: asset-token , compliance , registry , dividend . - API — a Rust/Axum service that indexes all tokenized-asset activity and serves it over REST. - Web app — a Next.js front-end for issuers and investors. The toolkit is early-stage (v0.1.0) and deployed on Stellar Testnet only — there is no mainnet deployment. The contracts and API have not been externally audited . Build and experiment against Testnet, but do not use this code to custody real value until it has been independently audited and reviewed for securities compliance."
+  },
+  {
+    "id": "/docs/getting-started#what-tokenizing-a-real-world-asset-means",
+    "title": "Getting Started › What \"tokenizing a real-world asset\" means",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#what-tokenizing-a-real-world-asset-means",
+    "section": "Introduction",
+    "description": "What \"tokenizing a real-world asset\" means",
+    "content": "A real-world asset — say a $5,000,000 Manhattan loft — is represented on-chain as a fungible token. Each token is a fractional claim on the underlying asset. Unlike an ordinary token, an RWA token is compliance-gated : only addresses that have passed KYC and sit on an allowlist may hold or receive it. The gate is not a policy sitting in a database — it is enforced by the contract itself. On every transfer, the asset-token contract makes a cross-contract call into the compliance contract to check both the sender and the recipient. If either fails, the transfer reverts. Securities laws in most jurisdictions restrict who may hold a regulated asset. Enforcing that restriction in the contract — rather than in an app that can be bypassed — is what makes a token suitable to represent a regulated real-world asset. See the Compliance Guide ."
+  },
+  {
+    "id": "/docs/getting-started#how-the-pieces-fit-together",
+    "title": "Getting Started › How the pieces fit together",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#how-the-pieces-fit-together",
+    "section": "Introduction",
+    "description": "How the pieces fit together",
+    "content": "┌───────────────┐ issuer / investor ──▶ │ Web app │ ──▶ Freighter ──▶ Soroban contracts └───────────────┘ │ │ events + state ┌───────────────┐ polls Soroban RPC │ analysts / bots ──▶ │ REST API │ ◀─────────────────────┘ └───────────────┘ - The web app signs and submits transactions through the user's wallet. - The API only reads: it indexes on-chain state every 10 seconds and never holds a key or signs anything."
+  },
+  {
+    "id": "/docs/getting-started#prerequisites",
+    "title": "Getting Started › Prerequisites",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#prerequisites",
+    "section": "Introduction",
+    "description": "Prerequisites",
+    "content": "- Freighter browser extension (for the web app) - Node.js 18+ (web app and docs) - Rust 1.75+ (API and contracts) - The Stellar CLI (to deploy contracts)"
+  },
+  {
+    "id": "/docs/getting-started#quickstart",
+    "title": "Getting Started › Quickstart",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#quickstart",
+    "section": "Introduction",
+    "description": "Quickstart",
+    "content": "The fastest way to see the API working is to run it locally against the deployed Testnet contracts — no wallet, no signing, no tokens required."
+  },
+  {
+    "id": "/docs/getting-started#1-clone-and-start-the-api",
+    "title": "Getting Started › 1. Clone and start the API",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#1-clone-and-start-the-api",
+    "section": "Introduction",
+    "description": "1. Clone and start the API",
+    "content": "git clone https://github.com/RWA-ToolKit/stellar-rwa-api-docs cd stellar-rwa-api-docs/api cp .env.example .env # Testnet contract IDs and RPC URL are pre-filled cargo run → listening on 0.0.0.0:8080 The API is ready when you see listening on 0.0.0.0:8080 in the terminal. It will start polling Soroban Testnet immediately; the first snapshot is available within ~10 seconds."
+  },
+  {
+    "id": "/docs/getting-started#2-hit-the-live-endpoints",
+    "title": "Getting Started › 2. Hit the live endpoints",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#2-hit-the-live-endpoints",
+    "section": "Introduction",
+    "description": "2. Hit the live endpoints",
+    "content": "Open a second terminal and run these commands against http://localhost:8080 . Data endpoints use the /v1 prefix; the liveness probe is /health . Check the liveness probe: curl http://localhost:8080/health {\"status\":\"ok\"} Fetch platform-wide stats: curl http://localhost:8080/v1/stats { \"total_assets\": 1, \"active_assets\": 1, \"tvl_cents\": \"500000000\", \"tvl_usd\": 5000000.0, \"total_holders\": 1, \"total_distributions\": 0, \"last_indexed_ledger\": 3514152, \"last_updated\": \"2026-07-09T08:43:12.101772791+00:00\" } tvl_cents is a string to avoid JavaScript precision loss; divide by 100 for dollars. last_updated is the wall-clock time of the most recent successful Soroban RPC poll. List all tokenized assets: curl http://localhost:8080/v1/assets [ { \"id\": 1, \"contract_id\": \"CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ\", \"name\": \"Manhattan Loft\", \"symbol\": \"MLOFT\", \"asset_type\": \"real_estate\", \"decimals\": 7, \"total_supply\": \"50000000000000\", \"valuation_cents\": \"500000000\", \"valuation_usd\": 5000000.0, \"active\": true } ] Fetch the sample asset (id 1 ) directly: curl http://localhost:8080/v1/assets/1 { \"id\": 1, \"contract_id\": \"CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ\", \"name\": \"Manhattan Loft\", \"symbol\": \"MLOFT\", \"asset_type\": \"real_estate\", \"decimals\": 7, \"total_supply\": \"50000000000000\", \"valuation_cents\": \"500000000\", \"valuation_usd\": 5000000.0, \"active\": true } The response includes an ETag and Cache-Control header. Send the returned ETag on the next request; if the indexed snapshot has not changed, the API returns 304 Not Modified with no body, so reuse your cached response: Capture the ETag from the first response curl -i http://localhost:8080/v1/assets/1 ETag: \"ledger-3514152\" Cache-Control: public, max-age=10 Send the ETag on a later request (use the value your response returned) curl -i -H 'If-None-Match: \"ledger-3514152\"' http://localhost:8080/v1/assets/1 HTTP/1.1 304 Not Modified Check token holders for asset 1 : curl http://localhost:8080/v1/assets/1/holders [ { \"address\": \"GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA\", \"balance\": \"50000000000000\", \"share_percent\": 100.0 } ] Both the asset list and holder list support offset and limit query parameters. offset is the number of records to skip (starting at 0); limit defaults to 50 and is capped at 100: First and second pages of assets (20 per page) curl 'http://localhost:8080/v1/assets?offset=0&limit=20' curl 'http://localhost:8080/v1/assets?offset=20&limit=20' First 10 holders, then the next 10 for asset 1 curl 'http://localhost:8080/v1/assets/1/holders?offset=0&limit=10' curl 'http://localhost:8080/v1/assets/1/holders?offset=10&limit=10' Check the compliance summary for asset 1 : curl http://localhost:8080/v1/assets/1/compliance { \"asset_id\": 1, \"total_approved\": 1, \"total_suspended\": 0, \"total_expired\": 0 } Your last_indexed_ledger and last_updated values will differ from the examples above — they reflect the ledger height at the time your local indexer ran. Everything else should match the sample Testnet deployment."
+  },
+  {
+    "id": "/docs/getting-started#3-run-the-docs-site",
+    "title": "Getting Started › 3. Run the docs site",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#3-run-the-docs-site",
+    "section": "Introduction",
+    "description": "3. Run the docs site",
+    "content": "cd ../docs npm install npm run dev # http://localhost:3000"
+  },
+  {
+    "id": "/docs/getting-started#environment-variables",
+    "title": "Getting Started › Environment variables",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#environment-variables",
+    "section": "Introduction",
+    "description": "Environment variables",
+    "content": "The API reads the following environment variables: Variable Default Description RWA_RPC_URL https://soroban-testnet.stellar.org Soroban RPC endpoint the indexer polls RWA_CORS_ALLOWED_ORIGINS http://localhost:3000 Comma-separated browser origin allowlist RWA_RATE_LIMIT_PER_SECOND 5 Sustained requests allowed per client IP each second RWA_RATE_LIMIT_BURST 20 Maximum per-client request burst RWA_REQUEST_TIMEOUT_SECS 30 Maximum request duration in seconds RWA_MAX_BODY_BYTES 1048576 Maximum request body size in bytes RWA_REGISTRY_ID CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3 Deployed registry contract id (Testnet) RWA_DIVIDEND_ID CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX Deployed dividend contract id (Testnet) RWA_READ_SOURCE GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA Funded account used as source for read simulations (must exist on the RPC) RWA_METRICS_TOKEN (none) Bearer token required by /metrics ; requests are denied when unset PORT 8080 HTTP server port RUST_LOG stellar_rwa_api=info,tower_http=warn Log filter (tracing-subscriber format) The .env.example file includes Testnet defaults. Copy it and adjust as needed for your network."
+  },
+  {
+    "id": "/docs/getting-started#running-with-docker",
+    "title": "Getting Started › Running with Docker",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#running-with-docker",
+    "section": "Introduction",
+    "description": "Running with Docker",
+    "content": "Build and run the API in a container: cd stellar-rwa-api-docs/api docker build -t stellar-rwa-api . docker run -p 8080:8080 \\ -e RWA_RPC_URL=https://soroban-testnet.stellar.org \\ -e RWA_REGISTRY_ID=CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3 \\ -e RWA_DIVIDEND_ID=CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX \\ -e RWA_READ_SOURCE=GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA \\ -e PORT=8080 \\ stellar-rwa-api Or use an .env file: docker run -p 8080:8080 --env-file .env stellar-rwa-api Then run the same curl commands from step 2 against http://localhost:8080 ."
+  },
+  {
+    "id": "/docs/getting-started#network-guide",
+    "title": "Getting Started › Network guide",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#network-guide",
+    "section": "Introduction",
+    "description": "Network guide",
+    "content": "Everything is deployed on Testnet . The network passphrase is: Test SDF Network ; September 2015 Point Freighter at Testnet and fund your account with the friendbot before interacting. These contracts are deployed on Testnet for demonstration. Do not use them to custody real value. A mainnet deployment requires a full securities-compliance and legal review."
+  },
+  {
+    "id": "/docs/getting-started#mainnet-integration",
+    "title": "Getting Started › Mainnet integration",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#mainnet-integration",
+    "section": "Introduction",
+    "description": "Mainnet integration",
+    "content": "The Testnet settings above are not interchangeable with Mainnet. Before pointing an integration at Mainnet, set and verify each network-specific value: Setting Testnet Mainnet Network passphrase Test SDF Network ; September 2015 Public Global Stellar Network ; September 2015 Soroban RPC https://soroban-testnet.stellar.org Use a Mainnet Soroban RPC URL from your chosen provider; endpoint URLs and access terms are provider-specific. Contract IDs The Testnet IDs listed below Deploy the contracts to Mainnet and use the resulting Mainnet IDs. Contract IDs are network-specific; this project does not publish a Mainnet deployment. Read source An account that exists on Testnet Set RWA_READ_SOURCE to a valid account on Mainnet that your RPC can use for simulation. Fees Testnet XLM has no real-world value Mainnet transactions and deployments consume real XLM. Base and Soroban resource fees vary; simulate and assemble transactions to estimate fees rather than copying a Testnet fee. For the API, set RWA_RPC_URL , RWA_REGISTRY_ID , and RWA_DIVIDEND_ID to Mainnet values. The service requires explicit registry and dividend IDs whenever the RPC URL is not the default Testnet endpoint. Configure the asset-token and compliance IDs in any client that calls those contracts directly. The API's read-only simulations do not submit transactions; deployments and writes do incur Mainnet fees. See the Integration Guide for the simulate-and-assemble flow."
+  },
+  {
+    "id": "/docs/getting-started#deployed-contract-addresses-testnet",
+    "title": "Getting Started › Deployed contract addresses (Testnet)",
+    "pageTitle": "Getting Started",
+    "href": "/docs/getting-started#deployed-contract-addresses-testnet",
+    "section": "Introduction",
+    "description": "Deployed contract addresses (Testnet)",
+    "content": "Contract Contract ID compliance CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU asset-token CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ registry CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3 dividend CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX The admin / issuer account for the sample deployment is GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA , and the sample asset is Manhattan Loft ( MLOFT ), a real_estate asset valued at $5,000,000. Continue to the Compliance Guide — the concept that makes this an RWA platform rather than a plain token factory."
+  },
+  {
+    "id": "/docs/integration",
+    "title": "Integration Guide",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration",
+    "section": "Guides",
+    "description": "Query the API, use the TypeScript examples, and call the contracts directly.",
+    "content": "Integration Guide Examples in this guide use Testnet endpoints, contract IDs, and passphrase. For the corresponding Mainnet configuration—including provider RPC URL, new contract IDs, and real XLM fee considerations—see Mainnet integration . Three ways to integrate with the platform, from easiest to most direct: 1. Query the REST API — indexed, JSON, no XDR. 2. Read contracts via the JS SDK — live simulation of view calls. 3. Submit transactions — sign with Freighter and invoke contract methods."
+  },
+  {
+    "id": "/docs/integration#end-to-end-read-workflow",
+    "title": "Integration Guide › End-to-end read workflow",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#end-to-end-read-workflow",
+    "section": "Guides",
+    "description": "End-to-end read workflow",
+    "content": "The REST API is the simplest integration surface. It is read-only and returns plain JSON. Follow this path to discover an asset, read its details, check an address against the asset's live compliance gate, and list its distributions. Set API_BASE_URL to the API origin (for example, http://localhost:8080 ); the versioned data routes use the /v1 prefix. 1. Discover assets and choose a registry id from the response. curl \"$API_BASE_URL/v1/assets\" 2. Read the chosen asset. Note its compliance_contract and id. curl \"$API_BASE_URL/v1/assets/1\" 3. Check an address against that asset's live on-chain compliance gate. Use the compliance_contract from the asset response and a valid simulation source account; no signing or submission is needed: Account, Address, BASE_FEE, Contract, Networks, TransactionBuilder, rpc, scValToNative, } from \"@stellar/stellar-sdk\"; const server = new rpc.Server(\"https://soroban-testnet.stellar.org\"); const complianceContract = \" \"; const investor = \" \"; const source = new Account( \"GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA\", \"0\", ); const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: Networks.TESTNET, }) .addOperation(new Contract(complianceContract).call( \"is_allowed\", new Address(investor).toScVal(), )) .setTimeout(30) .build(); const sim = await server.simulateTransaction(tx); if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error); const allowed = scValToNative(sim.result!.retval) as boolean; console.log({ investor, allowed }); 4. List distributions for the same registry id. curl \"$API_BASE_URL/v1/assets/1/dividends\" The /v1/compliance/:address API route is an indexed view of an address's current holdings, not a live compliance-contract check. Use is_allowed above when deciding whether a transfer will pass the on-chain gate. The indexer refreshes about every 10 seconds, so API data may lag current contract state."
+  },
+  {
+    "id": "/docs/integration#typescript-client",
+    "title": "Integration Guide › TypeScript client",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#typescript-client",
+    "section": "Guides",
+    "description": "TypeScript client",
+    "content": "const API = ${process.env.NEXT_PUBLIC_API_BASE_URL ?? \"http://localhost:8080\"}/v1 ; id: number; token_contract: string; name: string; symbol: string; asset_type: string; valuation_cents: string; valuation_usd: number; decimals: number; total_supply: string; holders: number; active: boolean; paused: boolean; compliance_contract: string; } const res = await fetch( ${API}/assets , { cache: \"no-store\" }); if (!res.ok) throw new Error( API ${res.status} ); return res.json(); } // Amounts are strings (i128) — parse with BigInt and format by decimals. const raw = BigInt(a.total_supply); const base = 10n ** BigInt(a.decimals); return (Number(raw) / Number(base)).toLocaleString(); } Always parse valuation_cents , total_supply , balance , and total_amount with BigInt(...) — they are decimal strings to preserve i128 precision."
+  },
+  {
+    "id": "/docs/integration#reading-contracts-directly",
+    "title": "Integration Guide › Reading contracts directly",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#reading-contracts-directly",
+    "section": "Guides",
+    "description": "Reading contracts directly",
+    "content": "To read live state without the API, simulate a view call with the Stellar JS SDK. No signing is required for reads. Contract, TransactionBuilder, Account, BASE_FEE, Networks, rpc, scValToNative, } from \"@stellar/stellar-sdk\"; const server = new rpc.Server(\"https://soroban-testnet.stellar.org\"); const REGISTRY = \"CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3\"; const contract = new Contract(REGISTRY); // Any valid account works as the simulation source. const source = new Account( \"GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA\", \"0\", ); const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: Networks.TESTNET, }) .addOperation(contract.call(\"total_value_locked\")) .setTimeout(30) .build(); const sim = await server.simulateTransaction(tx); if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error); return scValToNative(sim.result!.retval) as bigint; // USD cents } Check an address's compliance status the same way: const COMPLIANCE = \"CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU\"; const op = new Contract(COMPLIANCE).call( \"is_allowed\", new Address(investor).toScVal(), ); // build → simulate → scValToNative(retval) === boolean"
+  },
+  {
+    "id": "/docs/integration#submitting-transactions",
+    "title": "Integration Guide › Submitting transactions",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#submitting-transactions",
+    "section": "Guides",
+    "description": "Submitting transactions",
+    "content": "Writes must be signed by the account that authorizes them. In the browser, sign with Freighter: Contract, TransactionBuilder, Networks, BASE_FEE, rpc, Address, nativeToScVal, } from \"@stellar/stellar-sdk\"; const server = new rpc.Server(\"https://soroban-testnet.stellar.org\"); token: string, from: string, to: string, amount: bigint, ): Promise { const account = await server.getAccount(from); const op = new Contract(token).call( \"transfer\", new Address(from).toScVal(), new Address(to).toScVal(), nativeToScVal(amount, { type: \"i128\" }), ); const built = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: Networks.TESTNET, }).addOperation(op).setTimeout(60).build(); // Simulate + assemble to attach the Soroban footprint and resource fees. const sim = await server.simulateTransaction(built); if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error); const prepared = rpc.assembleTransaction(built, sim).build(); const { signedTxXdr } = await signTransaction(prepared.toXDR(), { networkPassphrase: Networks.TESTNET, address: from, }); const signed = TransactionBuilder.fromXDR(signedTxXdr, Networks.TESTNET); const sent = await server.sendTransaction(signed); return sent.hash; // then poll server.getTransaction(hash) } A transfer will revert with SenderNotCompliant (7) or RecipientNotCompliant (8) if either party is not KYC-approved. Check is_allowed for both addresses before submitting to give users a clear error up front."
+  },
+  {
+    "id": "/docs/integration#retries-failover-and-rate-limits",
+    "title": "Integration Guide › Retries, failover and rate limits",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#retries-failover-and-rate-limits",
+    "section": "Guides",
+    "description": "Retries, failover and rate limits",
+    "content": "Public Soroban RPC endpoints are shared infrastructure: expect occasional network errors, 503 s and 429 s. The reference API's indexer ( api/src/indexer/mod.rs ) handles this as described below; a client that calls RPC directly (as in the sections above) should follow the same pattern."
+  },
+  {
+    "id": "/docs/integration#retry-guidance",
+    "title": "Integration Guide › Retry guidance",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#retry-guidance",
+    "section": "Guides",
+    "description": "Retry guidance",
+    "content": "What the reference indexer does for each simulateTransaction read: Setting Value Attempts per read (first try + retries) 4 ( MAX_READ_ATTEMPTS ) Base delay 150 ms, doubling per attempt Maximum delay 2 s Jitter Full jitter: a random delay in [0, cap] - Retried in place: only transport errors (connection failures, dropped or unreadable responses) and JSON-RPC or simulation errors returned in a 2xx response. - Not retried: XDR, strkey and JSON decode errors. These come from how the request was built or the response was parsed, so they fail the same way on every attempt. Other non- 2xx HTTP statuses (for example 502 ) are not retried in place either; the read fails and the refresh is retried on the next cycle. - Failed refresh: if a read still fails, the whole refresh is abandoned, the API keeps serving the last good snapshot, and the indexer tries again after the 10 s poll interval. For your own client: retry only idempotent calls ( simulateTransaction , getLedgerEntries , getTransaction ), use capped exponential backoff with full jitter so clients don't retry in lockstep, and keep the retry budget well under your polling interval. Do not blindly re-send a sendTransaction after a timeout. Poll getTransaction with the hash first, because the transaction may already have been accepted."
+  },
+  {
+    "id": "/docs/integration#failover",
+    "title": "Integration Guide › Failover",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#failover",
+    "section": "Guides",
+    "description": "Failover",
+    "content": "The reference API does not fail over between RPC endpoints. It reads a single RWA_RPC_URL (default https://soroban-testnet.stellar.org ). If that endpoint is down, the indexer keeps serving the last good snapshot and last_indexed_ledger in GET /v1/stats stops advancing. Watch that value, or the rwa_indexer_refresh_total{outcome=\"failure\"} metric, to detect an outage. To switch providers, change RWA_RPC_URL and restart. A non-testnet URL also requires RWA_REGISTRY_ID and RWA_DIVIDEND_ID . If your own client needs failover, keep an ordered list of RPC URLs for the same network . Move to the next URL only after its retry budget runs out, not on the first error. Compare latestLedger across providers so you don't read from a node that is lagging behind."
+  },
+  {
+    "id": "/docs/integration#rate-limit-interaction",
+    "title": "Integration Guide › Rate-limit interaction",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#rate-limit-interaction",
+    "section": "Guides",
+    "description": "Rate-limit interaction",
+    "content": "- A 429 Too Many Requests or 503 Service Unavailable from RPC is not retried in place. Fast retries would only add load to a node that is already pushing back. The read fails, the refresh cycle ends, and the next cycle waits for the Retry-After header (integer seconds). If that header is missing or not an integer, it waits the normal 10 s poll interval instead. - Retries count against the provider's rate limit. With 4 attempts per read, a single refresh can make up to 4× the normal number of requests during an incident. Size your request rate with that in mind. - The REST API applies its own per-IP token-bucket limit to your client ( RWA_RATE_LIMIT_PER_SECOND / RWA_RATE_LIMIT_BURST ). Handle its 429 the same way and honour Retry-After . See Rate Limits & Caching ."
+  },
+  {
+    "id": "/docs/integration#contract-addresses",
+    "title": "Integration Guide › Contract addresses",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#contract-addresses",
+    "section": "Guides",
+    "description": "Contract addresses",
+    "content": "All Testnet contract ids are listed in Getting Started . Asset-token contract ids are discovered from the registry's get_all_assets (or the API's /assets )."
+  },
+  {
+    "id": "/docs/metrics",
+    "title": "Indexer Metrics",
+    "pageTitle": "Indexer Metrics",
+    "href": "/docs/metrics",
+    "section": "Guides",
+    "description": "Prometheus metrics exposed by the Stellar RWA API indexer.",
+    "content": "Indexer Metrics GET /metrics (bearer token via RWA_METRICS_TOKEN ) exposes Prometheus text format. Names follow Prometheus conventions: rwa_indexer_ prefix, base units in the suffix ( _seconds ), and _total for counters. Metric Type Description rwa_indexer_refresh_duration_seconds histogram Poll (refresh cycle) duration. rwa_indexer_refresh_total{outcome} counter Refresh cycles, outcome is success or failure . Failures are the failure series. rwa_indexer_asset_read_errors_total{asset_id,read} counter Failed per-asset RPC reads. rwa_indexer_last_indexed_ledger gauge Ledger of the latest successful snapshot. rwa_indexer_last_success_timestamp_seconds gauge Unix time of the last successful refresh. rwa_indexer_last_success_age_seconds gauge Lag: seconds since the last successful refresh, computed at scrape time. rwa_indexer_snapshot_assets gauge Assets in the in-memory snapshot. rwa_indexer_snapshot_events gauge Events in the in-memory snapshot. Suggested alert: rwa_indexer_last_success_age_seconds > 60 ."
+  },
+  {
+    "id": "/docs/snapshot-memory",
+    "title": "Snapshot Memory",
+    "pageTitle": "Snapshot Memory",
+    "href": "/docs/snapshot-memory",
+    "section": "Architecture",
+    "description": "How the API",
+    "content": "Snapshot Memory The indexer keeps a full snapshot (assets, holders, compliance, dividends, stats) in memory and rebuilds it every poll. Request handlers currently take a full Snapshot::clone() per request."
+  },
+  {
+    "id": "/docs/snapshot-memory#measurement",
+    "title": "Snapshot Memory › Measurement",
+    "pageTitle": "Snapshot Memory",
+    "href": "/docs/snapshot-memory#measurement",
+    "section": "Architecture",
+    "description": "Measurement",
+    "content": "Each refresh records: - rwa_indexer_snapshot_estimated_bytes - approximate payload size (JSON length of every collection). Plot it against rwa_indexer_snapshot_assets to get bytes per asset; growth is linear in assets and in holders per asset. - rwa_indexer_snapshot_clone_duration_seconds - time of one full clone, which is the extra per-request cost of the current design."
+  },
+  {
+    "id": "/docs/snapshot-memory#strategy",
+    "title": "Snapshot Memory › Strategy",
+    "pageTitle": "Snapshot Memory",
+    "href": "/docs/snapshot-memory#strategy",
+    "section": "Architecture",
+    "description": "Strategy",
+    "content": "1. Serve requests from a shared Arc (the ArcSwap guard already provides one), so a request costs a pointer copy instead of a deep clone. 2. Cap per-asset holder lists in the snapshot and page the remainder on demand once rwa_indexer_snapshot_estimated_bytes approaches the container limit. 3. Alert on rwa_indexer_snapshot_estimated_bytes growth per asset before changing storage (a database is the step after paging)."
+  },
+  {
+    "id": "/docs/time-and-ledgers",
+    "title": "Time & Ledgers",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers",
+    "section": "Concepts",
+    "description": "Understanding the ledger-sequence time model used across contracts and the API.",
+    "content": "Time & Ledgers Throughout the Stellar RWA contracts and API, time is never expressed as a wall-clock timestamp. Instead, all time values use Stellar ledger sequence numbers — a monotonically increasing counter that increments roughly every 5 seconds on the Stellar network. This design eliminates time-sync issues and makes on-chain logic deterministic."
+  },
+  {
+    "id": "/docs/time-and-ledgers#why-ledger-sequences",
+    "title": "Time & Ledgers › Why ledger sequences?",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#why-ledger-sequences",
+    "section": "Concepts",
+    "description": "Why ledger sequences?",
+    "content": "- No clock skew. A ledger number is determined by network consensus, not server clocks. - Deterministic ordering. You can always compare ledger numbers to know which event happened first, without worrying about timestamp precision. - Simpler contracts. No need to worry about wall-clock adjustments or leap seconds."
+  },
+  {
+    "id": "/docs/time-and-ledgers#ledger-sequences-in-contracts",
+    "title": "Time & Ledgers › Ledger sequences in contracts",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#ledger-sequences-in-contracts",
+    "section": "Concepts",
+    "description": "Ledger sequences in contracts",
+    "content": "All on-chain time fields are u32 ledger sequence numbers: - Compliance contract: verified_at , expires_at (approval expiry) - Dividend contract: created_at (when a distribution was announced) - Registry contract: created_at (when an asset was registered) - Asset-token contract: clawback_at (when a clawback was performed)"
+  },
+  {
+    "id": "/docs/time-and-ledgers#the-special-case-expires_at-0-means-never",
+    "title": "Time & Ledgers › The special case: expires_at = 0 means \"never\"",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#the-special-case-expires_at-0-means-never",
+    "section": "Concepts",
+    "description": "The special case: expires_at = 0 means \"never\"",
+    "content": "When an expiry field (like expires_at in the compliance allowlist) is set to 0 , it means the permission never expires . This is a universal convention across all contracts: // Add a user to the allowlist with no expiry const op = compliance.call( \"add_to_allowlist\", admin, userAddress, \"US\", 0 // expires_at = 0 means never expires ); To set an expiry, provide a future ledger number: const server = new Horizon.Server(\"https://horizon.stellar.org\"); const ledgers = await server.ledgers().limit(1).order(\"desc\").call(); const now = ledgers.records[0].sequence; // Approve for 1 year (~6.3 million ledgers at ~5s per ledger) const expiresAt = now + 6_300_000; const op = compliance.call( \"add_to_allowlist\", admin, userAddress, \"US\", expiresAt );"
+  },
+  {
+    "id": "/docs/time-and-ledgers#checking-expiry-at-runtime",
+    "title": "Time & Ledgers › Checking expiry at runtime",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#checking-expiry-at-runtime",
+    "section": "Concepts",
+    "description": "Checking expiry at runtime",
+    "content": "The compliance contract's is_allowed gate checks expiry like this: // User is approved if: // (expires_at == 0) -- never expires, OR // (now = expires_at , the approval is considered expired and is_allowed returns false , blocking all transfers. No on-chain cron job is needed — expiry is enforced at read time."
+  },
+  {
+    "id": "/docs/time-and-ledgers#ledger-sequences-in-the-api",
+    "title": "Time & Ledgers › Ledger sequences in the API",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#ledger-sequences-in-the-api",
+    "section": "Concepts",
+    "description": "Ledger sequences in the API",
+    "content": "The REST API mirrors this design. All time fields in responses are ledger sequence numbers , never wall-clock timestamps:"
+  },
+  {
+    "id": "/docs/time-and-ledgers#assets-endpoint",
+    "title": "Time & Ledgers › Assets endpoint",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#assets-endpoint",
+    "section": "Concepts",
+    "description": "Assets endpoint",
+    "content": "{ \"id\": 1, \"name\": \"Manhattan Loft\", \"created_at_ledger\": 3502885, \"total_supply\": \"1000000\" }"
+  },
+  {
+    "id": "/docs/time-and-ledgers#compliance-endpoint",
+    "title": "Time & Ledgers › Compliance endpoint",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#compliance-endpoint",
+    "section": "Concepts",
+    "description": "Compliance endpoint",
+    "content": "{ \"address\": \"GBUQWP...\", \"status\": \"Approved\", \"jurisdiction\": \"US\", \"verified_at\": 3500000, \"expires_at\": 9800000, \"expired\": false } The expired field is a convenience boolean: true if expires_at != 0 && expires_at <= last_indexed_ledger ."
+  },
+  {
+    "id": "/docs/time-and-ledgers#dividends-endpoint",
+    "title": "Time & Ledgers › Dividends endpoint",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#dividends-endpoint",
+    "section": "Concepts",
+    "description": "Dividends endpoint",
+    "content": "{ \"id\": 1, \"asset_id\": 1, \"per_share_cents\": \"100\", \"created_at_ledger\": 3510000, \"payable_at_ledger\": 3520000, \"claimed\": 500 }"
+  },
+  {
+    "id": "/docs/time-and-ledgers#converting-ledger-numbers-to-wall-clock-time",
+    "title": "Time & Ledgers › Converting ledger numbers to wall-clock time",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#converting-ledger-numbers-to-wall-clock-time",
+    "section": "Concepts",
+    "description": "Converting ledger numbers to wall-clock time",
+    "content": "To convert a ledger number to an approximate wall-clock time, use the Horizon API: const server = new Horizon.Server(\"https://horizon.stellar.org\"); const ledger = await server.ledgers().ledger(3502885).call(); console.log(ledger.closed_at); // \"2026-05-15T10:30:00Z\" Each ledger also records the wall-clock time it was closed, which you can use to estimate when a given ledger sequence number occurred. Rule of thumb: Stellar produces ~1 ledger per 5 seconds, so a ledger 1 million in the future is roughly 58 days away."
+  },
+  {
+    "id": "/docs/time-and-ledgers#handling-expires_at-in-your-integration",
+    "title": "Time & Ledgers › Handling expires_at in your integration",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#handling-expires_at-in-your-integration",
+    "section": "Concepts",
+    "description": "Handling expires_at in your integration",
+    "content": "When building an integration against the API: 1. Display the ledger number and the expired boolean. Don't try to calculate expiry yourself; trust the expired field from the API. 2. Refresh approval before expiry. If you're tracking approval expiry, call add_to_allowlist again before the expires_at ledger is reached. 3. Remember expires_at = 0 means never. Don't treat 0 as an epoch or default timestamp. 4. Use the API's expired field. The API already handles the comparison against the current indexed ledger for you."
+  },
+  {
+    "id": "/docs/time-and-ledgers#common-mistakes",
+    "title": "Time & Ledgers › Common mistakes",
+    "pageTitle": "Time & Ledgers",
+    "href": "/docs/time-and-ledgers#common-mistakes",
+    "section": "Concepts",
+    "description": "Common mistakes",
+    "content": "- Treating ledger numbers as timestamps: They are not microseconds, milliseconds, or any other time unit. They are ledger sequence numbers only. - Forgetting that 0 means \"never\": Setting expires_at: 0 will create an approval that never expires, which may not be what you intended. - Assuming expiry is checked by a cron job: Expiry is enforced at read time ( is_allowed ). Once the current ledger passes expires_at , the approval is immediately and deterministically considered expired. - Comparing ledger numbers across different chains: Each Stellar network (testnet, public, futurenet) has its own ledger sequence counter. Do not assume a ledger sequence is portable between networks."
+  },
+  {
+    "id": "/docs/web-app",
+    "title": "Web App Guide",
+    "pageTitle": "Web App Guide",
+    "href": "/docs/web-app",
+    "section": "Guides",
+    "description": "Connect Freighter, tokenize an asset, manage compliance, and distribute dividends.",
+    "content": "Web App Guide The web app is the front-end for issuers and investors. It signs and submits every transaction through the user's Freighter wallet — it never holds keys. This guide walks through the main flows."
+  },
+  {
+    "id": "/docs/web-app#connecting-freighter",
+    "title": "Web App Guide › Connecting Freighter",
+    "pageTitle": "Web App Guide",
+    "href": "/docs/web-app#connecting-freighter",
+    "section": "Guides",
+    "description": "Connecting Freighter",
+    "content": "1. Install the Freighter browser extension and create or import an account. 2. Switch Freighter to Testnet and fund the account via the friendbot . 3. In the app, click Connect Wallet and approve the connection. The app follows Freighter's selected network while connected, so reads and writes always target the same network. Your address appears in the header with a menu to copy it, view it on Stellar Expert, or disconnect. While disconnected you can still browse assets read-only and switch networks with the network selector. Once connected, the app locks to your wallet's network."
+  },
+  {
+    "id": "/docs/web-app#tokenizing-an-asset-issuer",
+    "title": "Web App Guide › Tokenizing an asset (issuer)",
+    "pageTitle": "Web App Guide",
+    "href": "/docs/web-app#tokenizing-an-asset-issuer",
+    "section": "Guides",
+    "description": "Tokenizing an asset (issuer)",
+    "content": "Open Tokenize an Asset and complete the multi-step form: 1. Asset info — name, type (real estate / invoice / commodity), description, and USD valuation. 2. Token config — symbol, total supply, and decimals. 3. Compliance — the initial set of KYC-approved addresses and their jurisdictions. Your own issuer address must be included , because the token mints the initial supply to you and that mint is compliance-gated. 4. Review & deploy — the app deploys the compliance contract and asset-token contract, then registers the asset in the registry. On success you get the deployed contract addresses with Stellar Expert links. Deployment is several transactions — a compliance contract, a token contract, and a registry registration. Approve each in Freighter as prompted. If you approve yourself last, the initial mint will fail; approve the issuer address in the compliance step first."
+  },
+  {
+    "id": "/docs/web-app#managing-the-compliance-allowlist-issuer",
+    "title": "Web App Guide › Managing the compliance allowlist (issuer)",
+    "pageTitle": "Web App Guide",
+    "href": "/docs/web-app#managing-the-compliance-allowlist-issuer",
+    "section": "Guides",
+    "description": "Managing the compliance allowlist (issuer)",
+    "content": "From the Issuer → Compliance page, select one of your assets: - Add an address — enter the account, choose a jurisdiction, and set an optional expiry. This calls add_to_allowlist and sets the status to Approved . - Suspend / remove — temporarily hold or permanently delete an approval. - Block a jurisdiction — freeze every holder in a country at once. The allowlist table shows each record's status, jurisdiction, and expiry. See the Compliance Guide for the model behind these actions."
+  },
+  {
+    "id": "/docs/web-app#creating-dividend-distributions-issuer",
+    "title": "Web App Guide › Creating dividend distributions (issuer)",
+    "pageTitle": "Web App Guide",
+    "href": "/docs/web-app#creating-dividend-distributions-issuer",
+    "section": "Guides",
+    "description": "Creating dividend distributions (issuer)",
+    "content": "From Issuer → Dividends , select an asset and open Create Distribution : 1. Choose the payment token (e.g. USDC on Stellar). 2. Enter the total amount to distribute. 3. Submit — the app calls create_distribution , which escrows the funds in the dividend contract. Holders then claim their proportional share. Each distribution shows a progress bar of claimed vs. total."
+  },
+  {
+    "id": "/docs/web-app#investor-compliance-status-and-holdings",
+    "title": "Web App Guide › Investor: compliance status and holdings",
+    "pageTitle": "Web App Guide",
+    "href": "/docs/web-app#investor-compliance-status-and-holdings",
+    "section": "Guides",
+    "description": "Investor: compliance status and holdings",
+    "content": "As an investor you can: - Check your compliance status on any asset's detail page and in your Portfolio . The app reads is_allowed and your KycRecord , and shows Approved / Pending / Suspended / Rejected / Not Registered . - Hold and transfer an asset — but only if you are approved. The transfer form is disabled with an explanatory message whenever you are not KYC-approved, the asset is paused, or your balance is zero. - Claim dividends — the app shows your claimable amount per distribution and a one-click Claim button that calls claim . If your transfer is blocked, the app tells you why — pending approval, suspension, a blocked jurisdiction, an expired approval, or simply not being on the allowlist. Ask the asset's issuer to approve your address. This is the compliance gate, not a bug."
+  },
+  {
+    "id": "/docs/web-app#data-paths-api-backed-vs-direct-rpc",
+    "title": "Web App Guide › Data paths: API-backed vs. direct-RPC",
+    "pageTitle": "Web App Guide",
+    "href": "/docs/web-app#data-paths-api-backed-vs-direct-rpc",
+    "section": "Guides",
+    "description": "Data paths: API-backed vs. direct-RPC",
+    "content": "The web app supports two distinct data paths for reading platform state, asset details, and aggregates (such as TVL, holder counts, and distribution progress): 1. API-backed path : When configured with NEXT_PUBLIC_API_BASE_URL , the web app fetches pre-computed aggregates and lists from the REST API ( /stats , /assets , /holders , /dividends , etc.). 2. Direct-RPC simulation fallback : When the API base URL is not configured, the web app falls back to simulating contract view calls directly against Soroban RPC using the Stellar JS SDK."
+  },
+  {
+    "id": "/docs/web-app#freshness-and-cost-tradeoffs",
+    "title": "Web App Guide › Freshness and cost tradeoffs",
+    "pageTitle": "Web App Guide",
+    "href": "/docs/web-app#freshness-and-cost-tradeoffs",
+    "section": "Guides",
+    "description": "Freshness and cost tradeoffs",
+    "content": "Dimension API-Backed Path Direct-RPC Fallback Path Freshness Eventual consistency (~10s lag behind ledger tip, governed by indexer polling interval). Real-time state directly from the current ledger head. Client Performance Fast; single HTTP GET request returning lightweight JSON. No client-side XDR decoding. Slower; requires executing transaction simulations and decoding ScVal responses ( scValToNative ). RPC Load & Cost Low; only the background indexer polls Soroban RPC every 10 seconds. Scales efficiently for many concurrent users. High; every client browser directly simulates contract calls, generating heavy RPC volume and risk of rate limiting. Trust Model Relies on the API service cache as an intermediary. Trustless; queries the Stellar network directly without intermediaries."
+  },
+  {
+    "id": "/docs/web-app#when-to-choose-each",
+    "title": "Web App Guide › When to choose each",
+    "pageTitle": "Web App Guide",
+    "href": "/docs/web-app#when-to-choose-each",
+    "section": "Guides",
+    "description": "When to choose each",
+    "content": "- Choose the API-backed path for production web app deployments, public dashboards, and high-traffic environments where fast load times, scalability, and conservation of Soroban RPC limits are paramount. - Choose the direct-RPC path for local development without running the indexer API, trustless setups where users must query the blockchain directly without trusting an intermediate cache, or when strict real-time precision at ledger head is required. See the Architecture Overview for how the indexer works and the Integration Guide for code examples of both querying the REST API and reading contracts directly via the JS SDK."
+  },
+  {
+    "id": "/docs/web-app#transaction-feedback",
+    "title": "Web App Guide › Transaction feedback",
+    "pageTitle": "Web App Guide",
+    "href": "/docs/web-app#transaction-feedback",
+    "section": "Guides",
+    "description": "Transaction feedback",
+    "content": "Every on-chain action shows live progress — preparing → awaiting signature → submitting → confirming — and, on success, a link to the transaction on Stellar Expert. Contract errors are translated into plain-language messages."
+  }
+]

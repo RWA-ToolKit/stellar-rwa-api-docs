@@ -1,0 +1,81 @@
+export const metadata = {
+  title: "Security Considerations",
+  description: "Trust assumptions, administrative authority, and the limits of on-chain compliance.",
+  canonical: "/docs/security-considerations",
+};
+
+# Security considerations for integrators
+
+This page describes what the Stellar RWA contracts and API can establish, what
+they cannot establish, and which actors must be trusted. It is implementation
+guidance, not legal, regulatory, custody, or security advice.
+
+<CalloutBox variant="warning">
+The published deployment is Testnet-only and is not suitable for custody of
+real-world value. Do not treat a Testnet contract address, API response, or this
+documentation as evidence that an offering is legally compliant.
+</CalloutBox>
+
+## Trust assumptions
+
+- **Contract code and deployment configuration:** verify the exact contract IDs,
+  WASM hashes, network passphrase, and SDK version in use. Contract IDs are
+  network-specific.
+- **Soroban RPC and the indexer API:** RPC simulation and the REST API are useful
+  read sources, but the API is a derived, polling snapshot rather than a source
+  of settlement finality. For high-assurance decisions, independently query the
+  chain and verify transaction results.
+- **Keys and wallets:** a signature proves control of an address, not the
+  identity, authority, or intent of the person using it. Protect user sessions,
+  key material, and transaction-review flows accordingly.
+- **External token contracts:** payment-token and compliance-contract calls are
+  cross-contract dependencies. Their availability and behavior are part of the
+  security boundary.
+
+## Administrative authority
+
+The contracts deliberately give administrators significant operational power:
+
+| Contract | Administrator can do | Integrator implication |
+|---|---|---|
+| Asset token | Mint, pause/unpause, change valuation, replace the compliance contract | Supply, transferability, valuation metadata, and the transfer gate can change. |
+| Compliance | Approve, suspend, remove holders, and block jurisdictions | An allowed holder can become unable to transfer immediately. |
+| Registry | Register, deactivate, and curate asset records | Registry visibility is not an independent verification of an asset or issuer. |
+| Dividend | Create and fund distributions | Claim amounts depend on the configured distribution and claim-time balances. |
+
+Use multisignature controls, hardware-backed keys, documented incident response,
+and monitored governance for every administrator. Integrations should expose the
+admin-controlled nature of these actions rather than implying they are immutable
+protocol rules.
+
+## Limits of on-chain compliance
+
+The compliance contract enforces only its configured rules: an address must be
+approved, unexpired, and outside a blocked jurisdiction when the asset token
+calls `is_allowed`. It does **not** verify a person's real-world identity,
+beneficial ownership, accreditation, sanctions status, transfer restrictions in
+every jurisdiction, or whether off-chain records remain accurate.
+
+Jurisdiction strings, expiry ledgers, and allowlist records are inputs controlled
+by the compliance administrator. A successful transfer means the on-chain gate
+accepted those inputs at that ledger; it is not a regulatory determination or a
+guarantee of legal ownership.
+
+## Integration practices
+
+- Validate addresses, contract IDs, amounts, decimal precision, and network
+  passphrases before building a transaction.
+- Simulate and review every transaction, then verify the submitted transaction
+  reached a successful final ledger before treating a workflow as complete.
+- Treat indexer data as eventually consistent. Display its indexed ledger and
+  handle stale or unavailable data rather than making irreversible decisions
+  from it alone.
+- Keep an audit trail of the contract IDs, transaction hashes, timestamps, and
+  off-chain approval evidence used for an action.
+- Design for pauses, compliance denials, RPC outages, and administrator key
+  rotation. These are expected operational states, not impossible errors.
+
+See the individual [asset-token](/docs/contracts/asset-token),
+[compliance](/docs/contracts/compliance), [registry](/docs/contracts/registry),
+and [dividend](/docs/contracts/dividend) references for method-level authority
+and error behavior.

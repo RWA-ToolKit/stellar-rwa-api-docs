@@ -1,5 +1,35 @@
+import type { Metadata } from "next";
 import { Sidebar } from "@/components/Sidebar";
 import { PrevNext } from "@/components/PrevNext";
+import { VersionBanner } from "@/components/VersionBanner";
+
+/**
+ * Per-page Open Graph metadata for documentation pages.
+ *
+ * Next.js resolves `metadata` from the nearest layout/page, so this layout
+ * provides a meaningful default title/description for every docs page while
+ * still allowing individual pages to override it via their own `metadata`
+ * export. The `title.template` appends the site name so shared links preview
+ * with a distinct, page-specific heading.
+ */
+export const metadata: Metadata = {
+  title: {
+    default: "Documentation",
+    template: "%s | Documentation",
+  },
+  description:
+    "Guides, references, and examples for building with the platform.",
+  openGraph: {
+    type: "article",
+    siteName: "Documentation",
+    title: {
+      default: "Documentation",
+      template: "%s | Documentation",
+    },
+    description:
+      "Guides, references, and examples for building with the platform.",
+  },
+};
 
 /** Two-column documentation shell: sticky sidebar + prose article. */
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
@@ -11,8 +41,11 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 py-10">
-        <article className="prose mx-auto w-full max-w-3xl">{children}</article>
+      <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden py-10">
+        <div className="mx-auto w-full max-w-3xl">
+          <VersionBanner />
+        </div>
+        <article className="prose mx-auto w-full max-w-3xl overflow-x-hidden">{children}</article>
         <div className="mx-auto w-full max-w-3xl">
           <PrevNext />
         </div>

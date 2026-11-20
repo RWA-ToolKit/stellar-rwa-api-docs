@@ -1,9 +1,13 @@
 export const metadata = {
   title: "Web App Guide",
   description: "Connect Freighter, tokenize an asset, manage compliance, and distribute dividends.",
+  canonical: "/docs/web-app",
+  lastReviewed: "2026-09-26",
 };
 
 # Web App Guide
+
+<LastReviewed date={metadata.lastReviewed} />
 
 The web app is the front-end for issuers and investors. It signs and submits every
 transaction through the user's **Freighter** wallet — it never holds keys. This
@@ -14,7 +18,7 @@ guide walks through the main flows.
 1. Install the [Freighter](https://freighter.app) browser extension and create or
    import an account.
 2. Switch Freighter to **Testnet** and fund the account via the
-   [friendbot](https://friendbot.stellar.org).
+   [Stellar Laboratory account creator](https://laboratory.stellar.org/account-creator).
 3. In the app, click **Connect Wallet** and approve the connection.
 
 The app follows Freighter's selected network while connected, so reads and writes
@@ -92,8 +96,38 @@ Ask the asset's issuer to approve your address. This is the compliance gate, not
 bug.
 </CalloutBox>
 
+## Data paths: API-backed vs. direct-RPC
+
+The web app supports two distinct data paths for reading platform state, asset details, and aggregates (such as TVL, holder counts, and distribution progress):
+
+1. **API-backed path**: When configured with `NEXT_PUBLIC_API_BASE_URL`, the web app fetches pre-computed aggregates and lists from the REST API (`/stats`, `/assets`, `/holders`, `/dividends`, etc.).
+2. **Direct-RPC simulation fallback**: When the API base URL is not configured, the web app falls back to simulating contract view calls directly against Soroban RPC using the Stellar JS SDK.
+
+### Freshness and cost tradeoffs
+
+| Dimension | API-backed path | Direct-RPC fallback path |
+|---|---|---|
+| **Freshness** | Eventual consistency (~10s lag behind ledger tip, governed by indexer polling interval). | Real-time state directly from the current ledger head. |
+| **Client Performance** | Fast; single HTTP GET request returning lightweight JSON. No client-side XDR decoding. | Slower; requires executing transaction simulations and decoding `ScVal` responses (`scValToNative`). |
+| **RPC Load & Cost** | Low; only the background indexer polls Soroban RPC every 10 seconds. Scales efficiently for many concurrent users. | High; every client browser directly simulates contract calls, generating heavy RPC volume and risk of rate limiting. |
+| **Trust Model** | Relies on the API service cache as an intermediary. | Trustless; queries the Stellar network directly without intermediaries. |
+
+### When to choose each
+
+- **Choose the API-backed path** for production web app deployments, public dashboards, and high-traffic environments where fast load times, scalability, and conservation of Soroban RPC limits are paramount.
+- **Choose the direct-RPC path** for local development without running the indexer API, trustless setups where users must query the blockchain directly without trusting an intermediate cache, or when strict real-time precision at ledger head is required.
+
+See the [Architecture Overview](/docs/architecture) for how the indexer works and the [Integration Guide](/docs/integration) for code examples of both querying the REST API and reading contracts directly via the JS SDK.
+
 ## Transaction feedback
 
 Every on-chain action shows live progress — *preparing → awaiting signature →
 submitting → confirming* — and, on success, a link to the transaction on Stellar
 Expert. Contract errors are translated into plain-language messages.
+
+## What to read next
+
+- [Compliance Guide](/docs/compliance-guide) — the model behind the allowlist actions in the UI.
+- [Integration Guide](/docs/integration) — call the same contracts from your own TypeScript code.
+- [Dividend Contract](/docs/contracts/dividend) — details on how `create_distribution` and `claim` work.
+- [Architecture Overview](/docs/architecture) — how the web app, API, and contracts are related.
