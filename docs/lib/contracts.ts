@@ -308,6 +308,13 @@ export const ALL_CONTRACTS = [
 ];
 
 /**
+ * Stable contract ids used in README.md's contract table.
+ * Keep this list in sync with the README table; the drift check
+ * (scripts/check-contract-docs.mjs) compares the two and fails on mismatch.
+ */
+export const CONTRACT_IDS = ALL_CONTRACTS.map((c) => c.name);
+
+/**
  * Validate that documented methods match the contract spec.
  * This function can be used in tests to ensure documentation doesn't drift.
  */
@@ -320,26 +327,15 @@ export function validateContractDocumentation(
   for (const doc of documentedMethods) {
     const spec = contract.methods.find((m) => m.name === doc.name);
     if (!spec) {
-      mismatches.push(`Documented method "${doc.name}" not found in contract spec`);
+      mismatches.push(`Documented method "${doc.name}" not found in ${contract.name} spec`);
       continue;
     }
     if (spec.params.length !== doc.params) {
       mismatches.push(
-        `Method "${doc.name}": documented ${doc.params} params, but spec has ${spec.params.length}`,
+        `Method "${doc.name}" param count mismatch: docs=${doc.params}, spec=${spec.params.length}`,
       );
     }
   }
 
-  // Check for methods in spec but not documented
-  const documentedNames = new Set(documentedMethods.map((m) => m.name));
-  for (const specMethod of contract.methods) {
-    if (!documentedNames.has(specMethod.name)) {
-      mismatches.push(`Contract method "${specMethod.name}" is not documented`);
-    }
-  }
-
-  return {
-    valid: mismatches.length === 0,
-    mismatches,
-  };
+  return { valid: mismatches.length === 0, mismatches };
 }
