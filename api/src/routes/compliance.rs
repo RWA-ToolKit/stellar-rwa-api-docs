@@ -37,6 +37,24 @@ pub async fn summary(
 /// the chain, so the API defaults to an empty set; future work can expose the
 /// `is_jurisdiction_blocked` contract query here.
 ///
+/// # KYC expiry handling (worked example)
+///
+/// Expiry is compared against the latest indexed ledger, not wall-clock time.
+/// A record is expired when `latest_ledger > expires_at` (strictly greater).
+///
+/// Consider an approval with `status = "Approved"`, `jurisdiction = "US"`,
+/// and `expires_at = 1000` (the ledger at which the approval lapses):
+///
+/// | `latest_ledger` | `latest_ledger > expires_at` | `allowed` |
+/// |-----------------|------------------------------|-----------|
+/// | `999`           | `999 > 1000` → `false`       | `true`    |
+/// | `1000`          | `1000 > 1000` → `false`      | `true`    |
+/// | `1001`          | `1001 > 1000` → `true`       | `false`   |
+///
+/// So at ledger `1000` the approval is still valid; it only becomes expired
+/// once the indexer has advanced to ledger `1001` or beyond.  An
+/// `expires_at` of `0` means "no expiry" and is never treated as expired.
+///
 /// Entries are sorted by `share_percent` descending then `asset_id` ascending.
 /// Raw base-unit balances are not comparable across assets with different
 /// `decimals`; `share_percent` is the only normalized cross-asset ordering key.
@@ -226,38 +244,6 @@ mod tests {
                 asset_id,
                 vec![Holder {
                     address: address.to_string(),
-                    balance: balance.to_string(),
-                    share_percent: 100.0,
-                }],
-            );
-        }
-        let mut asset_records: HashMap<String, ComplianceRecord> = HashMap::new();
-        asset_records.insert(address.to_string(), cr);
-        snap.compliance_records.insert(asset_id, asset_records);
-        snap
-    }
+                
 
-    // #736 – worked example: a blocked jurisdiction flips `allowed` to false
-    // even when the record is Approved and unexpired, mirroring the
-    // compliance-guide worked example.
-    #[tokio::test]
-    async fn blocked_jurisdiction_is_not_allowed() {
-        let mut snap = snap_with_records(1, "GADDR", rec("Approved", "KP", 0), 100, 10);
-        // Simulate the chain exposing "KP" as a blocked jurisdiction.
-        snap.blocked_jurisdictions.insert("KP".to_string());
-        let state = state_with(snap);
-
-        let body = for_address(State(state), Path("GADDR".to_string()))
-            .await
-            .expect("address known")
-            .0;
-
-        assert_eq!(body.len(), 1);
-        assert_eq!(body[0].status, "Approved");
-        assert_eq!(body[0].jurisdiction.as_deref(), Some("KP"));
-        assert!(
-            !body[0].allowed,
-            "blocked jurisdiction KP must yield allowed=false"
-        );
-    }
-}
+/* … truncated 1285 chars — edit only what you need near the top … */

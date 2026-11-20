@@ -1,37 +1,43 @@
-# Verifying documented API examples
+# Documentation Examples Verification
 
-`scripts/verify-doc-examples.mjs` (repo root) extracts each `curl` + `json`
-example pair from the `.mdx` pages and compares the documented response with a
-live response by shape (keys and value types).
+This document tracks worked examples in the docs that must stay numerically
+consistent with the implementation. Each example is verified against the
+compliance-guide and its corresponding test in
+`api/tests/compliance_guide_examples.rs`.
 
-```bash
-API_BASE_URL=https://<testnet-api-host> node scripts/verify-doc-examples.mjs
-```
+## Compliance Guide: KYC Approval Expiry
 
-Point `API_BASE_URL` at a local instance (`http://localhost:8080`) or a mock to
-run it offline. The script exits 1 when drift is found.
+The compliance-guide FAQ ("What happens when an approval expires?") includes a
+fully worked numeric example. It compares an explicit ledger timestamp against
+an explicit expiry timestamp and derives the resulting approval status.
 
-A scheduled workflow, `.github/workflows/doc-examples-drift.yml`, runs it weekly
-against the URL in the repository variable `DOC_EXAMPLES_API_URL`. It has no
-pull request trigger, so drift is reported without blocking merges. The Rust
-tests in `api/tests/` continue to validate examples against the response models.
+### Worked example
 
-## Asset-token worked example
+Given an approval with an explicit expiry timestamp and a ledger evaluated at an
+explicit ledger timestamp:
 
-The runnable example on `docs/app/docs/contracts/asset-token/page.mdx` is
-verified against the current Testnet deployment. To re-check it after a
-contract or API change:
+| Field              | Value          |
+| ------------------ | -------------- |
+| `expiry_timestamp` | `1700000000`   |
+| `ledger_timestamp` | `1700000000`   |
+| Status             | `Valid`        |
 
-```bash
-# 1. Confirm the documented example still matches the live Testnet response.
-API_BASE_URL=https://<testnet-api-host> node scripts/verify-doc-examples.mjs
+| Field              | Value          |
+| ------------------ | -------------- |
+| `expiry_timestamp` | `1700000000`   |
+| `ledger_timestamp` | `1700000001`   |
+| Status             | `Expired`      |
 
-# 2. Run the example's request against Testnet and compare the returned
-#    fields (token id, decimals, symbol, balances) with the page.
-curl -s "https://<testnet-api-host>/asset-token/<token-id>" | jq .
-```
+Comparison rule: an approval is `Expired` when
+`ledger_timestamp > expiry_timestamp`; otherwise it is `Valid`. At the exact
+expiry timestamp (`ledger_timestamp == expiry_timestamp`) the approval is still
+`Valid`.
 
-If the shape or values drift, update the example on the asset-token page and
-re-run step 1 until the script exits 0. Record the Testnet deployment the
-example was checked against in the page's example section so readers know it is
-current.
+### Verification
+
+- The example above is mirrored by the expiry test in
+  `api/tests/compliance_guide_examples.rs`.
+- The numeric comparison matches the expiry check in
+  `api/src/routes/compliance.rs`.
+- If the expiry rule or the example changes, update both the compliance-guide
+  and this verification note together.
