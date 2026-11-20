@@ -161,6 +161,100 @@ A `transfer` will revert with <code>SenderNotCompliant (7)</code> or
 error up front.
 </CalloutBox>
 
+## Worked example: check compliance before a transfer
+
+This walkthrough combines the [compliance contract](/docs/contracts/compliance)
+and the [compliance API](/docs/api/compliance) into one flow: given a sender and
+a recipient, verify **both** are `is_allowed` before attempting an on-chain
+transfer in the web app.
+
+### 1. Read both statuses from the API
+
+The API exposes the same `is_allowed` check as the contract, so the UI can gate
+the transfer button without simulating a transaction:
+
+```bash
+curl "http://localhost:8080/compliance/GSENDER.../is_allowed"
+curl "http://localhost:8080/compliance/GRECIPIENT.../is_allowed"
+```
+
+```ts
+const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+
+export async function isAllowed(address: string): Promise<boolean> {
+  const res = await fetch(`${API}/compliance/${address}/is_allowed`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const { allowed } = (await res.json()) as { allowed: boolean };
+  return allowed;
+}
+```
+
+### 2. Gate the transfer on both parties
+
+```ts
+import { transfer } from "./transfer"; // from "Submitting transactions" above
+
+export async function transferIfCompliant(
+  token: string, from: string, to: string, amount: bigint,
+): Promise<string> {
+  const [senderOk, recipientOk] = await Promise.all([
+    isAllowed(from),
+    isAllowed(to),
+  ]);
+
+  if (!senderOk) throw new Error("Sender is not KYC-approved");
+  if (!recipientOk) throw new Error("Recipient is not KYC-approved");
+
+  // Both allowed — safe to submit; the contract re-checks on-chain.
+  return transfer(token, from, to, amount);
+}
+```
+
+### 3. Fall back to the contract for a live check
+
+If you need the authoritative on-chain value (e.g. the API index is stale),
+simulate `is_allowed` directly against the compliance contract — the same call
+shown in [Reading contracts directly](#reading-contracts-directly):
+
+```ts
+import {
+  Contract, TransactionBuilder, Account, BASE_FEE,
+  Networks, rpc, scValToNative, Address,
+} from "@stellar/stellar-sdk";
+
+const server = new rpc.Server("https://soroban-testnet.stellar.org");
+const COMPLIANCE = "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU";
+
+export async function isAllowedOnChain(address: string): Promise<boolean> {
+  const source = new Account(
+    "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA", "0",
+  );
+  const tx = new TransactionBuilder(source, {
+    fee: BASE_FEE, networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(
+      new Contract(COMPLIANCE).call(
+        "is_allowed",
+        new Address(address).toScVal(),
+      ),
+    )
+    .setTimeout(30)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error);
+  return scValToNative(sim.result!.retval) as boolean;
+}
+```
+
+<CalloutBox variant="compliance">
+The API check is a fast pre-flight for UX; the contract still enforces
+compliance on-chain. If either party is not allowed, the transfer reverts with
+<code>SenderNotCompliant (7)</code> or <code>RecipientNotCompliant (8)</code>.
+</CalloutBox>
+
 ## Contract addresses
 
 All Testnet contract ids are listed in [Getting Started](/docs/getting-started#deployed-contract-addresses-testnet).
