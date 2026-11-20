@@ -78,3 +78,43 @@ cluster.
 During rollout, wait for `/health` and a recent poll timestamp in metrics before
 removing the previous instance. Keep graceful shutdown enabled so an in-flight
 poll can finish without publishing a partial snapshot.
+
+## Vercel configuration (`docs/vercel.json`)
+
+This documentation site is deployed to Vercel, and its project settings live in
+`docs/vercel.json`. If you self-host or fork the docs, review this file before
+deploying — it controls redirects, response headers, and build behavior that the
+site relies on.
+
+### Redirects
+
+The `redirects` array maps legacy or moved URLs to their current location so old
+links keep working. Each entry specifies a `source` path, a `destination`, and
+whether the redirect is `permanent` (a `308`, cached by browsers) or temporary.
+When you rename or move a docs page, add a redirect here instead of leaving a
+broken link behind.
+
+### Headers
+
+The `headers` array applies HTTP response headers to matching routes. Use it for
+security and caching policy — for example `X-Content-Type-Options: nosniff`,
+`Referrer-Policy`, and long-lived `Cache-Control` for immutable static assets.
+Header rules are matched by `source` pattern, so scope them to the paths they
+should affect rather than applying everything globally.
+
+### Build settings
+
+Build-related keys tell Vercel how to produce the site:
+
+- `buildCommand` — the command Vercel runs to build the docs (for example the
+  package manager's build script).
+- `installCommand` — how dependencies are installed before the build.
+- `outputDirectory` — the folder containing the built static output that Vercel
+  serves.
+- `framework` — the framework preset Vercel uses for defaults and routing.
+- `cleanUrls` / `trailingSlash` — URL normalization so routes resolve
+  consistently with the links used in the docs.
+
+If you change the build tooling or output layout, update these keys to match, or
+the deployment will serve stale or missing pages. Keep `docs/vercel.json` in sync
+with the actual build so a fresh fork deploys without manual dashboard edits.
