@@ -229,7 +229,7 @@ See [API · Errors](/docs/api/errors) for the canonical shape and the full list 
 <CalloutBox variant="tip" title="Amount units and conversions">
 Both `total_supply` and `valuation_cents` are 128-bit integers returned as strings to prevent rounding in JavaScript runtimes.
 
-```typescript
+```ts
 // 1. Converting total_supply (base units to display tokens):
 // Given total_supply = "1000000" and decimals = 2:
 const rawSupply = BigInt(asset.total_supply);

@@ -103,7 +103,8 @@ asset token, which holders then claim.
 time.
 
 **Indexer** — The API's background poller that reads contract state from Soroban RPC about every
-10 seconds and builds the snapshot the REST endpoints serve.
+10 seconds and builds the snapshot the REST endpoints serve. Docs use "indexer" consistently
+(not "indexing service" or "indexing API") to match the `indexer` module name in the API source.
 
 **Snapshot** — The indexer's in-memory copy of contract state. Responses carry an `ETag` derived
 from its latest ledger.

@@ -194,7 +194,7 @@ by all endpoints.
 <CalloutBox variant="tip" title="Balance conversion example">
 Holder balances are raw integers on-chain. To format a balance for end users, query the asset's `decimals` value (see <a href="/docs/api/assets">Assets</a>) and scale the integer:
 
-```typescript
+```ts
 // Given holder.balance = "1000000" and asset.decimals = 2:
 const rawBalance = BigInt(holder.balance);
 const displayBalance = Number(rawBalance) / (10 ** asset.decimals);
