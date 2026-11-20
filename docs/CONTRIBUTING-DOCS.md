@@ -93,6 +93,20 @@ entry.
 - When a release is cut, move the `Unreleased` entries under a new version
   heading with the release date.
 
+## Scratch and planning documents
+
+Do not commit working notes, batch plans, or scratch documents (for example
+`BATCH_*_*.md`) to the repository root. The root is reserved for the canonical
+project files (`README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `RELEASING.md`,
+and similar).
+
+- If a scratch document describes work that is still actionable, capture it as
+  a GitHub issue and delete the file.
+- If it records shipped work, fold the user-facing parts into
+  [`CHANGELOG.md`](../CHANGELOG.md) and delete the file.
+- If it has lasting reference value, move it under `docs/` with a short header
+  explaining its origin and status (for example, whether it is historical).
+
 ## Style
 
 Follow the [documentation style guide](./STYLE_GUIDE.md).
