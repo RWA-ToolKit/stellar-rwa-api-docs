@@ -118,3 +118,71 @@ Build-related keys tell Vercel how to produce the site:
 If you change the build tooling or output layout, update these keys to match, or
 the deployment will serve stale or missing pages. Keep `docs/vercel.json` in sync
 with the actual build so a fresh fork deploys without manual dashboard edits.
+
+## Self-hosting the docs outside Vercel
+
+You do not need Vercel to preview or host a fork of this documentation site. The
+site is a standard Next.js app under `docs/`, so it can run on any Node server or
+container. The steps below build and serve it with `next build && next start`.
+
+### Environment variables
+
+Copy the example environment file and fill in the values for your deployment:
+
+```bash
+cd docs
+cp .env.example .env.local
+```
+
+`.env.local` is git-ignored and is loaded automatically by Next.js. Set the same
+variables in your process manager, container, or platform secret store for
+production. At minimum, review the variables documented in `docs/.env.example`
+(for example the public site URL and any analytics or API base URLs) and set them
+to values that match your host. Never commit real secrets — keep them in the
+environment, not in the repository.
+
+### Build and run on a Node server
+
+```bash
+cd docs
+npm ci
+npm run build
+npm run start -- --hostname 0.0.0.0 --port 3000
+```
+
+`next build` produces the optimized production output and `next start` serves it
+from the Node process. The equivalent explicit commands are:
+
+```bash
+cd docs
+next build
+next start -H 0.0.0.0 -p 3000
+```
+
+Bind to `0.0.0.0` (not just `localhost`) when running behind a reverse proxy or
+inside a container so the port is reachable. Put a reverse proxy such as Nginx
+or Caddy in front of the Node process to terminate TLS and forward requests to
+port `3000`.
+
+### Container example
+
+```dockerfile
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY docs/package*.json ./
+RUN npm ci
+COPY docs ./
+RUN npm run build
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app ./
+EXPOSE 3000
+CMD ["npm", "run", "start", "--", "--hostname", "0.0.0.0", "--port", "3000"]
+```
+
+Pass environment variables at runtime with `docker run --env-file docs/.env.local`
+or your orchestrator's secret store. Because `docs/vercel.json` only applies to
+Vercel, replicate any redirects and headers you rely on in your reverse proxy
+when self-hosting.
