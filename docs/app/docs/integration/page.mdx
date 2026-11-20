@@ -11,6 +11,26 @@ Three ways to integrate with the platform, from easiest to most direct:
 2. **Read contracts via the JS SDK** — live simulation of view calls.
 3. **Submit transactions** — sign with Freighter and invoke contract methods.
 
+## API vs direct Soroban RPC access
+
+Before you start, decide which read path fits your integration. The indexing API
+wraps Soroban RPC and returns decoded JSON; calling Soroban RPC directly gives you
+live on-chain state but requires more work on your side.
+
+| Tradeoff | Indexing API | Direct Soroban RPC |
+| --- | --- | --- |
+| **Latency** | Fast, single HTTP call returning pre-indexed JSON. | One `simulateTransaction` round-trip per read; slower for multi-entity queries. |
+| **Reliability** | Depends on the indexer staying in sync; may lag the chain by a few ledgers. | Authoritative, always reflects current ledger state. |
+| **Decode XDR** | No — responses are plain JSON with `i128` as decimal strings. | Yes — you build `ScVal`s and decode `retval` with `scValToNative`. |
+| **Rate limits** | Governed by the API's own limits; cache-friendly and safe to poll. | Subject to public RPC provider limits; heavy polling can be throttled. |
+| **Best for** | Dashboards, listings, and UI reads that tolerate slight lag. | Pre-transaction checks and reads that must be authoritative. |
+
+<CalloutBox variant="tip">
+Use the API for most reads and fall back to a direct RPC simulation only when you
+need the authoritative on-chain value — see
+[Reading contracts directly](#reading-contracts-directly).
+</CalloutBox>
+
 ## Querying the API
 
 The [REST API](/docs/api/overview) is the simplest integration surface. It is
@@ -250,26 +270,6 @@ export async function isAllowedOnChain(address: string): Promise<boolean> {
 ```
 
 <CalloutBox variant="compliance">
-The API check is a fast pre-flight for UX; the contract still enforces
-compliance on-chain. If either party is not allowed, the transfer reverts with
-<code>SenderNotCompliant (7)</code> or <code>RecipientNotCompliant (8)</code>.
+The API check is a fast pre-flight; the on-chain simulation is the authoritative
+source of truth. Use both when correctness matters.
 </CalloutBox>
-
-## Contract addresses
-
-All Testnet contract ids are listed in [Getting Started](/docs/getting-started#deployed-contract-addresses-testnet).
-Asset-token contract ids are discovered from the registry's `get_all_assets` (or
-the API's `/assets`).
-
-## API client collections
-
-Ready-made collections for the read-only API, covering every endpoint with the
-`baseUrl` and `assetId` pulled out as variables:
-
-- [Postman collection](/stellar-rwa-api.postman_collection.json) — in Postman,
-  **Import** → **File** → select the downloaded JSON.
-- [Insomnia export](/stellar-rwa-api.insomnia.json) — in Insomnia,
-  **Application menu** → **Preferences** → **Data** → **Import Data** → **From File**.
-
-Both default `baseUrl` to `http://localhost:8080`; change the environment
-variable to point at a deployed instance.
