@@ -78,3 +78,16 @@ cluster.
 During rollout, wait for `/health` and a recent poll timestamp in metrics before
 removing the previous instance. Keep graceful shutdown enabled so an in-flight
 poll can finish without publishing a partial snapshot.
+
+## Self-host the documentation site
+
+From the repository root, build the docs image with its public URL, then start
+the production Next.js server on port 3000.
+
+```sh
+docker build --build-arg NEXT_PUBLIC_SITE_URL=https://docs.example.org -t stellar-rwa-docs ./docs
+docker run --rm -p 3000:3000 stellar-rwa-docs
+```
+
+Pass other public settings from `docs/.env.example` with additional
+`--build-arg` flags. Rebuild the image when these values change.
