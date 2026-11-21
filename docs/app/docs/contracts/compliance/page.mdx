@@ -147,3 +147,19 @@ const op = compliance.call(
   freezes every `US` holder's ability to transfer. Use deliberately.
 - **`remove` vs `suspend`:** `suspend` is reversible and keeps the audit record;
   `remove` erases it. Prefer `suspend` for temporary actions.
+
+## Related API endpoints
+
+The REST API in [`/docs/api/compliance`](/docs/api/compliance) is a thin wrapper
+over this contract. Each endpoint maps to a contract function:
+
+| API endpoint | Contract function |
+|--------------|-------------------|
+| `GET /compliance/:address` | [`get_record`](#get-record--get-allowlist) |
+| `GET /compliance/allowlist` | [`get_allowlist`](#get-record--get-allowlist) |
+| `POST /compliance/allowlist` | [`add_to_allowlist`](#add_to_allowlist) |
+| `POST /compliance/suspend` | [`suspend`](#suspend) |
+| `DELETE /compliance/:address` | [`remove`](#remove) |
+| `GET /compliance/:address/allowed` | [`is_allowed`](#is-allowed) |
+| `POST /compliance/jurisdictions/block` | [`block_jurisdiction`](#block_jurisdiction--unblock_jurisdiction--is_jurisdiction_blocked) |
+| `POST /compliance/jurisdictions/unblock` | [`unblock_jurisdiction`](#block_jurisdiction--unblock_jurisdiction--is_jurisdiction_blocked) |

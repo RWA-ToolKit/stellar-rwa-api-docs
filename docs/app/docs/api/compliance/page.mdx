@@ -64,3 +64,12 @@ per-address KYC records live only on-chain and in the issuer's own tooling.
 The `jurisdictions` breakdown reflects the `jurisdiction` field of each KYC record.
 Combined with the contract's `is_jurisdiction_blocked`, it helps issuers audit
 their geographic exposure. See the [Compliance Guide](/docs/compliance-guide#jurisdiction-restrictions).
+
+**Backing contract**
+
+This summary is derived from the compliance contract's KYC allowlist. The
+`approved` count corresponds to records passing the contract's `is_allowed`
+check, and the `jurisdictions` breakdown reads each record's `jurisdiction`
+field alongside `is_jurisdiction_blocked`. See the
+[Compliance contract reference](/docs/contracts/compliance) for the full set of
+functions and their semantics.

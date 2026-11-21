@@ -30,6 +30,16 @@ Both projects here are built entirely around Soroban smart contracts.
 Network passphrase: `Test SDF Network ; September 2015` · RPC:
 `https://soroban-testnet.stellar.org`
 
+> The Testnet passphrase must be quoted **byte-identically** everywhere it
+> appears — `Test SDF Network ; September 2015` (note the space before and after
+> the semicolon). A single mismatched character causes signature verification to
+> fail. When in doubt, copy it from this line.
+
+> The contract ids below are the single source of truth for the deployed
+> Testnet contracts. The getting-started page
+> (`docs/app/docs/getting-started/page.mdx`) must reference the same ids — keep
+> both lists in sync when redeploying.
+
 | Contract    | Contract ID |
 |-------------|-------------|
 | registry    | `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` |
@@ -38,7 +48,12 @@ Network passphrase: `Test SDF Network ; September 2015` · RPC:
 | asset-token (sample) | `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ` |
 
 Contract ids are configured via environment variables (see `api/.env.example`).
-Per-asset token ids are discovered from the registry at index time.
+Per-asset token ids are discovered from the registry at index time — the
+indexer simulates the registry's view calls on each 10s poll to enumerate
+registered assets and their token contracts, rather than relying on events or
+hard-coded ids. See
+[`docs/app/docs/contracts/registry`](docs/app/docs/contracts/registry/page.mdx)
+for the full discovery mechanism and timing.
 
 ## API
 

@@ -165,4 +165,24 @@ mod tests {
         assert_eq!(dists[1].id, 10);
         assert_eq!(dists[1].created_at_ledger, 100);
     }
+
+    // #734 – the dividends docs page documents claim-expiry edge cases. This
+    // test pins the response shape the expired/unclaimed example relies on:
+    // an expired distribution is still returned by the list endpoint (it is
+    // not filtered out), so the docs example can show it alongside its
+    // claim-expiry fields.
+    #[tokio::test]
+    async fn expired_distribution_still_listed() {
+        let mut snap = Snapshot::default();
+        snap.assets.push(asset(1));
+        snap.dividends.insert(1, vec![distribution(10, 100)]);
+        let state = state_with(snap);
+
+        let dists = list(State(state), Path(1)).await.expect("asset exists").0;
+
+        // Expired/unclaimed distributions remain in the history rather than
+        // being dropped, so clients can observe the expired state.
+        assert_eq!(dists.len(), 1);
+        assert_eq!(dists[0].id, 10);
+    }
 }

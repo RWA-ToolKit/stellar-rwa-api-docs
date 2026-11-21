@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation Bug
+    url: https://github.com
+    about: Please use the Documentation Bug template to report documentation problems.

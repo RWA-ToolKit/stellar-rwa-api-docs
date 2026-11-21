@@ -59,6 +59,52 @@ Initial release.
   `/assets/:id/dividends`, and `/health`.
 - Compliance summaries are non-PII: counts and a jurisdiction breakdown only.
 
+## Entry format
+
+This page and the repository-wide `CHANGELOG.md` both follow
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Every entry uses the
+same shape so the two files stay in sync:
+
+```markdown
+## Unreleased
+
+### Added
+
+- `GET /example` returning `{ id, name }`.
+
+### Changed
+
+- **Breaking:** `GET /assets` now requires `?limit` (max 100).
+
+### Deprecated
+
+- `GET /legacy` — use `GET /v1/legacy` instead.
+
+### Removed
+
+- `GET /old-endpoint`.
+
+### Fixed
+
+- `total_holders` no longer counts zero-balance addresses.
+
+### Security
+
+- Describe the impact and the upgrade path; do not disclose exploit details.
+```
+
+Rules for entries:
+
+- Use only the six Keep a Changelog groups: **Added**, **Changed**,
+  **Deprecated**, **Removed**, **Fixed**, **Security**. Omit empty groups.
+- One bullet per change, written for an integrator (the effect on a client),
+  not the implementation.
+- Prefix anything that can break an existing client with **Breaking:** and say
+  what to change.
+- Reference the endpoint, parameter, field, header, or status code affected.
+- Released sections are titled `<version> — <YYYY-MM-DD>` and match the git tag
+  and the `CHANGELOG.md` section.
+
 ## Updating this page
 
 Update this page in the same pull request as any change to the documented API

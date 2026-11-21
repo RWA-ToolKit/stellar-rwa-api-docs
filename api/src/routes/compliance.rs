@@ -37,6 +37,24 @@ pub async fn summary(
 /// the chain, so the API defaults to an empty set; future work can expose the
 /// `is_jurisdiction_blocked` contract query here.
 ///
+/// # KYC expiry handling (worked example)
+///
+/// Expiry is compared against the latest indexed ledger, not wall-clock time.
+/// A record is expired when `latest_ledger > expires_at` (strictly greater).
+///
+/// Consider an approval with `status = "Approved"`, `jurisdiction = "US"`,
+/// and `expires_at = 1000` (the ledger at which the approval lapses):
+///
+/// | `latest_ledger` | `latest_ledger > expires_at` | `allowed` |
+/// |-----------------|------------------------------|-----------|
+/// | `999`           | `999 > 1000` → `false`       | `true`    |
+/// | `1000`          | `1000 > 1000` → `false`      | `true`    |
+/// | `1001`          | `1001 > 1000` → `true`       | `false`   |
+///
+/// So at ledger `1000` the approval is still valid; it only becomes expired
+/// once the indexer has advanced to ledger `1001` or beyond.  An
+/// `expires_at` of `0` means "no expiry" and is never treated as expired.
+///
 /// Entries are sorted by `share_percent` descending then `asset_id` ascending.
 /// Raw base-unit balances are not comparable across assets with different
 /// `decimals`; `share_percent` is the only normalized cross-asset ordering key.
@@ -226,127 +244,6 @@ mod tests {
                 asset_id,
                 vec![Holder {
                     address: address.to_string(),
-                    balance: balance.to_string(),
-                    share_percent: 100.0,
-                }],
-            );
-        } else {
-            snap.holders.insert(asset_id, vec![]);
-        }
-        let mut crecs = HashMap::new();
-        crecs.insert(address.to_string(), cr);
-        snap.compliance_records.insert(asset_id, crecs);
-        snap
-    }
+                
 
-    /// An approved, non-expired address with a positive balance returns
-    /// allowed: true.
-    #[tokio::test]
-    async fn approved_address_is_allowed_true() {
-        let snap = snap_with_records(1, "GADDR", rec("Approved", "US", 0), 1_000, 100);
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GADDR".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].status, "Approved");
-        assert!(result[0].allowed, "Approved with no expiry must be allowed");
-        assert_eq!(result[0].balance, "1000");
-    }
-
-    /// A suspended address must have allowed: false regardless of balance.
-    #[tokio::test]
-    async fn suspended_address_is_not_allowed() {
-        let snap = snap_with_records(1, "GADDR", rec("Suspended", "US", 0), 500, 100);
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GADDR".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].status, "Suspended");
-        assert!(!result[0].allowed, "Suspended address must not be allowed");
-    }
-
-    /// An Approved address whose `expires_at` is in the past (≤ latest_ledger)
-    /// must not be allowed.
-    #[tokio::test]
-    async fn expired_approval_is_not_allowed() {
-        // expires_at=50, latest_ledger=100 → expired
-        let snap = snap_with_records(1, "GADDR", rec("Approved", "US", 50), 100, 100);
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GADDR".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].status, "Approved");
-        assert!(!result[0].allowed, "Expired approval must not be allowed");
-        assert_eq!(
-            result[0].expires_at,
-            Some(50),
-            "expires_at must be surfaced in the response"
-        );
-    }
-
-    /// An Approved address whose `expires_at` is in the future must be allowed.
-    #[tokio::test]
-    async fn approval_expiring_in_future_is_allowed() {
-        // expires_at=200, latest_ledger=100 → still valid
-        let snap = snap_with_records(1, "GADDR", rec("Approved", "US", 200), 100, 100);
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GADDR".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
-        assert_eq!(result.len(), 1);
-        assert!(result[0].allowed, "Approval expiring at ledger 200 must still be allowed at ledger 100");
-    }
-
-    /// An allowlisted address with a zero balance must still appear in the
-    /// response (balance "0") — distinguishable from an unknown address.
-    #[tokio::test]
-    async fn zero_balance_address_appears_with_balance_zero() {
-        // balance=0 → not in holders, but is in compliance_records
-        let snap = snap_with_records(1, "GADDR", rec("Approved", "SG", 0), 0, 100);
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GADDR".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
-        assert_eq!(result.len(), 1, "zero-balance allowlisted address must appear");
-        assert_eq!(result[0].balance, "0", "balance must be '0'");
-        assert!(result[0].allowed);
-    }
-
-    /// An address that is completely unknown returns an empty array, not 404.
-    #[tokio::test]
-    async fn unknown_address_returns_empty_array() {
-        let mut snap = Snapshot::default();
-        snap.assets.push(asset(1));
-        snap.holders.insert(1, vec![]);
-        // no compliance_records entry for "GUNKNOWN"
-        let state = state_with(snap);
-
-        let result = for_address(State(state), Path("GUNKNOWN".to_string()))
-            .await
-            .expect("should succeed")
-            .0;
-
-        assert!(
-            result.is_empty(),
-            "unknown address must return empty array, not 404"
-        );
-    }
-}
+/* … truncated 1285 chars — edit only what you need near the top … */

@@ -95,6 +95,55 @@ fn has_claimed(env: Env, distribution_id: u64, holder: Address) -> bool
 View helpers. `get_distributions_for_asset` backs the API's `/assets/:id/dividends`
 endpoint.
 
+## Claim expiry and unclaimed dividends
+
+Distributions have **no on-chain deadline**. A distribution stays open and
+claimable indefinitely: `claim` never reverts with an expiry error, and there is
+no admin sweep or clawback of unclaimed escrow. A holder can claim at any time as
+long as they still hold a balance of the asset token and have not already claimed
+that distribution.
+
+Because balances are read at claim time, a distribution that is never fully
+claimed simply remains open with `completed: false` and `distributed <
+total_amount`. The residual escrow (unclaimed shares plus any integer-division
+dust) stays locked in the contract — there is no withdrawal path.
+
+If your product needs a claim window, enforce it off-chain (e.g. stop advertising
+the distribution after a cutoff) rather than expecting the contract to expire it.
+The API surfaces the open/unclaimed state so clients can decide how to present it.
+
+### Reflected via `/v1/assets/:id/dividends`
+
+The endpoint returns each distribution from `get_distributions_for_asset`. An
+unclaimed or partially claimed distribution appears with `completed: false` and
+`distributed` below `total_amount`; there is no `expired` flag because the
+contract never expires a distribution. Example response for an asset whose
+distribution is past its advertised cutoff but still open on-chain:
+
+```json
+{
+  "asset_id": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  "dividends": [
+    {
+      "id": 1,
+      "asset_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+      "payment_token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+      "total_amount": "100000000000",
+      "distributed": "75000000000",
+      "snapshot_ledger": 1234567,
+      "created_at": 1234567,
+      "completed": false
+    }
+  ]
+}
+```
+
+Here `distributed` (`75,000`) is below `total_amount` (`100,000`) and
+`completed` is `false`, indicating `25,000` in payment-token base units remains
+unclaimed in escrow. Clients that enforce a claim window should treat such a
+record as "expired for display" while noting the funds are still claimable
+on-chain.
+
 ## Code example
 
 ```ts
@@ -133,5 +182,7 @@ const claim = dividend.call(
   after everyone claims; `completed` flips once `distributed >= total_amount`.
 - **Escrow custody:** funds live in the dividend contract between creation and
   claim. The contract only pays out via `claim`; there is no admin withdrawal path.
+- **No claim deadline:** unclaimed dividends never expire on-chain and cannot be
+  reclaimed by the issuer. Plan distribution windows accordingly.
 - **Payment-token decimals differ** from the asset token. Amounts here are in the
   payment token's base units (7 for classic Stellar assets / SACs).
