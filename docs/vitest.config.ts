@@ -10,6 +10,18 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     include: ["**/*.test.{ts,tsx}"],
     exclude: ["node_modules", ".next"],
+    coverage: {
+      provider: "v8",
+      include: ["lib/**/*.ts", "components/**/*.tsx"],
+      exclude: ["**/*.d.ts", "**/node_modules/**"],
+      // Baseline thresholds; keep in sync with jest.config.js coverageThreshold.
+      thresholds: {
+        statements: 60,
+        branches: 50,
+        functions: 50,
+        lines: 60,
+      },
+    },
   },
   resolve: {
     alias: {
