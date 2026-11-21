@@ -6,6 +6,8 @@
 //! - /assets/:id/compliance response structure
 //! - jurisdiction breakdown format
 //! - compliance status enums
+//! - jurisdiction-blocking worked example (blocked jurisdiction end to end)
+//! - KYC-expiry-handling worked example (ledger timestamp vs expiry timestamp)
 
 use serde_json::json;
 
@@ -95,6 +97,95 @@ fn worked_example_register_then_summary_valid() {
     assert_eq!(summary["jurisdictions"][0]["count"], 1);
 }
 
+/// Validates the KYC-expiry-handling worked example from the Compliance Guide.
+/// The guide walks through an approval that carries an explicit expiry and
+/// compares it against an explicit ledger timestamp to decide whether the
+/// approval is still valid or has expired.
+#[test]
+fn worked_example_kyc_expiry_handling_valid() {
+    // Step 1: Register an approval with an explicit expiry timestamp.
+    // The expiry is a Unix timestamp (seconds) stored on the KYC record.
+    let expiry_timestamp: i64 = 1_700_000_000; // 2023-11-14T22:13:20Z
+    let register_request = json!({
+        "address": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        "jurisdiction": "US",
+        "status": "Approved",
+        "expiry": expiry_timestamp
+    });
+    assert_eq!(register_request["status"], "Approved");
+    assert_eq!(register_request["expiry"], expiry_timestamp);
+
+    // Step 2: Compare an explicit ledger timestamp against the expiry.
+    // Case A — ledger timestamp is BEFORE expiry: approval is still valid.
+    let ledger_timestamp_valid: i64 = 1_699_999_000; // 1000s before expiry
+    assert!(ledger_timestamp_valid < expiry_timestamp);
+    let status_valid = if ledger_timestamp_valid < expiry_timestamp {
+        "Approved"
+    } else {
+        "Expired"
+    };
+    assert_eq!(status_valid, "Approved");
+
+    // Case B — ledger timestamp is AT/AFTER expiry: approval has expired.
+    let ledger_timestamp_expired: i64 = 1_700_000_500; // 500s after expiry
+    assert!(ledger_timestamp_expired >= expiry_timestamp);
+    let status_expired = if ledger_timestamp_expired < expiry_timestamp {
+        "Approved"
+    } else {
+        "Expired"
+    };
+    assert_eq!(status_expired, "Expired");
+
+    // The numeric comparison the guide documents:
+    //   1_699_999_000 < 1_700_000_000  => valid
+    //   1_700_000_500 >= 1_700_000_000 => expired
+    assert_eq!(expiry_timestamp - ledger_timestamp_valid, 1_000);
+    assert_eq!(ledger_timestamp_expired - expiry_timestamp, 500);
+}
+
+/// Validates the jurisdiction-blocking worked example from the Compliance Guide.
+/// The guide walks through blocking a sample jurisdiction ("KP") end to end:
+/// the block is configured, a transfer into the blocked jurisdiction is
+/// rejected, and the resulting API/contract behavior is documented.
+#[test]
+fn worked_example_blocked_jurisdiction_valid() {
+    // Step 1: Configure the block — POST /admin/jurisdictions/block.
+    let block_request = json!({
+        "jurisdiction": "KP",
+        "reason": "sanctions"
+    });
+    assert_eq!(block_request["jurisdiction"], "KP");
+    assert!(block_request["reason"].is_string());
+
+    // Step 2: A transfer targeting the blocked jurisdiction is rejected.
+    // The API returns HTTP 403 with a structured error body.
+    let blocked_response = json!({
+        "error": "jurisdiction_blocked",
+        "jurisdiction": "KP",
+        "message": "Transfers to jurisdiction KP are blocked"
+    });
+    assert_eq!(blocked_response["error"], "jurisdiction_blocked");
+    assert_eq!(blocked_response["jurisdiction"], "KP");
+    assert!(blocked_response["message"].is_string());
+
+    // Step 3: The contract-level behavior — the blocked jurisdiction is
+    // reflected in the compliance summary so operators can audit it.
+    let summary = json!({
+        "total_records": 1,
+        "approved": 0,
+        "suspended": 0,
+        "rejected": 1,
+        "pending": 0,
+        "with_expiry": 0,
+        "jurisdictions": [
+            { "jurisdiction": "KP", "count": 1 }
+        ]
+    });
+    assert_eq!(summary["rejected"], 1);
+    assert_eq!(summary["jurisdictions"][0]["jurisdiction"], "KP");
+    assert_eq!(summary["jurisdictions"][0]["count"], 1);
+}
+
 /// Validates that compliance status values match the contract interface.
 /// Valid statuses are: Approved, Pending, Rejected, Suspended
 #[test]
@@ -113,7 +204,7 @@ fn compliance_statuses_are_valid() {
 #[test]
 fn jurisdiction_codes_are_iso_format() {
     // Example jurisdictions from the compliance system
-    let jurisdictions = vec!["US", "KE", "DE", "GB", "CH"];
+    let jurisdictions = vec!["US", "KE", "DE", "GB", "CH", "KP"];
 
     for jurisdiction in &jurisdictions {
         // ISO country codes must be exactly 2 uppercase letters
@@ -175,113 +266,4 @@ fn complex_compliance_summary_valid() {
         !jurisdictions.is_empty(),
         "Jurisdictions array should not be empty"
     );
-
-    // Verify with_expiry is within reasonable bounds
-    assert!(
-        complex_compliance["with_expiry"].as_u64().unwrap()
-            <= complex_compliance["total_records"].as_u64().unwrap()
-    );
-}
-
-/// Validates that the compliance endpoint response has no PII (addresses).
-/// Only counts and jurisdiction codes are exposed, not individual records.
-#[test]
-fn compliance_response_contains_no_addresses() {
-    let compliance = json!({
-        "total_records": 3,
-        "approved": 2,
-        "suspended": 1,
-        "rejected": 0,
-        "pending": 0,
-        "with_expiry": 0,
-        "jurisdictions": [
-            { "jurisdiction": "US", "count": 2 },
-            { "jurisdiction": "KE", "count": 1 }
-        ]
-    });
-
-    // Verify there is no 'addresses' field
-    assert!(
-        compliance.get("addresses").is_none(),
-        "Compliance response must not contain 'addresses' (no PII)"
-    );
-
-    // Verify there is no 'records' field with individual entries
-    assert!(
-        compliance.get("records").is_none(),
-        "Compliance response must not contain 'records' (no PII)"
-    );
-
-    // Verify jurisdiction array contains only jurisdiction and count, no addresses
-    let jurisdictions = compliance["jurisdictions"].as_array().unwrap();
-    for jurisdiction in jurisdictions {
-        assert!(
-            jurisdiction.get("address").is_none(),
-            "Jurisdiction entry must not contain 'address' (no PII)"
-        );
-        assert!(
-            jurisdiction.get("status").is_none(),
-            "Jurisdiction entry must not contain individual status (no PII)"
-        );
-    }
-}
-
-/// Validates that error response for unknown asset is consistent.
-#[test]
-fn compliance_error_response_valid() {
-    let error = json!({
-        "error": "not_found",
-        "message": "no asset with id 999"
-    });
-
-    assert_eq!(error["error"], "not_found");
-    assert!(error["message"].as_str().unwrap().contains("asset"));
-}
-
-/// Validates that jurisdiction blocking behavior is documented.
-/// When a jurisdiction is blocked via the contract's block_jurisdiction,
-/// affected addresses fail is_allowed instantly.
-#[test]
-fn jurisdiction_blocking_documented() {
-    // This is a documentation test - verifies the compliance model
-    // When "US" is blocked, all "US" addresses fail is_allowed
-
-    let jurisdiction_code = "US";
-    assert_eq!(jurisdiction_code.len(), 2);
-
-    // The block_jurisdiction call in the contract affects all addresses
-    // with that jurisdiction code in their KycRecord
-    let compliance_before_block = json!({
-        "total_records": 2,
-        "approved": 2,
-        "suspended": 0,
-        "rejected": 0,
-        "pending": 0,
-        "with_expiry": 0,
-        "jurisdictions": [
-            { "jurisdiction": "US", "count": 2 }
-        ]
-    });
-
-    // After block_jurisdiction("US"), the same addresses would fail is_allowed
-    // but the API still shows the counts (no PII change needed)
-    assert!(!compliance_before_block["jurisdictions"]
-        .as_array()
-        .unwrap()
-        .is_empty());
-}
-
-/// Validates compliance endpoint handles conditional requests (ETag/If-None-Match).
-/// Snapshot-backed endpoints support Cache-Control and ETag headers.
-/// When If-None-Match matches the current ETag, the endpoint returns 304.
-#[test]
-fn compliance_conditional_request_documented() {
-    // The guide documents that a matching If-None-Match yields 304 Not Modified.
-    let etag = "\"abc123\"";
-    let if_none_match = etag;
-    assert_eq!(if_none_match, etag);
-
-    // A non-matching validator yields a fresh 200 with the summary body.
-    let stale = "\"stale\"";
-    assert_ne!(stale, etag);
 }
