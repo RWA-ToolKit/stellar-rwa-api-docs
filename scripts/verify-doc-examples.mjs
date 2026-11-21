@@ -17,22 +17,16 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
-const base = (process.env.API_BASE_URL || "").replace(/\/$/, "");
-if (!base) {
-  console.error("API_BASE_URL is required");
-  process.exit(2);
-}
-const ROOT = join(process.cwd(), "docs", "app");
-
-function walk(dir) {
+export function walk(dir) {
   return readdirSync(dir).flatMap((f) => {
     const p = join(dir, f);
     return statSync(p).isDirectory() ? walk(p) : p.endsWith(".mdx") ? [p] : [];
   });
 }
 
-function shape(v) {
+export function shape(v) {
   if (Array.isArray(v)) return v.length ? [shape(v[0])] : [];
   if (v && typeof v === "object") {
     return Object.fromEntries(Object.keys(v).sort().map((k) => [k, shape(v[k])]));
@@ -40,7 +34,7 @@ function shape(v) {
   return v === null ? "null" : typeof v;
 }
 
-function diff(a, b, path = "$") {
+export function diff(a, b, path = "$") {
   if (typeof a !== typeof b) return [`${path}: documented ${JSON.stringify(a)}, live ${JSON.stringify(b)}`];
   if (Array.isArray(a)) return a.length && b.length ? diff(a[0], b[0], `${path}[0]`) : [];
   if (a && typeof a === "object") {
@@ -55,34 +49,50 @@ function diff(a, b, path = "$") {
   return a === b ? [] : [`${path}: documented ${a}, live ${b}`];
 }
 
-let drift = 0;
-let checked = 0;
-for (const file of walk(ROOT)) {
-  const text = readFileSync(file, "utf8");
+/** Returns each `curl` fence's request path paired with the raw body of the next ```json fence. */
+export function extractExamples(text) {
   const re = /```(?:bash|sh)\n[^`]*?curl\s+(?:-\S+\s+)*"?https?:\/\/[^/\s"]+(\/[^\s"\\]*)"?[^`]*```\s*[^`]*?```json\n([\s\S]*?)```/g;
-  let m;
-  while ((m = re.exec(text))) {
-    const [, path, body] = m;
-    let doc;
-    try {
-      doc = shape(JSON.parse(body));
-    } catch {
-      continue; // fragment or pseudo-JSON; skip
-    }
-    checked++;
-    try {
-      const res = await fetch(base + path);
-      const live = shape(await res.json());
-      const d = diff(doc, live);
-      if (d.length) {
-        drift++;
-        console.log(`DRIFT ${file} GET ${path}\n  ${d.join("\n  ")}`);
+  return [...text.matchAll(re)].map(([, path, body]) => ({ path, body }));
+}
+
+async function main() {
+  const base = (process.env.API_BASE_URL || "").replace(/\/$/, "");
+  if (!base) {
+    console.error("API_BASE_URL is required");
+    process.exit(2);
+  }
+  const ROOT = join(process.cwd(), "docs", "app");
+
+  let drift = 0;
+  let checked = 0;
+  for (const file of walk(ROOT)) {
+    const text = readFileSync(file, "utf8");
+    for (const { path, body } of extractExamples(text)) {
+      let doc;
+      try {
+        doc = shape(JSON.parse(body));
+      } catch {
+        continue; // fragment or pseudo-JSON; skip
       }
-    } catch (e) {
-      drift++;
-      console.log(`DRIFT ${file} GET ${path}\n  request failed: ${e.message}`);
+      checked++;
+      try {
+        const res = await fetch(base + path);
+        const live = shape(await res.json());
+        const d = diff(doc, live);
+        if (d.length) {
+          drift++;
+          console.log(`DRIFT ${file} GET ${path}\n  ${d.join("\n  ")}`);
+        }
+      } catch (e) {
+        drift++;
+        console.log(`DRIFT ${file} GET ${path}\n  request failed: ${e.message}`);
+      }
     }
   }
+  console.log(`Checked ${checked} example(s), ${drift} with drift.`);
+  process.exit(drift ? 1 : 0);
 }
-console.log(`Checked ${checked} example(s), ${drift} with drift.`);
-process.exit(drift ? 1 : 0);
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}
