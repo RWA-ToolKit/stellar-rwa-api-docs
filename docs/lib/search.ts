@@ -201,7 +201,7 @@ export function getAllPages(): SearchResult[] {
     return [{
       title: page.title,
       href: page.href,
-      section: page.section,
+      section: document.section,
       excerpt: document.description || "",
     }];
   });

@@ -8,6 +8,7 @@ const redirectsMap = JSON.parse(
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   reactStrictMode: true,
   pageExtensions: ["ts", "tsx", "mdx"],
   // Renamed/removed doc pages are tracked in redirects.json rather than

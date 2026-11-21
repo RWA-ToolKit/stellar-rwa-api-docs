@@ -11,6 +11,7 @@
   {
     "title": "Concepts",
     "items": [
+      { "title": "Glossary", "href": "/docs/glossary" },
       { "title": "Compliance Guide", "href": "/docs/compliance-guide" },
       { "title": "Time & Ledgers", "href": "/docs/time-and-ledgers" },
       { "title": "Security Considerations", "href": "/docs/security-considerations" }
@@ -19,6 +20,9 @@
   {
     "title": "Guides",
     "items": [
+      { "title": "Troubleshooting", "href": "/docs/troubleshooting" },
+      { "title": "Performance", "href": "/docs/performance" },
+      { "title": "Versioning Guide", "href": "/docs/versioning" },
       { "title": "Integration", "href": "/docs/integration" },
       { "title": "Web App Guide", "href": "/docs/web-app" },
       { "title": "FAQ", "href": "/docs/faq" },
@@ -38,6 +42,7 @@
   {
     "title": "API Reference",
     "items": [
+      { "title": "Quick Reference", "href": "/docs/quick-reference" },
       { "title": "Overview", "href": "/docs/api/overview" },
       { "title": "Assets", "href": "/docs/api/assets" },
       { "title": "Assets Query", "href": "/docs/api/assets-query" },
