@@ -69,7 +69,7 @@
     "href": "/docs/api/compliance",
     "section": "API Reference",
     "description": "Non-PII compliance summary for a tokenized asset.",
-    "content": "Compliance Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes counts, not addresses — no personally identifying information leaves the API. Path parameters Name Type Notes id number Registry id Response schema Field Type Notes total_records number Addresses ever added to the allowlist approved number Currently passing is_allowed suspended number rejected number pending number with_expiry number Records with a non-zero expires_at jurisdictions array { jurisdiction, count } breakdown Example curl http://localhost:8080/assets/1/compliance { \"total_records\": 1, \"approved\": 1, \"suspended\": 0, \"rejected\": 0, \"pending\": 0, \"with_expiry\": 0, \"jurisdictions\": [ { \"jurisdiction\": \"US\", \"count\": 1 } ] } Errors Returns 404 with { \"error\": \"not_found\", … } when the asset id is unknown. An asset's holder set can itself be sensitive. This endpoint gives issuers and analysts the shape of an allowlist — how many are approved, where they're based, how many approvals carry expiries — without publishing who they are. The per-address KYC records live only on-chain and in the issuer's own tooling. The jurisdictions breakdown reflects the jurisdiction field of each KYC record. Combined with the contract's is_jurisdiction_blocked , it helps issuers audit their geographic exposure. See the Compliance Guide ."
+    "content": "Compliance Returns an aggregate view of an asset's KYC allowlist. It deliberately exposes counts, not addresses — no personally identifying information leaves the API. Path parameters Name Type Notes id number Registry id Response schema Field Type Notes total_records number Addresses ever added to the allowlist approved number Currently passing is_allowed suspended number rejected number pending number with_expiry number Records with a non-zero expires_at jurisdictions array { jurisdiction, count } breakdown Example curl http://localhost:8080/assets/1/compliance { \"total_records\": 1, \"approved\": 1, \"suspended\": 0, \"rejected\": 0, \"pending\": 0, \"with_expiry\": 0, \"jurisdictions\": [ { \"jurisdiction\": \"US\", \"count\": 1 } ] } Errors Returns 404 with { \"error\": \"not_found\", … } when the asset id is unknown. An asset's holder set can itself be sensitive. This endpoint gives issuers and analysts the shape of an allowlist — how many are approved, where they're based, how many approvals carry expiries — without publishing who they are. The per-address KYC records live only on-chain and in the issuer's own tooling. The jurisdictions breakdown reflects the jurisdiction field of each KYC record. Combined with the contract's is_jurisdiction_blocked , it helps issuers audit their geographic exposure. See the Compliance Guide . Backing contract This summary is derived from the compliance contract's KYC allowlist. The approved count corresponds to records passing the contract's is_allowed check, and the jurisdictions breakdown reads each record's jurisdiction field alongside is_jurisdiction_blocked . See the Compliance contract reference for the full set of functions and their semantics."
   },
   {
     "id": "/docs/api/dividends",
@@ -693,6 +693,78 @@
     "content": "Initial release. - GET /stats , /assets (with ?asset_type and ?active filters), /assets/:id , /assets/:id/holders , /assets/:id/compliance , /assets/:id/dividends , and /health . - Compliance summaries are non-PII: counts and a jurisdiction breakdown only."
   },
   {
+    "id": "/docs/changelog#entry-format",
+    "title": "API Changelog › Entry format",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#entry-format",
+    "section": "API Reference",
+    "description": "Entry format",
+    "content": "This page and the repository-wide CHANGELOG.md both follow Keep a Changelog . Every entry uses the same shape so the two files stay in sync:"
+  },
+  {
+    "id": "/docs/changelog#unreleased",
+    "title": "API Changelog › Unreleased",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#unreleased",
+    "section": "API Reference",
+    "description": "Unreleased",
+    "content": ""
+  },
+  {
+    "id": "/docs/changelog#added",
+    "title": "API Changelog › Added",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#added",
+    "section": "API Reference",
+    "description": "Added",
+    "content": "- GET /example returning { id, name } ."
+  },
+  {
+    "id": "/docs/changelog#changed",
+    "title": "API Changelog › Changed",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#changed",
+    "section": "API Reference",
+    "description": "Changed",
+    "content": "- Breaking: GET /assets now requires ?limit (max 100)."
+  },
+  {
+    "id": "/docs/changelog#deprecated",
+    "title": "API Changelog › Deprecated",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#deprecated",
+    "section": "API Reference",
+    "description": "Deprecated",
+    "content": "- GET /legacy — use GET /v1/legacy instead."
+  },
+  {
+    "id": "/docs/changelog#removed",
+    "title": "API Changelog › Removed",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#removed",
+    "section": "API Reference",
+    "description": "Removed",
+    "content": "- GET /old-endpoint ."
+  },
+  {
+    "id": "/docs/changelog#fixed",
+    "title": "API Changelog › Fixed",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#fixed",
+    "section": "API Reference",
+    "description": "Fixed",
+    "content": "- total_holders no longer counts zero-balance addresses."
+  },
+  {
+    "id": "/docs/changelog#security",
+    "title": "API Changelog › Security",
+    "pageTitle": "API Changelog",
+    "href": "/docs/changelog#security",
+    "section": "API Reference",
+    "description": "Security",
+    "content": "- Describe the impact and the upgrade path; do not disclose exploit details. Rules for entries: - Use only the six Keep a Changelog groups: Added , Changed , Deprecated , Removed , Fixed , Security . Omit empty groups. - One bullet per change, written for an integrator (the effect on a client), not the implementation. - Prefix anything that can break an existing client with Breaking: and say what to change. - Reference the endpoint, parameter, field, header, or status code affected. - Released sections are titled — and match the git tag and the CHANGELOG.md section."
+  },
+  {
     "id": "/docs/changelog#updating-this-page",
     "title": "API Changelog › Updating this page",
     "pageTitle": "API Changelog",
@@ -808,6 +880,24 @@
     "section": "Contract Reference",
     "description": "Data types",
     "content": "AssetMetadata is the single instance record describing the token: Field Type Notes name String Human-readable asset name symbol String Ticker, e.g. MLOFT asset_type String real_estate \\ invoice \\ commodity total_supply i128 Base units decimals u32 admin Address Issuer; the only account that can mint/pause compliance_contract Address The gate consulted on transfer/mint asset_description String valuation i128 USD cents paused bool"
+  },
+  {
+    "id": "/docs/contracts/asset-token#decimals-and-precision",
+    "title": "Asset Token Contract › Decimals and precision",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#decimals-and-precision",
+    "section": "Contract Reference",
+    "description": "Decimals and precision",
+    "content": "All amounts on-chain — total_supply , balance , and every amount passed to transfer / mint / burn — are raw integer base units ( i128 ). The decimals field ( u32 ) defines how many base units make up one whole token. There is no floating point anywhere in the contract. RWA tokens frequently use non-standard decimals (e.g. 0 , 6 , or 7 rather than the typical 2 or 18 ), so never assume a fixed scale. Always read decimals from get_metadata (or the API) and convert explicitly: human_value = raw_amount / 10^decimals raw_amount = human_value * 10^decimals Example conversion — a token with decimals = 6 : Raw base units ( i128 ) decimals Human-readable 1000000 6 1.0 token 2500000 6 2.5 tokens 1 6 0.000001 token (smallest unit) With decimals = 0 the raw integer is the human value ( 42 → 42 tokens)."
+  },
+  {
+    "id": "/docs/contracts/asset-token#surfaced-in-api-responses",
+    "title": "Asset Token Contract › Surfaced in API responses",
+    "pageTitle": "Asset Token Contract",
+    "href": "/docs/contracts/asset-token#surfaced-in-api-responses",
+    "section": "Contract Reference",
+    "description": "Surfaced in API responses",
+    "content": "The REST API returns the same raw integer amounts alongside the token's decimals , so clients can convert without guessing the scale. For example, GET /v1/assets/:id includes: { \"id\": \"...\", \"symbol\": \"MLOFT\", \"decimals\": 6, \"total_supply\": \"2500000\", \"valuation\": 1234500 } Here total_supply is 2500000 base units at decimals = 6 , i.e. 2.5 tokens . valuation is always USD cents (scale 2 ), independent of the token's decimals . Apply the conversion above using the returned decimals before displaying any amount."
   },
   {
     "id": "/docs/contracts/asset-token#function-reference",
@@ -1044,6 +1134,15 @@
     "content": "- Admin is the compliance authority. Whoever holds the admin key decides who can hold the asset. Protect it with multisig and clear operational controls. - Expiry is enforced at read time against the current ledger — an expired approval fails the gate immediately, with no cron job required. - Jurisdiction blocks are retroactive and immediate: blocking US instantly freezes every US holder's ability to transfer. Use deliberately. - remove vs suspend : suspend is reversible and keeps the audit record; remove erases it. Prefer suspend for temporary actions."
   },
   {
+    "id": "/docs/contracts/compliance#related-api-endpoints",
+    "title": "Compliance Contract › Related API endpoints",
+    "pageTitle": "Compliance Contract",
+    "href": "/docs/contracts/compliance#related-api-endpoints",
+    "section": "Contract Reference",
+    "description": "Related API endpoints",
+    "content": "The REST API in /docs/api/compliance is a thin wrapper over this contract. Each endpoint maps to a contract function: API endpoint Contract function GET /compliance/:address get_record GET /compliance/allowlist get_allowlist POST /compliance/allowlist add_to_allowlist POST /compliance/suspend suspend DELETE /compliance/:address remove GET /compliance/:address/allowed is_allowed POST /compliance/jurisdictions/block block_jurisdiction POST /compliance/jurisdictions/unblock unblock_jurisdiction"
+  },
+  {
     "id": "/docs/contracts/dividend",
     "title": "Dividend Contract",
     "pageTitle": "Dividend Contract",
@@ -1116,6 +1215,24 @@
     "content": "fn get_distribution(env: Env, distribution_id: u64) -> Distribution fn get_distributions_for_asset(env: Env, asset_token: Address) -> Vec fn has_claimed(env: Env, distribution_id: u64, holder: Address) -> bool View helpers. get_distributions_for_asset backs the API's /assets/:id/dividends endpoint."
   },
   {
+    "id": "/docs/contracts/dividend#claim-expiry-and-unclaimed-dividends",
+    "title": "Dividend Contract › Claim expiry and unclaimed dividends",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#claim-expiry-and-unclaimed-dividends",
+    "section": "Contract Reference",
+    "description": "Claim expiry and unclaimed dividends",
+    "content": "Distributions have no on-chain deadline . A distribution stays open and claimable indefinitely: claim never reverts with an expiry error, and there is no admin sweep or clawback of unclaimed escrow. A holder can claim at any time as long as they still hold a balance of the asset token and have not already claimed that distribution. Because balances are read at claim time, a distribution that is never fully claimed simply remains open with completed: false and distributed < total_amount . The residual escrow (unclaimed shares plus any integer-division dust) stays locked in the contract — there is no withdrawal path. If your product needs a claim window, enforce it off-chain (e.g. stop advertising the distribution after a cutoff) rather than expecting the contract to expire it. The API surfaces the open/unclaimed state so clients can decide how to present it."
+  },
+  {
+    "id": "/docs/contracts/dividend#reflected-via-v1assetsiddividends",
+    "title": "Dividend Contract › Reflected via /v1/assets/:id/dividends",
+    "pageTitle": "Dividend Contract",
+    "href": "/docs/contracts/dividend#reflected-via-v1assetsiddividends",
+    "section": "Contract Reference",
+    "description": "Reflected via /v1/assets/:id/dividends",
+    "content": "The endpoint returns each distribution from get_distributions_for_asset . An unclaimed or partially claimed distribution appears with completed: false and distributed below total_amount ; there is no expired flag because the contract never expires a distribution. Example response for an asset whose distribution is past its advertised cutoff but still open on-chain: { \"asset_id\": \"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC\", \"dividends\": [ { \"id\": 1, \"asset_token\": \"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC\", \"payment_token\": \"CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA\", \"total_amount\": \"100000000000\", \"distributed\": \"75000000000\", \"snapshot_ledger\": 1234567, \"created_at\": 1234567, \"completed\": false } ] } Here distributed ( 75,000 ) is below total_amount ( 100,000 ) and completed is false , indicating 25,000 in payment-token base units remains unclaimed in escrow. Clients that enforce a claim window should treat such a record as \"expired for display\" while noting the funds are still claimable on-chain."
+  },
+  {
     "id": "/docs/contracts/dividend#code-example",
     "title": "Dividend Contract › Code example",
     "pageTitle": "Dividend Contract",
@@ -1140,7 +1257,7 @@
     "href": "/docs/contracts/dividend#security-considerations",
     "section": "Contract Reference",
     "description": "Security considerations",
-    "content": "- Balances are read at claim time , not at snapshot. A holder who acquires more tokens after a distribution is created — but before claiming — claims on the larger balance. Issuers should be aware of this when timing distributions, or pause the token around distribution windows. - Integer division floors each share, so a tiny residual may remain in escrow after everyone claims; completed flips once distributed >= total_amount . - Escrow custody: funds live in the dividend contract between creation and claim. The contract only pays out via claim ; there is no admin withdrawal path. - Payment-token decimals differ from the asset token. Amounts here are in the payment token's base units (7 for classic Stellar assets / SACs)."
+    "content": "- Balances are read at claim time , not at snapshot. A holder who acquires more tokens after a distribution is created — but before claiming — claims on the larger balance. Issuers should be aware of this when timing distributions, or pause the token around distribution windows. - Integer division floors each share, so a tiny residual may remain in escrow after everyone claims; completed flips once distributed >= total_amount . - Escrow custody: funds live in the dividend contract between creation and claim. The contract only pays out via claim ; there is no admin withdrawal path. - No claim deadline: unclaimed dividends never expire on-chain and cannot be reclaimed by the issuer. Plan distribution windows accordingly. - Payment-token decimals differ from the asset token. Amounts here are in the payment token's base units (7 for classic Stellar assets / SACs)."
   },
   {
     "id": "/docs/contracts/registry",
@@ -1545,7 +1662,7 @@
     "href": "/docs/getting-started#deployed-contract-addresses-testnet",
     "section": "Introduction",
     "description": "Deployed contract addresses (Testnet)",
-    "content": "Contract Contract ID compliance CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU asset-token CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ registry CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3 dividend CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX The admin / issuer account for the sample deployment is GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA , and the sample asset is Manhattan Loft ( MLOFT ), a real_estate asset valued at $5,000,000. Continue to the Compliance Guide — the concept that makes this an RWA platform rather than a plain token factory."
+    "content": "These are the same four Testnet contract ids listed in the repository README. Keep both lists in sync when redeploying. Contract Contract ID compliance CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU asset-token CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ registry CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3 dividend CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX The admin / issuer account for the sample deployment is GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA , and the sample asset is Manhattan Loft ( MLOFT ), a real_estate asset valued at $5,000,000. Continue to the Compliance Guide — the concept that makes this an RWA platform rather than a plain token factory."
   },
   {
     "id": "/docs/glossary",
@@ -1593,6 +1710,15 @@
     "content": "Integration Guide Three ways to integrate with the platform, from easiest to most direct: 1. Query the REST API — indexed, JSON, no XDR. 2. Read contracts via the JS SDK — live simulation of view calls. 3. Submit transactions — sign with Freighter and invoke contract methods."
   },
   {
+    "id": "/docs/integration#api-vs-direct-soroban-rpc-access",
+    "title": "Integration Guide › API vs direct Soroban RPC access",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#api-vs-direct-soroban-rpc-access",
+    "section": "Guides",
+    "description": "API vs direct Soroban RPC access",
+    "content": "Before you start, decide which read path fits your integration. The indexing API wraps Soroban RPC and returns decoded JSON; calling Soroban RPC directly gives you live on-chain state but requires more work on your side. Tradeoff Indexing API Direct Soroban RPC Latency Fast, single HTTP call returning pre-indexed JSON. One simulateTransaction round-trip per read; slower for multi-entity queries. Reliability Depends on the indexer staying in sync; may lag the chain by a few ledgers. Authoritative, always reflects current ledger state. Decode XDR No — responses are plain JSON with i128 as decimal strings. Yes — you build ScVal s and decode retval with scValToNative . Rate limits Governed by the API's own limits; cache-friendly and safe to poll. Subject to public RPC provider limits; heavy polling can be throttled. Best for Dashboards, listings, and UI reads that tolerate slight lag. Pre-transaction checks and reads that must be authoritative. Use the API for most reads and fall back to a direct RPC simulation only when you need the authoritative on-chain value — see Reading contracts directly ."
+  },
+  {
     "id": "/docs/integration#querying-the-api",
     "title": "Integration Guide › Querying the API",
     "pageTitle": "Integration Guide",
@@ -1629,22 +1755,40 @@
     "content": "Writes must be signed by the account that authorizes them. In the browser, sign with Freighter: Contract, TransactionBuilder, Networks, BASE_FEE, rpc, Address, nativeToScVal, } from \"@stellar/stellar-sdk\"; const server = new rpc.Server(\"https://soroban-testnet.stellar.org\"); token: string, from: string, to: string, amount: bigint, ): Promise { const account = await server.getAccount(from); const op = new Contract(token).call( \"transfer\", new Address(from).toScVal(), new Address(to).toScVal(), nativeToScVal(amount, { type: \"i128\" }), ); const built = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: Networks.TESTNET, }).addOperation(op).setTimeout(60).build(); // Simulate + assemble to attach the Soroban footprint and resource fees. const sim = await server.simulateTransaction(built); if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error); const prepared = rpc.assembleTransaction(built, sim).build(); const { signedTxXdr } = await signTransaction(prepared.toXDR(), { networkPassphrase: Networks.TESTNET, address: from, }); const signed = TransactionBuilder.fromXDR(signedTxXdr, Networks.TESTNET); const sent = await server.sendTransaction(signed); return sent.hash; // then poll server.getTransaction(hash) } A transfer will revert with SenderNotCompliant (7) or RecipientNotCompliant (8) if either party is not KYC-approved. Check is_allowed for both addresses before submitting to give users a clear error up front."
   },
   {
-    "id": "/docs/integration#contract-addresses",
-    "title": "Integration Guide › Contract addresses",
+    "id": "/docs/integration#worked-example-check-compliance-before-a-transfer",
+    "title": "Integration Guide › Worked example: check compliance before a transfer",
     "pageTitle": "Integration Guide",
-    "href": "/docs/integration#contract-addresses",
+    "href": "/docs/integration#worked-example-check-compliance-before-a-transfer",
     "section": "Guides",
-    "description": "Contract addresses",
-    "content": "All Testnet contract ids are listed in Getting Started . Asset-token contract ids are discovered from the registry's get_all_assets (or the API's /assets )."
+    "description": "Worked example: check compliance before a transfer",
+    "content": "This walkthrough combines the compliance contract and the compliance API into one flow: given a sender and a recipient, verify both are is_allowed before attempting an on-chain transfer in the web app."
   },
   {
-    "id": "/docs/integration#api-client-collections",
-    "title": "Integration Guide › API client collections",
+    "id": "/docs/integration#1-read-both-statuses-from-the-api",
+    "title": "Integration Guide › 1. Read both statuses from the API",
     "pageTitle": "Integration Guide",
-    "href": "/docs/integration#api-client-collections",
+    "href": "/docs/integration#1-read-both-statuses-from-the-api",
     "section": "Guides",
-    "description": "API client collections",
-    "content": "Ready-made collections for the read-only API, covering every endpoint with the baseUrl and assetId pulled out as variables: - Postman collection — in Postman, Import → File → select the downloaded JSON. - Insomnia export — in Insomnia, Application menu → Preferences → Data → Import Data → From File . Both default baseUrl to http://localhost:8080 ; change the environment variable to point at a deployed instance."
+    "description": "1. Read both statuses from the API",
+    "content": "The API exposes the same is_allowed check as the contract, so the UI can gate the transfer button without simulating a transaction: curl \"http://localhost:8080/compliance/GSENDER.../is_allowed\" curl \"http://localhost:8080/compliance/GRECIPIENT.../is_allowed\" const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? \"http://localhost:8080\"; const res = await fetch( ${API}/compliance/${address}/is_allowed , { cache: \"no-store\", }); if (!res.ok) throw new Error( API ${res.status} ); const { allowed } = (await res.json()) as { allowed: boolean }; return allowed; }"
+  },
+  {
+    "id": "/docs/integration#2-gate-the-transfer-on-both-parties",
+    "title": "Integration Guide › 2. Gate the transfer on both parties",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#2-gate-the-transfer-on-both-parties",
+    "section": "Guides",
+    "description": "2. Gate the transfer on both parties",
+    "content": "token: string, from: string, to: string, amount: bigint, ): Promise { const [senderOk, recipientOk] = await Promise.all([ isAllowed(from), isAllowed(to), ]); if (!senderOk) throw new Error(\"Sender is not KYC-approved\"); if (!recipientOk) throw new Error(\"Recipient is not KYC-approved\"); // Both allowed — safe to submit; the contract re-checks on-chain. return transfer(token, from, to, amount); }"
+  },
+  {
+    "id": "/docs/integration#3-fall-back-to-the-contract-for-a-live-check",
+    "title": "Integration Guide › 3. Fall back to the contract for a live check",
+    "pageTitle": "Integration Guide",
+    "href": "/docs/integration#3-fall-back-to-the-contract-for-a-live-check",
+    "section": "Guides",
+    "description": "3. Fall back to the contract for a live check",
+    "content": "If you need the authoritative on-chain value (e.g. the API index is stale), simulate is_allowed directly against the compliance contract — the same call shown in Reading contracts directly : Contract, TransactionBuilder, Account, BASE_FEE, Networks, rpc, scValToNative, Address, } from \"@stellar/stellar-sdk\"; const server = new rpc.Server(\"https://soroban-testnet.stellar.org\"); const COMPLIANCE = \"CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU\"; const source = new Account( \"GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA\", \"0\", ); const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: Networks.TESTNET, }) .addOperation( new Contract(COMPLIANCE).call( \"is_allowed\", new Address(address).toScVal(), ), ) .setTimeout(30) .build(); const sim = await server.simulateTransaction(tx); if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error); return scValToNative(sim.result!.retval) as boolean; } The API check is a fast pre-flight; the on-chain simulation is the authoritative source of truth. Use both when correctness matters."
   },
   {
     "id": "/docs/metrics",
