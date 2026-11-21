@@ -1,0 +1,23 @@
+# CODEOWNERS — https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Formalizes CONTRIBUTING.md's scope rules:
+#   - docs/ is open to community contributions (docs-only scope).
+#   - api/ is maintainer-only; PRs that modify anything under api/ will be closed.
+#
+# GitHub auto-requests the listed owners as reviewers and flags changes to
+# these paths. Replace the placeholder team handles below with the real
+# GitHub team/user handles for this repository.
+
+# Default owners for everything in the repo.
+*       @stellar-rwa/maintainers
+
+# Documentation site — open to contributions, reviewed by docs maintainers.
+/docs/  @stellar-rwa/docs-maintainers
+
+# API indexing service — maintainer-only. Changes here are out of scope for
+# docs contributors and must be reviewed by the core API team.
+/api/   @stellar-rwa/api-maintainers
+
+# Repository automation and contribution policy.
+/.github/  @stellar-rwa/maintainers
+/CONTRIBUTING.md  @stellar-rwa/maintainers

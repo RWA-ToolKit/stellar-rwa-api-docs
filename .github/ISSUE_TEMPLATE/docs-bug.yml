@@ -1,0 +1,37 @@
+name: Documentation bug
+about: Report an error, typo, or broken example in the documentation
+labels: ["documentation", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the docs! Please fill out the details below so we can triage quickly.
+  - type: input
+    id: location
+    attributes:
+      label: Where is the issue?
+      description: Link or path to the affected page, section, or file.
+      placeholder: e.g. docs/getting-started.md or https://...
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What is wrong?
+      description: Describe the error, typo, outdated content, or broken example.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should it say instead?
+      description: If you know the correct content, share it here.
+    validations:
+      required: false
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Screenshots, related links, or anything else that helps.
+    validations:
+      required: false
