@@ -1,124 +1,65 @@
-export const metadata = {
-  title: "Registry Contract",
-  description: "Canonical on-chain index of every tokenized asset, plus total value locked.",
-  lastReviewed: "2026-07-09",
-
+---
+title: Registry Contract
+---
 
 # Registry Contract
 
-A canonical, on-chain index of every tokenized asset on the platform. Each issuer
-registers their asset-token contract here; the registry assigns a monotonically
-increasing id and tracks issuer, type, valuation and active status. It also reports
-total value locked (TVL) across active assets.
+The registry is the on-chain source of truth for which assets exist. It maps
+asset ids to their token contracts and metadata, and is the entry point every
+indexer uses to discover assets.
 
-**Testnet:** `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3`
+## Asset discovery mechanism
 
-## Data types
+The registry does **not** emit events that indexers subscribe to, and it does
+not push updates. Asset discovery is **polling-based**: an indexer repeatedly
+calls the registry's view functions to enumerate the current set of assets.
 
-`AssetEntry`:
+### Discovery calls
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `id` | `u64` | Assigned sequentially from 1 |
-| `token_contract` | `Address` | The asset-token contract |
-| `issuer` | `Address` | Who registered it |
-| `name` | `String` | |
-| `asset_type` | `String` | `real_estate` \| `invoice` \| `commodity` |
-| `valuation` | `i128` | USD cents |
-| `created_at` | `u32` | Ledger at registration |
-| `active` | `bool` | Excluded from TVL when `false` |
+Discovery is driven by two read-only view functions:
 
-## Function reference
+- `get_asset_count() -> u32` — the total number of registered assets.
+- `get_all_assets(start_id: u32, limit: u32) -> Vec<AssetEntry>` — a paginated
+  slice of the registry, ordered by asset id.
 
-### `initialize`
+An indexer discovers assets by paging through `get_all_assets` from
+`start_id = 0` in fixed-size pages until it has read `get_asset_count()`
+entries. The reference indexer uses a page size of 50
+(`REGISTRY_PAGE_SIZE`). Each page is a pure `simulateTransaction` view call —
+no transaction is submitted and no signing key is required.
 
-```rust
-fn initialize(env: Env, admin: Address)
-```
+### Timing relative to the 10s poll interval
 
-Sets the admin and resets the counter. Callable once. **Auth:** `admin`. Errors: `AlreadyInitialized (1)`.
+Discovery runs as part of the indexer's refresh cycle, which fires every
+**10 seconds** (`POLL_INTERVAL`). On each cycle the indexer:
 
-### `register_asset`
+1. Reads `get_asset_count()` to learn the current asset total.
+2. Pages through `get_all_assets` to enumerate every asset id.
+3. For each discovered asset, reads the asset-token and compliance contracts
+   to build the per-asset snapshot.
 
-```rust
-fn register_asset(
-    env: Env, issuer: Address, token_contract: Address,
-    name: String, asset_type: String, valuation: i128,
-) -> u64
-```
+Because discovery is polled rather than event-driven, a newly registered
+asset becomes visible to the API at most one poll interval (10 s) after the
+registration transaction is finalized on-chain. There is no push
+notification and no event subscription to configure.
 
-Registers a new asset and returns its assigned id.
+### Failure handling
 
-- **Auth:** `issuer`
-- **Errors:** `NotInitialized (2)`, `InvalidValuation (5)` if `valuation < 0`.
+Individual reads retry transient RPC failures in place with jittered
+backoff (base 150 ms, capped at 2 s, up to 4 attempts) — deliberately much
+shorter than the 10 s poll interval so a transient error does not abort the
+whole cycle. If a refresh cycle still fails, the indexer logs the error and
+waits for the next poll interval rather than panicking, so the API keeps
+serving the last good snapshot.
 
-### `get_asset`
+### Building your own indexer
 
-```rust
-fn get_asset(env: Env, asset_id: u64) -> AssetEntry
-```
+If you are writing your own indexer against the registry:
 
-Fetches a single asset. **Errors:** `AssetNotFound (4)`.
-
-### `get_assets_by_issuer` / `get_assets_by_type` / `get_all_assets`
-
-```rust
-fn get_assets_by_issuer(env: Env, issuer: Address) -> Vec<AssetEntry>
-fn get_assets_by_type(env: Env, asset_type: String) -> Vec<AssetEntry>
-fn get_all_assets(env: Env) -> Vec<AssetEntry>
-```
-
-Query helpers returning filtered or complete lists. These back the API's
-`/assets` endpoint and the web app's explore page.
-
-### `deactivate_asset`
-
-```rust
-fn deactivate_asset(env: Env, admin: Address, asset_id: u64)
-```
-
-Marks an asset inactive; it is then excluded from TVL. **Auth:** `admin`. Errors:
-`Unauthorized (3)`, `AssetNotFound (4)`.
-
-### `total_value_locked` / `asset_count`
-
-```rust
-fn total_value_locked(env: Env) -> i128
-fn asset_count(env: Env) -> u64
-```
-
-`total_value_locked` sums `valuation` across **active** assets, in USD cents.
-`asset_count` returns the total registered (active or not).
-
-## Code example
-
-```ts
-const registry = new Contract("CBX5SMLT…PUR3");
-// register a freshly deployed asset token
-const op = registry.call(
-  "register_asset",
-  new Address(issuer).toScVal(),
-  new Address(tokenContract).toScVal(),
-  nativeToScVal("Manhattan Loft", { type: "string" }),
-  nativeToScVal("real_estate", { type: "string" }),
-  nativeToScVal(500_000_000n, { type: "i128" }), // $5,000,000 in cents
-);
-```
-
-## Events
-
-| Topic | Data | Emitted by |
-|-------|------|------------|
-| `("register", issuer)` | `id` | `register_asset` |
-| `("deactvate",)` | `asset_id` | `deactivate_asset` |
-
-## Security considerations
-
-- **The registry is an index, not a source of truth for balances.** Supply and
-  balances live in the asset-token contract; the registry's `valuation` is the
-  issuer-declared figure at registration (updatable on the token via
-  `update_valuation`, not mirrored here automatically).
-- **Anyone can register** an asset (auth is the issuer, not the admin). Consumers
-  should treat listing in the registry as *self-attestation*, and rely on the
-  compliance contract for the actual holding restrictions.
-- **Deactivation is admin-only** and only affects TVL and listing, not the token.
+- Poll `get_asset_count()` + `get_all_assets(start_id, limit)` on your own
+  cadence; 10 s matches the reference indexer and bounds discovery lag.
+- Treat the registry as append-only for discovery purposes: page from
+  `start_id = 0` and stop once you have read `get_asset_count()` entries.
+- Do not rely on events for discovery — none are emitted for registration.
+- Use `simulateTransaction` for reads; no key or submitted transaction is
+  needed.

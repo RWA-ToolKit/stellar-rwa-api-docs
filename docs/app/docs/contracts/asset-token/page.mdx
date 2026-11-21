@@ -33,6 +33,53 @@ token's own `decimals` base.
 | `valuation` | `i128` | USD cents |
 | `paused` | `bool` | |
 
+## Decimals and precision
+
+All amounts on-chain — `total_supply`, `balance`, and every `amount` passed to
+`transfer` / `mint` / `burn` — are **raw integer base units** (`i128`). The
+`decimals` field (`u32`) defines how many base units make up one whole token.
+There is no floating point anywhere in the contract.
+
+RWA tokens frequently use **non-standard decimals** (e.g. `0`, `6`, or `7`
+rather than the typical `2` or `18`), so never assume a fixed scale. Always read
+`decimals` from `get_metadata` (or the API) and convert explicitly:
+
+```
+human_value = raw_amount / 10^decimals
+raw_amount  = human_value * 10^decimals
+```
+
+**Example conversion** — a token with `decimals = 6`:
+
+| Raw base units (`i128`) | `decimals` | Human-readable |
+|-------------------------|------------|----------------|
+| `1000000` | `6` | `1.0` token |
+| `2500000` | `6` | `2.5` tokens |
+| `1` | `6` | `0.000001` token (smallest unit) |
+
+With `decimals = 0` the raw integer *is* the human value (`42` → `42` tokens).
+
+### Surfaced in API responses
+
+The REST API returns the same raw integer amounts alongside the token's
+`decimals`, so clients can convert without guessing the scale. For example,
+`GET /v1/assets/:id` includes:
+
+```json
+{
+  "id": "...",
+  "symbol": "MLOFT",
+  "decimals": 6,
+  "total_supply": "2500000",
+  "valuation": 1234500
+}
+```
+
+Here `total_supply` is `2500000` base units at `decimals = 6`, i.e. **2.5
+tokens**. `valuation` is always USD cents (scale `2`), independent of the token's
+`decimals`. Apply the conversion above using the returned `decimals` before
+displaying any amount.
+
 ## Function reference
 
 ### `initialize`

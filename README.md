@@ -48,7 +48,12 @@ Network passphrase: `Test SDF Network ; September 2015` · RPC:
 | asset-token (sample) | `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ` |
 
 Contract ids are configured via environment variables (see `api/.env.example`).
-Per-asset token ids are discovered from the registry at index time.
+Per-asset token ids are discovered from the registry at index time — the
+indexer simulates the registry's view calls on each 10s poll to enumerate
+registered assets and their token contracts, rather than relying on events or
+hard-coded ids. See
+[`docs/app/docs/contracts/registry`](docs/app/docs/contracts/registry/page.mdx)
+for the full discovery mechanism and timing.
 
 ## API
 
