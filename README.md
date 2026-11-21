@@ -30,6 +30,16 @@ Both projects here are built entirely around Soroban smart contracts.
 Network passphrase: `Test SDF Network ; September 2015` · RPC:
 `https://soroban-testnet.stellar.org`
 
+> The Testnet passphrase must be quoted **byte-identically** everywhere it
+> appears — `Test SDF Network ; September 2015` (note the space before and after
+> the semicolon). A single mismatched character causes signature verification to
+> fail. When in doubt, copy it from this line.
+
+> The contract ids below are the single source of truth for the deployed
+> Testnet contracts. The getting-started page
+> (`docs/app/docs/getting-started/page.mdx`) must reference the same ids — keep
+> both lists in sync when redeploying.
+
 | Contract    | Contract ID |
 |-------------|-------------|
 | registry    | `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` |

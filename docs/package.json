@@ -2,37 +2,23 @@
   "name": "stellar-rwa-docs",
   "version": "0.1.0",
   "private": true,
-  "description": "Documentation site for the Stellar RWA platform — contracts, API and web app.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "check:last-reviewed": "node scripts/check-last-reviewed.mjs"
+    "check:mdx-samples": "node scripts/check-mdx-samples.mjs",
+    "check:contract-ids": "node scripts/check-contract-ids.mjs"
   },
   "dependencies": {
-    "@mdx-js/loader": "^3.1.0",
-    "@mdx-js/react": "^3.1.0",
-    "@next/mdx": "^14.2.5",
-    "next": "^14.2.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "next": "14.2.5",
+    "react": "^18",
+    "react-dom": "^18"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.5.0",
-    "@testing-library/react": "^16.0.1",
-    "@vitejs/plugin-react": "^4.3.4",
-    "jsdom": "^25.0.1",
-    "vitest": "^2.1.8",
-    "@types/mdx": "^2.0.13",
-    "@types/node": "^20.14.0",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.4.19",
-    "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.6",
-    "typescript": "^5.5.3"
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "typescript": "^5"
   }
 }

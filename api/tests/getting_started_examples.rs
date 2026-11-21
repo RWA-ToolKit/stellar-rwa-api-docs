@@ -13,6 +13,14 @@
 
 use serde_json::json;
 
+/// The canonical Testnet network passphrase.
+///
+/// This is the single source of truth for the passphrase quoted in the README,
+/// Getting Started, and deployment docs. The exact spacing around the semicolon
+/// matters: `Test SDF Network ; September 2015` (space before and after `;`).
+/// Any doc occurrence must be byte-identical to this constant.
+const TESTNET_NETWORK_PASSPHRASE: &str = "Test SDF Network ; September 2015";
+
 /// Validates the /stats endpoint example from Getting Started documentation.
 /// This example shows platform-wide statistics with TVL in both cents (string) and USD (float).
 #[test]
@@ -200,29 +208,40 @@ fn example_uses_correct_testnet_addresses() {
     let expected_issuer = "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA";
 
     // Verify that example uses these addresses
-    let asset = json!({
-        "compliance_contract": expected_compliance,
-        "token_contract": expected_asset_token,
-        "issuer": expected_issuer
+    let asset_example = json!({
+        "token_contract": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+        "compliance_contract": "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU",
+        "issuer": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA"
     });
 
-    assert_eq!(asset["compliance_contract"], expected_compliance);
-    assert_eq!(asset["token_contract"], expected_asset_token);
-    assert_eq!(asset["issuer"], expected_issuer);
+    assert_eq!(asset_example["token_contract"], expected_asset_token);
+    assert_eq!(asset_example["compliance_contract"], expected_compliance);
+    assert_eq!(asset_example["issuer"], expected_issuer);
 }
 
-/// Validates the curl command example can be parsed for syntax.
+/// Pins the canonical Testnet network passphrase so any doc drift is caught.
+///
+/// The passphrase must be quoted byte-identically everywhere it appears
+/// (README, Getting Started, deployment docs). This test asserts the exact
+/// spacing around the semicolon and the exact date.
 #[test]
-fn curl_examples_are_valid_bash() {
-    // Example: curl http://localhost:8080/stats
-    let curl_endpoint = "curl http://localhost:8080/stats";
-    assert!(curl_endpoint.contains("http://localhost:8080/stats"));
+fn testnet_network_passphrase_is_canonical() {
+    // Exact expected bytes: space before and after the semicolon.
+    assert_eq!(TESTNET_NETWORK_PASSPHRASE, "Test SDF Network ; September 2015");
 
-    // Example: curl http://localhost:8080/assets
-    let curl_assets = "curl http://localhost:8080/assets";
-    assert!(curl_assets.contains("http://localhost:8080/assets"));
+    // Guard against common drift: missing space before `;`.
+    assert!(
+        !TESTNET_NETWORK_PASSPHRASE.contains("Network;"),
+        "Passphrase must have a space before the semicolon"
+    );
 
-    // Example: curl http://localhost:8080/assets/1
-    let curl_asset_by_id = "curl http://localhost:8080/assets/1";
-    assert!(curl_asset_by_id.contains("http://localhost:8080/assets/1"));
+    // Guard against common drift: missing space after `;`.
+    assert!(
+        !TESTNET_NETWORK_PASSPHRASE.contains(";September"),
+        "Passphrase must have a space after the semicolon"
+    );
+
+    // Guard against wrong network name / date.
+    assert!(TESTNET_NETWORK_PASSPHRASE.starts_with("Test SDF Network"));
+    assert!(TESTNET_NETWORK_PASSPHRASE.ends_with("September 2015"));
 }

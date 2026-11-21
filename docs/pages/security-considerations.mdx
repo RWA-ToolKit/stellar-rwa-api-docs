@@ -1,0 +1,26 @@
+# Security Considerations
+
+This page describes the security model of the read-only API and the
+assumptions operators and integrators should be aware of.
+
+## Why a read-only API
+
+The API is intentionally read-only. This is a deliberate architectural
+choice rather than a missing feature, and it reduces risk in two ways:
+
+- **Reduced security surface.** Because the API never accepts write
+  operations, there are no authenticated mutation endpoints, no write
+  authorization paths, and no state-changing request handlers to audit or
+  exploit. The attack surface is limited to read paths and their inputs.
+- **No custody risk.** The API never holds, moves, or signs on behalf of
+  user funds. There are no private keys or signing operations behind the
+  API, so a compromise of the service cannot result in loss of custody.
+
+For the broader threat model and operational guidance, see the
+[security considerations](#security-considerations) below.
+
+## Security considerations
+
+- Treat all API responses as untrusted input and validate before use.
+- Apply rate limiting and monitoring at the edge.
+- Keep dependencies patched and review changes to read paths carefully.
