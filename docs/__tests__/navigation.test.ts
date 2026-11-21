@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { FLAT_NAV, NAV } from "../components/nav";
 import { getAllPages, search } from "../lib/search";
 import sitemap from "../app/sitemap";
 
-const docsRoot = join(__dirname, "..", "app", "docs");
+const appRoot = join(__dirname, "..", "app");
+const docsRoot = join(appRoot, "docs");
+const navDataPath = join(__dirname, "..", "components", "nav-data.json");
+
+/** Maps a nav href (e.g. "/docs/foo#bar") to its page.mdx path (app/docs/foo/page.mdx). */
+function pageFileForHref(href: string): string {
+  const pathname = href.split("#")[0].split("?")[0].replace(/\/+$/, "");
+  return join(appRoot, ...pathname.split("/").filter(Boolean), "page.mdx");
+}
 
 function findMdxRoutes(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -48,5 +56,19 @@ describe("documentation route registration", () => {
     for (const { query, href } of formerlyMissingPages) {
       expect(search(query).some((result) => result.href.split("#")[0] === href)).toBe(true);
     }
+  });
+
+  it("has an existing page.mdx file for every nav-data.json href", () => {
+    const navData: { title: string; items: { title: string; href: string }[] }[] = JSON.parse(
+      readFileSync(navDataPath, "utf8"),
+    );
+    const hrefs = navData.flatMap((section) => section.items.map((item) => item.href));
+    expect(hrefs.length).toBeGreaterThan(0);
+
+    const missing = hrefs.filter((href) => !existsSync(pageFileForHref(href)));
+    expect(missing, `nav-data.json hrefs with no page.mdx: ${missing.join(", ")}`).toEqual([]);
+
+    // nav.ts must expose exactly the hrefs defined in nav-data.json.
+    expect(FLAT_NAV.map((item) => item.href)).toEqual(hrefs);
   });
 });

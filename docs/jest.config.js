@@ -17,6 +17,16 @@ const customJestConfig = {
     "!**/*.d.ts",
     "!**/node_modules/**",
   ],
+  // Baseline thresholds to prevent coverage regressions as components are added.
+  // Raise these as coverage improves; keep in sync with vitest.config.ts.
+  coverageThreshold: {
+    global: {
+      statements: 60,
+      branches: 50,
+      functions: 50,
+      lines: 60,
+    },
+  },
 };
 
 module.exports = createJestConfig(customJestConfig);
