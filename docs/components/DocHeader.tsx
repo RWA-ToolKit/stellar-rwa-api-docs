@@ -19,11 +19,21 @@ function editUrlForPath(pathname: string | null): string {
   return `${DOCS_REPO}/edit/main/docs/app${clean}/page.tsx`;
 }
 
+/**
+ * Stub for the i18n plan: pages with a pilot translation map to their
+ * counterpart in the other locale. Only these pages show the switcher.
+ */
+const LOCALE_COUNTERPARTS: Record<string, { href: string; label: string; lang: string; name: string }> = {
+  "/docs/getting-started": { href: "/docs/es/getting-started", label: "ES", lang: "es", name: "Español" },
+  "/docs/es/getting-started": { href: "/docs/getting-started", label: "EN", lang: "en", name: "English" },
+};
+
 /** Top navigation bar with a mobile-only slide-in sidebar drawer. */
 export function DocHeader() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const editUrl = editUrlForPath(pathname);
+  const alt = LOCALE_COUNTERPARTS[(pathname ?? "").replace(/\/+$/, "")];
 
   return (
     <>
@@ -65,6 +75,17 @@ export function DocHeader() {
             <a href={WEB_REPO} target="_blank" rel="noopener noreferrer" className="rounded-lg px-3 py-2 text-base-200/70 hover:text-base-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400">
               Web App <span aria-label="(opens in new tab)">↗</span>
             </a>
+            {alt && (
+              <Link
+                href={alt.href}
+                lang={alt.lang}
+                hrefLang={alt.lang}
+                aria-label={`${alt.name} version of this page`}
+                className="rounded-lg px-3 py-2 font-medium text-base-200/70 hover:text-base-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
+              >
+                {alt.label}
+              </Link>
+            )}
             <a
               href={editUrl}
               target="_blank"
