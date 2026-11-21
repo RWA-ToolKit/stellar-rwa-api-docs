@@ -2,7 +2,7 @@ export const metadata = {
   title: "API · Events",
   description: "Recent contract events emitted by the indexer.",
   canonical: "/docs/api/events",
-  lastReviewed: "2026-09-28",
+  lastReviewed: "2026-11-21",
 };
 
 # Events
@@ -76,20 +76,62 @@ Requesting a field that does not exist on `Event` returns a `400` error with cod
 
 Each event includes the contract address, event name, ledger, timestamp (when available), and the raw payload emitted by the contract.
 
-**Pagination:**
+## Ordering and pagination
 
-The events endpoint is cursor-paginated. Pass `limit` (default `20`, max `100`) to bound the page size and `cursor` to fetch the next page. The response is a JSON array; when more events are available the `Link` header carries a `rel="next"` URL whose `cursor` query parameter can be replayed verbatim. See [Pagination](/docs/api/pagination) for the shared cursor conventions used across endpoints.
+**Ordering.** The response is sorted newest-first: descending by `ledger`, then descending by `id` within the same ledger. The order is applied by this API's indexer, not passed through from Soroban RPC. The indexer polls Soroban RPC `getEvents` every 10 seconds. RPC returns events oldest-first, and the indexer merges each new batch into its buffer and re-sorts the whole buffer on every poll.
+
+**No cursor.** `limit` is the only paging parameter. It defaults to `50`, and values above `200` are capped at `200` rather than rejected. The endpoint has no `cursor` or offset parameter and sends no `Link` header. If you pass `cursor`, it is silently ignored. Every request returns the newest `limit` events from an in-memory buffer that holds at most 200 events. You cannot page further back than that buffer.
+
+**Stability across polls.** Results are not a stable page. Each successful indexer poll (at most every 10 seconds) adds new events to the front of the list, and once the buffer is full the oldest events drop off the end. The same request can therefore return different events from one poll to the next. Keep these limits in mind:
+
+- **Responses are fixed between polls.** Two responses with the same `ETag` (`"ledger-<n>"`, the last indexed ledger) have identical bodies. A failed RPC cycle keeps the previous list unchanged, so the buffer never shrinks or empties because of an RPC error.
+- **`id` is not a unique key.** The indexer takes `id` from the leading segment of the RPC event id, so several events (for example the items of one `batch_*` call) can share the same `id` and `ledger`. To track your position, use `ledger` as a high-water mark, not `id`.
+- **Events can be missed.** If more events land between two of your polls than the buffer holds, the overflow is gone and cannot be fetched again. The buffer is also in memory only, so it starts empty after a restart. If you need complete history, read Soroban RPC `getEvents` directly, which serves events only within the RPC node's retention window.
+
+**Polling example.** Each indexer poll ingests whole ledgers, so a ledger high-water mark is enough to pick out only the events you have not seen yet:
 
 ```bash
-# First page
-curl -i "$API_BASE_URL/v1/events?limit=20"
-# Follow the Link: <...?cursor=...>; rel="next" header for the next page
-curl "$API_BASE_URL/v1/events?limit=20&cursor=$CURSOR"
+# Poll 1: take the newest events and note the highest ledger seen
+curl -i "$API_BASE_URL/v1/events?limit=200"
+# HTTP/1.1 200 OK
+# ETag: "ledger-3514160"
+# [ { "id": 42, "ledger": 3514152, ... }, { "id": 41, "ledger": 3514150, ... } ]
+#   -> store LAST_LEDGER=3514152 and ETAG='"ledger-3514160"'
+
+# Poll 2 (10 seconds or more later): send the ETag back
+curl -i -H 'If-None-Match: "ledger-3514160"' "$API_BASE_URL/v1/events?limit=200"
+# HTTP/1.1 304 Not Modified   -> nothing new; keep your state
+# or HTTP/1.1 200 OK with a new ETag -> keep only events with ledger > LAST_LEDGER
 ```
+
+```ts
+let lastLedger = 0;
+let etag: string | null = null;
+
+async function poll() {
+  const res = await fetch(`${API_BASE_URL}/v1/events?limit=200`, {
+    headers: etag ? { "If-None-Match": etag } : {},
+  });
+  if (res.status === 304) return [];
+  etag = res.headers.get("ETag");
+  const events: Array<{ id: number; ledger: number }> = await res.json();
+  const fresh = events.filter((e) => e.ledger > lastLedger);
+  // If every returned event is new and the page is full, older new events were lost.
+  if (lastLedger > 0 && events.length === 200 && fresh.length === events.length) {
+    console.warn("Event buffer rolled past your last poll; some events were missed.");
+  }
+  if (events.length > 0) lastLedger = Math.max(lastLedger, events[0].ledger);
+  return fresh.reverse(); // oldest-first for processing
+}
+```
+
+<CalloutBox variant="note" title="Pagination guarantees at a glance">
+Order: newest-first by `ledger`, then `id`. Page size: `limit`, default 50, capped at 200. Cursor: none, and `cursor` and `Link` are not supported. Stability: bodies are identical for the same `ETag`, the list changes after each successful 10-second indexer poll, and the 200-event window rolls forward, so poll often enough and use `ledger` as your high-water mark.
+</CalloutBox>
 
 ## Worked example
 
-The following script fetches the latest events from the current Testnet deployment and prints a compact summary. It follows the `Link` header to page through results and converts `Transfer` amounts using the token's decimals.
+The following script fetches the latest events from the current Testnet deployment and prints a compact summary. To poll for new events, see [Ordering and pagination](#ordering-and-pagination). The amount table below shows how to convert `Transfer` amounts using the token's decimals.
 
 ```bash
 # Set the base URL for the current Testnet deployment
@@ -107,22 +149,17 @@ async function fetchEvents(limit = 20) {
   if (!res.ok) {
     throw new Error(`Events request failed: ${res.status} ${res.statusText}`);
   }
-  const events = await res.json();
-  const next = res.headers.get("link");
-  return { events, next };
+  return res.json();
 }
 
-const { events, next } = await fetchEvents(5);
+const events = await fetchEvents(5);
 for (const event of events) {
   console.log(`#${event.id} ${event.event_type} @ ledger ${event.ledger}`);
-}
-if (next) {
-  console.log(`Next page: ${next}`);
 }
 ```
 
 <CalloutBox variant="tip" title="Verify against Testnet">
-Run the snippet above with `API_BASE_URL` pointed at the current Testnet deployment. A successful response returns a JSON array of events (possibly empty on a fresh deployment) and, when more pages exist, a `Link` header with `rel="next"`.
+Run the snippet above with `API_BASE_URL` pointed at the current Testnet deployment. A successful response returns a JSON array of events (possibly empty on a fresh deployment or right after a restart), newest first.
 </CalloutBox>
 
 **Event payload amount units:**
@@ -197,12 +234,12 @@ New to Stellar or this API? These terms appear throughout the page:
 - **Base units** — the smallest indivisible unit of a token. Divide by `10 ** decimals` to get the human-readable amount (e.g. a token with 2 decimals stores `100` base units as `1.00`).
 - **SEP-41** — the Stellar token interface standard that defines `transfer`, `mint`, `burn`, and `approve` entry points.
 - **Entry point** — a callable contract function. Each state-changing entry point emits one event.
-- **Cursor** — an opaque pagination token returned in the `Link` header; replay it verbatim to fetch the next page. See [Pagination](/docs/api/pagination).
+- **High-water mark** — the highest `ledger` a client has already processed. This endpoint has no cursor, so clients poll and keep only events whose `ledger` is above their mark. See [Ordering and pagination](#ordering-and-pagination).
 
 ## What to read next
 
 - [API Overview](/docs/api/overview) — conventions, caching, and the full endpoint list.
-- [Pagination](/docs/api/pagination) — cursor conventions shared with the events endpoint.
+- [Ordering and pagination](#ordering-and-pagination) — ordering, the 200-event window, and how to poll without a cursor.
 - [Asset Token Contract](/docs/contracts/asset-token) — the event topics emitted by `transfer`, `mint`, and `burn`.
 - [Dividends](/docs/contracts/dividends) — the `created`, `claim`, and dividend lifecycle events.
 - [Rate Limits & Caching](/docs/api/rate-limits) — ETag support on the events endpoint.

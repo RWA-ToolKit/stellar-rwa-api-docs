@@ -116,6 +116,52 @@ Expected: the command returns the current number of registered assets as an inte
 
 Run `npm test` after editing to confirm the page and the spec still agree.
 
+## API endpoint contract tests
+
+The checks above cover the **contract** reference pages. A separate Rust test, `api/tests/contract_endpoint_coverage.rs`, does the same job for the **REST API** reference pages under `docs/app/docs/api/`. It pins down the JSON wire format those pages document.
+
+### What it guarantees
+
+The test makes no HTTP calls and needs no env vars, fixtures, database or network. Each test builds a model from `stellar_rwa_api::models` directly, serialises it with `serde_json::to_value`, and asserts on the resulting JSON:
+
+| Endpoint | Model | What is asserted |
+| --- | --- | --- |
+| `GET /stats` | `Stats` | All 8 fields have their documented JSON types; `tvl_cents` is a string that parses as `i128`; `last_updated` serialises as `null` when unset |
+| `GET /assets`, `GET /assets/:id` | `Asset` | The list is a JSON array; each field has its documented type; `valuation_cents` and `total_supply` are `i128`-parseable strings; `index_error` is `null` or a string; `asset_type` round-trips `real_estate`, `invoice` and `commodity` |
+| `GET /assets/:id/holders` | `Holder` | **Exactly** the keys `address`, `balance` and `share_percent`; `balance` is an `i128`-parseable string |
+| `GET /assets/:id/compliance` | `ComplianceSummary` | Count fields are numbers; `jurisdictions` is an array of `{ jurisdiction, count }`; no `addresses`/`records` keys at the top level and no `address`/`status` keys per jurisdiction (aggregate counts only, no PII) |
+| `GET /assets/:id/dividends` | `Distribution` | **Exactly** the 9 documented keys; `total_amount` and `distributed` are `i128`-parseable strings; `overflow_detected` is a boolean |
+| `GET /health` | (none) | `status`, `last_indexed_ledger` and `consecutive_failures` are present for both `ok` and `degraded` payloads |
+
+Limits to keep in mind:
+
+- The test does not parse the `.mdx` pages or the OpenAPI spec. The expected shapes are written by hand in the test, so they only stay accurate if they are updated together with the docs.
+- The `/health` tests check a hand-built `serde_json::json!` payload, not the route handler, so a change to the handler alone will not fail them.
+- Only `Holder` and `Distribution` are checked for an exact key set. Adding a field to `Stats`, `Asset` or `ComplianceSummary` will not fail the test, but renaming, removing or retyping a field will.
+
+### When it fails
+
+A failure means a model's serialised shape no longer matches what the API pages document. Common causes:
+
+- A field was renamed (including via `#[serde(rename = ...)]`), removed, or changed type.
+- An `i128` amount started serialising as a JSON number instead of a string.
+- A field was added to `Holder` or `Distribution`.
+
+To fix it, decide which side is correct. If the change was unintended, revert the model. If it was intended, update the matching page under `docs/app/docs/api/` and the assertions in `contract_endpoint_coverage.rs` in the same commit, so the docs and the test change together.
+
+### Running it locally
+
+From the repository root:
+
+```bash
+cd api
+cargo test --test contract_endpoint_coverage
+```
+
+To run a single case, add a name filter, e.g. `cargo test --test contract_endpoint_coverage holder_`.
+
+CI runs this test as part of `cargo test` in the `api` working directory (`.github/workflows/api.yml`), so a mismatch fails the API workflow on the PR.
+
 ## Contracts
 
 - **Asset Token**: `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ`
