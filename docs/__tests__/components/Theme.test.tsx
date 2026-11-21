@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { render } from "@testing-library/react";
 import { CodeBlock } from "../../components/CodeBlock";
 import { CalloutBox } from "../../components/CalloutBox";
@@ -96,6 +96,50 @@ describe("Dark/Light Theme Support", () => {
         );
         const icon = container.textContent;
         expect(icon).toContain(expectedIcon);
+      });
+    });
+  });
+
+  describe("Dark mode contrast checks", () => {
+    afterEach(() => {
+      document.documentElement.classList.remove("dark");
+    });
+
+    it("should apply dark-mode classes on CodeBlock when dark mode is active", () => {
+      document.documentElement.classList.add("dark");
+      const { container } = render(
+        <CodeBlock title="example.ts">const x = 1;</CodeBlock>
+      );
+      const preElement = container.querySelector("pre");
+      const codeElement = container.querySelector("code");
+      expect(document.documentElement).toHaveClass("dark");
+      expect(preElement?.className).toMatch(/bg-\[#0a0c11\]/);
+      expect(codeElement).toHaveClass("text-base-100");
+    });
+
+    it("should apply dark-mode classes on CalloutBox when dark mode is active", () => {
+      document.documentElement.classList.add("dark");
+      const { container } = render(
+        <CalloutBox variant="note">Note content</CalloutBox>
+      );
+      const box = container.querySelector("div");
+      expect(document.documentElement).toHaveClass("dark");
+      expect(box?.className).toMatch(/border-sky-500/);
+      expect(box?.className).toMatch(/bg-sky-500/);
+    });
+
+    it("should keep contrast-sensitive classes across all CalloutBox variants in dark mode", () => {
+      document.documentElement.classList.add("dark");
+      const variants = ["note", "tip", "warning", "danger", "compliance"] as const;
+
+      variants.forEach((variant) => {
+        const { container } = render(
+          <CalloutBox variant={variant}>Test content</CalloutBox>
+        );
+        const box = container.querySelector("[class*='rounded-xl']");
+        const textElement = container.querySelector("[class*='text-']");
+        expect(box).toBeInTheDocument();
+        expect(textElement).toBeInTheDocument();
       });
     });
   });
