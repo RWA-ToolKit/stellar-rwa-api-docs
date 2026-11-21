@@ -5,6 +5,13 @@ This is the maintainer runbook for cutting a new version of the
 with a documented checklist plus a `cliff.toml` configuration that turns the
 existing conventional-commits history into a Keep a Changelog 1.1.0 section.
 
+> **Note for contributors:** the release process described here is
+> **maintainer-only**. If you're contributing code, see
+> [`CONTRIBUTING.md`](./CONTRIBUTING.md) for how to get a change merged; you
+> don't need to run any of the steps below. This document is linked from
+> `CONTRIBUTING.md` so you can understand the release context your change will
+> land in.
+
 ## When to release
 
 Cut a release when one of the following is true since the last tagged release:
