@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Sidebar } from "./Sidebar";
+import { DEFAULT_LOCALE, formatDate } from "@/lib/formatDate";
 
 const CONTRACTS_REPO = "https://github.com/your-org/stellar-rwa-contracts";
 const WEB_REPO = "https://github.com/your-org/stellar-rwa-web";
@@ -119,14 +120,16 @@ export function DocHeader() {
  * "Last reviewed" line shown under a page title. The date is maintained in
  * each page's `metadata.lastReviewed` export (ISO `YYYY-MM-DD`).
  */
-export function LastReviewed({ date }: { date?: string }) {
+export function LastReviewed({
+  date,
+  locale = DEFAULT_LOCALE,
+}: {
+  date?: string;
+  /** BCP 47 locale for the visible date; defaults to `DEFAULT_LOCALE` ("en-US"). */
+  locale?: string;
+}) {
   if (!date) return null;
-  const label = new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+  const label = formatDate(date, locale);
   return (
     <p className="not-prose -mt-2 mb-6 text-sm text-base-300">
       Last reviewed: <time dateTime={date}>{label}</time>
