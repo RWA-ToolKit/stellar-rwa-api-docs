@@ -206,7 +206,19 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                type: array
+                items:
+                  type: object
+              example:
+                - id: 1
+                  asset_token: CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ
+                  payment_token: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+                  total_amount: "100000000000"
+                  distributed: "25000000000"
+                  claimed_percent: 25.0
+                  completed: false
+                  snapshot_ledger: 3510000
+                  created_at_ledger: 3510000
         "404":
           description: Not found
           content:
