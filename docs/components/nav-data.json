@@ -24,6 +24,7 @@
       { "title": "Performance", "href": "/docs/performance" },
       { "title": "Versioning Guide", "href": "/docs/versioning" },
       { "title": "Integration", "href": "/docs/integration" },
+      { "title": "Client Examples", "href": "/docs/client-examples" },
       { "title": "Web App Guide", "href": "/docs/web-app" },
       { "title": "FAQ", "href": "/docs/faq" },
       { "title": "Deployment", "href": "/docs/deployment" },
