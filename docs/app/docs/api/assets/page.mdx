@@ -107,57 +107,49 @@ Returned with status `404` when no asset has the given id. A non-numeric id
 `Number(BigInt(asset.total_supply)) / 10 ** asset.decimals`.
 </CalloutBox>
 
-## Client examples
+### Rust client example
 
-### Go
+A consumer-side example using `reqwest` and `serde_json`. It fetches `/assets/1`,
+handles the documented `404` error body, and parses `total_supply` as a `u128`.
 
-Uses only `net/http` and `encoding/json` from the standard library. `total_supply` and
-`valuation_cents` stay strings, so parse them with `math/big` if you need exact arithmetic.
+`Cargo.toml`
 
-```go
-package main
-
-import (
-	"encoding/json"
-	"fmt"
-	"log"
-	"net/http"
-)
-
-type Asset struct {
-	ID             int     `json:"id"`
-	TokenContract  string  `json:"token_contract"`
-	Name           string  `json:"name"`
-	Symbol         string  `json:"symbol"`
-	AssetType      string  `json:"asset_type"`
-	ValuationCents string  `json:"valuation_cents"`
-	ValuationUSD   float64 `json:"valuation_usd"`
-	Decimals       int     `json:"decimals"`
-	TotalSupply    string  `json:"total_supply"`
-	Holders        int     `json:"holders"`
-	Active         bool    `json:"active"`
-	Paused         bool    `json:"paused"`
-}
-
-func main() {
-	resp, err := http.Get("http://localhost:8080/assets?asset_type=real_estate&active=true")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("unexpected status: %s", resp.Status)
-	}
-
-	var assets []Asset
-	if err := json.NewDecoder(resp.Body).Decode(&assets); err != nil {
-		log.Fatal(err)
-	}
-
-	for _, a := range assets {
-		fmt.Printf("%s (%s): %d holders, $%.2f\n", a.Symbol, a.Name, a.Holders, a.ValuationUSD)
-	}
-}
+```toml
+[dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
 ```
 
+`src/main.rs`
+
+```rust
+use serde_json::Value;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let resp = reqwest::get("http://localhost:8080/assets/1").await?;
+    if !resp.status().is_success() {
+        let err: Value = resp.json().await?;
+        let code = err["error"].as_str().unwrap_or("error");
+        let msg = err["message"].as_str().unwrap_or("request failed");
+        return Err(format!("{code}: {msg}").into());
+    }
+
+    let asset: Value = resp.json().await?;
+    let decimals = asset["decimals"].as_u64().unwrap_or(0) as i32;
+    let supply: u128 = asset["total_supply"]
+        .as_str()
+        .ok_or("total_supply missing")?
+        .parse()?;
+    let display = supply as f64 / 10f64.powi(decimals);
+
+    println!(
+        "{} ({}): supply {display}, holders {}",
+        asset["name"].as_str().unwrap_or_default(),
+        asset["symbol"].as_str().unwrap_or_default(),
+        asset["holders"],
+    );
+    Ok(())
+}
+```
