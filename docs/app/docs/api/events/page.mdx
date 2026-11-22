@@ -202,7 +202,7 @@ See [Errors](/docs/api/errors) for the canonical error shape, the full list of c
 
 **Event types by entry point:**
 
-The indexer records one event per state-changing contract entry point. The table below maps the current contract surface to the `event_type` values you will see on this endpoint. See the [Asset Token Contract](/docs/contracts/asset-token) and [Dividends](/docs/contracts/dividends) references for the full entry-point definitions.
+The indexer records one event per state-changing contract entry point. The table below maps the current contract surface to the `event_type` values you will see on this endpoint. See the [Asset Token Contract](/docs/contracts/asset-token) and [Dividends](/docs/contracts/dividend) references for the full entry-point definitions.
 
 | Entry point | `event_type` | Notes |
 |---|---|---|
@@ -241,6 +241,6 @@ New to Stellar or this API? These terms appear throughout the page:
 - [API Overview](/docs/api/overview) — conventions, caching, and the full endpoint list.
 - [Ordering and pagination](#ordering-and-pagination) — ordering, the 200-event window, and how to poll without a cursor.
 - [Asset Token Contract](/docs/contracts/asset-token) — the event topics emitted by `transfer`, `mint`, and `burn`.
-- [Dividends](/docs/contracts/dividends) — the `created`, `claim`, and dividend lifecycle events.
+- [Dividends](/docs/contracts/dividend) — the `created`, `claim`, and dividend lifecycle events.
 - [Rate Limits & Caching](/docs/api/rate-limits) — ETag support on the events endpoint.
 - [Time & Ledgers](/docs/time-and-ledgers) — understand `ledger` values in event payloads.
