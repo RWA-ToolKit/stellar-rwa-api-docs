@@ -107,4 +107,16 @@ time.
 (not "indexing service" or "indexing API") to match the `indexer` module name in the API source.
 
 **Snapshot** — The indexer's in-memory copy of contract state. Responses carry an `ETag` derived
-from its latest ledger.
+from its latest ledger. See [Snapshot Memory](/docs/snapshot-memory).
+
+**Poll interval** — How often the indexer reads contract state from Soroban RPC. It defaults to 10
+seconds and can be set with `RWA_POLL_INTERVAL_SECS` (1 to 3600). The health threshold is three
+poll intervals unless `RWA_HEALTH_MAX_POLL_AGE_SECS` overrides it.
+
+**Poll status** — The indexer's record of its most recent polls: when the last one succeeded, the
+ledger it reached, and how many polls have failed since. `/health` and the stale guard read it.
+
+**Stale guard** — The middleware that marks responses as stale. While polls are failing, or the last
+successful poll is older than the health threshold, it adds `X-Data-Stale: true`,
+`X-Data-Age-Seconds` and `X-Indexer-Consecutive-Failures`. See
+[API · Health & Indexer Lag](/docs/api/health).
