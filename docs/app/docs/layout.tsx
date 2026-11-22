@@ -41,7 +41,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
         </div>
       </aside>
 
-      <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden py-10">
+      <main id="main-content" tabIndex={-1} className="focus:outline-none min-w-0 flex-1 overflow-x-hidden py-10">
         <div className="mx-auto w-full max-w-3xl">
           <VersionBanner />
         </div>
