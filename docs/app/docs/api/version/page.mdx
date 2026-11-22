@@ -1,0 +1,43 @@
+export const metadata = {
+  title: "API · Version",
+  description: "How GET /version reports the crate version and release label.",
+  canonical: "/docs/api/version",
+  lastReviewed: "2026-11-22",
+};
+
+# Version
+
+<LastReviewed date={metadata.lastReviewed} />
+
+`GET /version` returns the running service's crate version and a release label
+derived from it. Use it to confirm which build is deployed.
+
+## Request
+
+```bash
+curl -s https://<host>/version
+```
+
+## Response
+
+```json
+{
+  "version": "0.1.0",
+  "release": "v0.1.0"
+}
+```
+
+| Field | Type | Nullable | Meaning |
+| --- | --- | --- | --- |
+| `version` | string | No | Crate version from `api/Cargo.toml`, e.g. `0.1.0` |
+| `release` | string | No | `v` followed by `version`, e.g. `v0.1.0` |
+
+The endpoint always returns `200` while the process is running. It does not
+depend on indexer state, so use [`/health`](/docs/api/health) to check data
+freshness.
+
+## What to read next
+
+- [API Overview](/docs/api/overview) — full endpoint list.
+- [Versioning](/docs/api/versioning) — supported contract ABI versions.
+- [Changelog](/docs/changelog) — what changed in each release.
