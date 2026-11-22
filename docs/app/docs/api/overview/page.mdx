@@ -37,14 +37,69 @@ retries on the next tick. The API never panics on a transient failure.
 
 ## Endpoints
 
-<ApiEndpoint method="GET" path="/stats" description="Platform-wide statistics." />
-<ApiEndpoint method="GET" path="/assets" description="All tokenized assets." />
-<ApiEndpoint method="GET" path="/assets/:id" description="A single asset by registry id." />
-<ApiEndpoint method="GET" path="/assets/:id/holders" description="Holder list with balances." />
-<ApiEndpoint method="GET" path="/assets/:id/compliance" description="Non-PII compliance summary." />
-<ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history." />
+<ApiEndpoint method="GET" path="/stats" description="Platform-wide statistics.">
 
-Plus `GET /` (self-describing index) and `GET /health` (liveness).
+```bash
+curl http://localhost:8080/stats
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/assets" description="All tokenized assets.">
+
+```bash
+curl http://localhost:8080/assets
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/assets/:id" description="A single asset by registry id.">
+
+```bash
+curl http://localhost:8080/assets/1
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/assets/:id/holders" description="Holder list with balances.">
+
+```bash
+curl http://localhost:8080/assets/1/holders
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/assets/:id/compliance" description="Non-PII compliance summary.">
+
+```bash
+curl http://localhost:8080/assets/1/compliance
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history.">
+
+```bash
+curl http://localhost:8080/assets/1/dividends
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/" description="Self-describing index.">
+
+```bash
+curl http://localhost:8080/
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/health" description="Liveness.">
+
+```bash
+curl http://localhost:8080/health
+```
+
+</ApiEndpoint>
 
 ## Errors
 
@@ -61,8 +116,89 @@ Errors return an appropriate HTTP status and a JSON body:
 
 ## CORS
 
-All origins, methods and headers are allowed, so the docs site and the web app
-can call the API directly from the browser.
+The API only answers cross-origin browser requests from an **allowlist of
+origins**. Everything else about the policy is fixed in code:
+
+| Setting | Value |
+| --- | --- |
+| Allowed origins | `RWA_CORS_ALLOWED_ORIGINS`, default `http://localhost:3000` |
+| Allowed methods | `GET` |
+| Allowed request headers | `Content-Type`, `If-None-Match` |
+| Exposed response headers | `ETag`, `Retry-After`, `Cache-Control` |
+
+### Configuring allowed origins
+
+Set `RWA_CORS_ALLOWED_ORIGINS` in the API's environment as a comma-separated list
+(whitespace around commas is trimmed). `api/.env.example` ships it commented
+out. Uncomment it in your `api/.env` and list your origins:
+
+```bash
+# api/.env
+RWA_CORS_ALLOWED_ORIGINS=http://localhost:3000,https://docs.example.com
+```
+
+- If the variable is unset, only `http://localhost:3000` is allowed.
+- Setting it **replaces** the default. Include `http://localhost:3000` again if
+  you still need it.
+- Matching is exact: scheme, host and port must be identical, with no trailing
+  slash or path. `http://localhost:3000` does not match `http://127.0.0.1:3000`
+  or `http://localhost:3000/`.
+- `*` is not supported, and neither is a value that is not a valid header. Both
+  make the API panic on startup.
+
+### What a rejected origin looks like
+
+CORS is enforced by the browser, not the server. The API never returns a `4xx`
+or a JSON error body for a disallowed origin. It just leaves out
+`Access-Control-Allow-Origin`.
+
+A preflight (`OPTIONS`) from an **allowed** origin:
+
+```bash
+curl -i -X OPTIONS http://localhost:8080/v1/stats \
+  -H "Origin: http://localhost:3000" \
+  -H "Access-Control-Request-Method: GET" \
+  -H "Access-Control-Request-Headers: if-none-match"
+```
+
+```http
+HTTP/1.1 200 OK
+access-control-allow-origin: http://localhost:3000
+access-control-allow-methods: GET
+access-control-allow-headers: content-type,if-none-match
+vary: origin, access-control-request-method, access-control-request-headers
+```
+
+The same preflight from a **rejected** origin
+(`-H "Origin: https://evil.example"`) is still `200 OK` with an empty body and
+the same `allow-methods` / `allow-headers`, but has **no
+`access-control-allow-origin`**. A plain cross-origin `GET` from a rejected
+origin works the same way. The server runs the request and returns the normal
+`200` JSON, without the allow-origin header.
+
+In the browser, this shows up as:
+
+- a console error like *"…has been blocked by CORS policy: No
+  'Access-Control-Allow-Origin' header is present on the requested resource"*;
+- `fetch()` rejecting with `TypeError: Failed to fetch` (Firefox:
+  `NetworkError when attempting to fetch resource`). You never get a `Response`
+  object, so you can't read the status, headers or body from JavaScript.
+
+curl, server-side code and other non-browser clients ignore CORS, so they are
+unaffected. CORS limits which web pages can read responses. It is not access
+control.
+
+### Fix checklist
+
+1. Copy the exact origin from the browser's request `Origin` header (DevTools →
+   Network), including scheme and port.
+2. Add it to `RWA_CORS_ALLOWED_ORIGINS`, keeping any origins you still need.
+3. Restart the API. The list is only read at startup.
+4. Re-run the `OPTIONS` curl above with your origin and check that
+   `access-control-allow-origin` echoes it back.
+5. If the preflight passes but the request still fails, check that you only
+   use `GET` and only set `Content-Type` / `If-None-Match`. Any other method or
+   custom header is not allowed.
 
 ## `/stats` response
 
@@ -81,6 +217,33 @@ can call the API directly from the browser.
 
 `total_holders` is the count of **distinct approved addresses** across all assets;
 `last_indexed_ledger` is the ledger the most recent successful refresh read from.
+
+### Python example
+
+Requires `pip install requests`. The output below uses the sample values from the
+response above.
+
+```python
+import requests
+
+resp = requests.get("http://localhost:8080/stats", timeout=10)
+resp.raise_for_status()
+stats = resp.json()
+
+print(f"Assets: {stats['active_assets']}/{stats['total_assets']} active")
+print(f"TVL: ${stats['tvl_usd']:,.2f}")
+print(f"Holders: {stats['total_holders']}")
+```
+
+Expected output:
+
+```text
+Assets: 1/1 active
+TVL: $5,000,000.00
+Holders: 1
+```
+
+{/* check:mdx-samples only validates ts/tsx/js/jsx blocks, so this Python sample is not checked automatically (see testing gap issue). */}
 
 ## FAQ
 

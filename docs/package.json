@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "check:mdx-samples": "node scripts/check-mdx-samples.mjs",
+    "check:mdx-samples": "node scripts/check-mdx-code-samples.mjs",
     "check:contract-ids": "node scripts/check-contract-ids.mjs",
     "check:links": "node scripts/check-links.mjs",
     "test:coverage": "vitest run --coverage"

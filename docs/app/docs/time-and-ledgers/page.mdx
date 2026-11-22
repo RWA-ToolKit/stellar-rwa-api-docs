@@ -2,15 +2,15 @@ export const metadata = {
   title: "Time & Ledgers",
   description: "Understanding the ledger-sequence time model used across contracts and the API.",
   canonical: "/docs/time-and-ledgers",
-  lastReviewed: "2026-07-28",
+  lastReviewed: "2026-11-21",
 };
 
 # Time & Ledgers
 
 <LastReviewed date={metadata.lastReviewed} />
 
-Throughout the Stellar RWA contracts and API, time is never expressed as a wall-clock
-timestamp. Instead, all time values use **Stellar ledger sequence numbers** — a monotonically
+Throughout the Stellar RWA contracts, time is never expressed as a wall-clock
+timestamp. Instead, all contract time values use **Stellar ledger sequence numbers** — a monotonically
 increasing counter that increments roughly every 5 seconds on the Stellar network.
 
 This design eliminates time-sync issues and makes on-chain logic deterministic.
@@ -52,13 +52,16 @@ To set an expiry, provide a **future** ledger number:
 ```ts
 import { Horizon } from "@stellar/stellar-sdk";
 
-const server = new Horizon.Server("https://horizon.stellar.org");
+// Testnet: the contract addresses on this site are on Testnet, and ledger numbers are per-network.
+const server = new Horizon.Server("https://horizon-testnet.stellar.org");
 const ledgers = await server.ledgers().limit(1).order("desc").call();
 const now = ledgers.records[0].sequence;
 
 // Approve for 1 year (~6.3 million ledgers at ~5s per ledger)
 const expiresAt = now + 6_300_000;
 
+// Illustrative only: this shows the argument order from the Compliance Contract page.
+// It is not a submitted transaction. See the contract page for the exact call.
 const op = compliance.call(
   "add_to_allowlist",
   admin,
@@ -81,10 +84,27 @@ The compliance contract's `is_allowed` gate checks expiry like this:
 Once `now >= expires_at`, the approval is considered expired and `is_allowed` returns `false`,
 blocking all transfers. No on-chain cron job is needed — expiry is enforced at read time.
 
+The API applies the same rule to the latest indexed ledger. This check runs with no network
+access, and you can run it with `node` (ES modules or `.mjs`):
+
+```ts
+// Same rule as the API's derive_allowed: 0 means never expires; otherwise expired when expires_at <= latest.
+const isExpired = (expiresAt: number, latestLedger: number): boolean =>
+  expiresAt !== 0 && expiresAt <= latestLedger;
+
+console.assert(isExpired(0, 9_999_999) === false);       // never expires
+console.assert(isExpired(1000, 999) === false);          // still valid
+console.assert(isExpired(1000, 1000) === true);          // lapses at the expiry ledger
+console.assert(isExpired(1000, 1001) === true);          // expired
+console.log("expiry checks passed");
+```
+
 ## Ledger sequences in the API
 
-The REST API mirrors this design. All time fields in responses are **ledger sequence numbers**,
-never wall-clock timestamps:
+The REST API mirrors this design. Contract-derived time fields in responses are **ledger
+sequence numbers**, not wall-clock timestamps. The only wall-clock values are the event
+`timestamp` and `last_updated`, described in
+[Poll interval vs ledger close time](#poll-interval-vs-ledger-close-time):
 
 ### Assets endpoint
 
@@ -99,30 +119,46 @@ never wall-clock timestamps:
 
 ### Compliance endpoint
 
+`GET /compliance/:address` returns one entry per asset the address is on the allowlist for.
+
 ```json
-{
-  "address": "GBUQWP...",
-  "status": "Approved",
-  "jurisdiction": "US",
-  "verified_at": 3500000,
-  "expires_at": 9800000,
-  "expired": false
-}
+[
+  {
+    "address": "GBUQWP...",
+    "asset_id": 1,
+    "asset_name": "Manhattan Loft",
+    "symbol": "MLOFT",
+    "balance": "1000000",
+    "status": "Approved",
+    "allowed": true,
+    "jurisdiction": "US",
+    "expires_at": 9800000
+  }
+]
 ```
 
-The `expired` field is a convenience boolean: `true` if `expires_at != 0 && expires_at <= last_indexed_ledger`.
+`expires_at` is `null` when the approval never expires (on-chain `0`). `allowed` is the API's
+gate result: it is `true` only when the status is `Approved`, the approval has not expired at the
+latest indexed ledger, and the jurisdiction is not blocked.
 
 ### Dividends endpoint
 
+`GET /assets/:id/dividends` returns distributions. Amounts are raw base-unit strings.
+
 ```json
-{
-  "id": 1,
-  "asset_id": 1,
-  "per_share_cents": "100",
-  "created_at_ledger": 3510000,
-  "payable_at_ledger": 3520000,
-  "claimed": 500
-}
+[
+  {
+    "id": 1,
+    "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+    "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    "total_amount": "100000000000",
+    "distributed": "25000000000",
+    "claimed_percent": 25.0,
+    "overflow_detected": false,
+    "completed": false,
+    "created_at_ledger": 3510000
+  }
+]
 ```
 
 ## Converting ledger numbers to wall-clock time
@@ -130,7 +166,7 @@ The `expired` field is a convenience boolean: `true` if `expires_at != 0 && expi
 To convert a ledger number to an approximate wall-clock time, use the Horizon API:
 
 ```ts
-const server = new Horizon.Server("https://horizon.stellar.org");
+const server = new Horizon.Server("https://horizon-testnet.stellar.org");
 const ledger = await server.ledgers().ledger(3502885).call();
 
 console.log(ledger.closed_at);  // "2026-05-15T10:30:00Z"
@@ -142,17 +178,69 @@ when a given ledger sequence number occurred.
 **Rule of thumb:** Stellar produces ~1 ledger per 5 seconds, so a ledger 1 million in the
 future is roughly 58 days away.
 
+## Poll interval vs ledger close time
+
+Two clocks are in play, and they are independent:
+
+- **Ledger close time.** Stellar closes a ledger roughly every ~5 seconds. This is set by the
+  network, not by the indexer.
+- **Indexer poll interval.** The indexer polls Soroban RPC every **10 seconds** by default.
+  Override it with `RWA_POLL_INTERVAL_SECS` (whole seconds, between 1 and 3600; invalid values
+  are rejected at startup). A server-advised `Retry-After` from the RPC takes precedence.
+
+Because 10 s is about two ledger closes, each successful poll typically ingests **~2 new
+ledgers**. The indexer does not follow ledgers one by one; it rebuilds its snapshot on each
+poll and records the newest ledger it read as `last_indexed_ledger`.
+
+### What this means for timestamps
+
+- **Indexed data lags the chain by up to one poll interval plus RPC latency.** An event in a
+  ledger that closes just after a poll has to wait for the next one.
+- **Event `timestamp` is the ledger close time.** It is copied from the RPC's
+  `ledger_closed_at` for the event's ledger, so it reflects when the chain recorded the event,
+  not when the indexer noticed it. It is `null` if the RPC did not supply one.
+- **`last_updated` is poll time.** It is the wall-clock time the indexer finished building the
+  snapshot, so it says how fresh the API is, not when anything happened on-chain.
+- **`last_indexed_ledger` is the freshness marker in ledger terms.** It is also the ETag seed,
+  so the ETag only changes when the indexer has read a newer ledger.
+- **Dividends can lag further.** Per-asset dividends are cached (default 60 s,
+  `RWA_DIVIDEND_CACHE_TTL_SECS`), so worst-case lag is the cache TTL plus the poll interval.
+  Compare `dividends_indexed_at_ledger` with `indexed_at_ledger` to detect cached data.
+
+### Worked example
+
+Assume the default 10 s poll interval and a ledger every ~5 s:
+
+| Wall clock | What happens |
+| ---------- | ------------ |
+| 10:00:00 | Poll N reads the chain. Latest ledger is 3,502,880. `last_indexed_ledger = 3502880`. |
+| 10:00:03 | A transfer is included in ledger 3,502,881, which closes at 10:00:03. |
+| 10:00:08 | Ledger 3,502,882 closes. |
+| 10:00:10 | Poll N+1 reads ledgers 3,502,881 and 3,502,882. The transfer event appears with `timestamp: "...10:00:03Z"`. `last_indexed_ledger = 3502882`, `last_updated` is about 10:00:10. |
+
+The event was visible in the API about 7 s after it closed, but its `timestamp` still says
+10:00:03. If the transfer had closed at 10:00:00.5 instead, just after poll N, it would have
+waited nearly the full 10 s. To compare an event with "now", use the ledger numbers:
+`last_indexed_ledger - event_ledger` is at most a few ledgers of lag under default settings.
+
+<CalloutBox variant="note" title="Don't use last_updated as an event time">
+`last_updated` moves forward on every successful poll, even when nothing changed on-chain.
+Use an event's `timestamp` (ledger close time) or its ledger number for when something
+happened, and `last_updated` / `last_indexed_ledger` only to judge staleness.
+</CalloutBox>
+
 ## Handling expires_at in your integration
 
 When building an integration against the API:
 
-1. **Display the ledger number and the `expired` boolean.** Don't try to calculate expiry
-   yourself; trust the `expired` field from the API.
+1. **Display the ledger number and the `allowed` boolean.** Use `allowed` as the gate result.
+   The API compares expiry against the latest indexed ledger for you.
 2. **Refresh approval before expiry.** If you're tracking approval expiry, call
    `add_to_allowlist` again before the `expires_at` ledger is reached.
-3. **Remember `expires_at = 0` means never.** Don't treat `0` as an epoch or default timestamp.
-4. **Use the API's `expired` field.** The API already handles the comparison against the
-   current indexed ledger for you.
+3. **Expect `expires_at: null` for "never".** The API returns `null` where the chain stores `0`.
+   Don't treat it as an epoch or default timestamp.
+4. **Don't re-derive `allowed` from `expires_at` against a stale ledger.** If you do compute it
+   yourself, compare against a current ledger number, as in the expiry check above.
 
 ## Common mistakes
 

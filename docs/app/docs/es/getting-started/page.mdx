@@ -1,0 +1,136 @@
+export const metadata = {
+  title: "Primeros pasos",
+  description: "Qué es el Stellar RWA Toolkit, cómo funciona la tokenización de activos y cómo ejecutarlo.",
+  lastReviewed: "2026-11-21",
+  canonical: "/docs/es/getting-started",
+};
+
+<div lang="es">
+
+<CalloutBox variant="note" title="Traducción piloto">
+Esta página es una traducción piloto al español. La versión en inglés,
+[Getting Started](/docs/getting-started), es la fuente de verdad: si hay alguna
+diferencia, prevalece el original.
+</CalloutBox>
+
+# Primeros pasos
+
+El **Stellar RWA Toolkit** es un sistema integral para tokenizar activos del
+mundo real (RWA), como bienes raíces, facturas y materias primas, en Stellar
+mediante contratos inteligentes de Soroban, con **cumplimiento normativo
+aplicado on-chain**.
+
+Consta de tres partes, cada una en su propio repositorio:
+
+- **Contratos** — cuatro contratos de Soroban: `asset-token`, `compliance`, `registry`, `dividend`.
+- **API** — un servicio en Rust/Axum que indexa toda la actividad de los activos tokenizados y la expone mediante REST.
+- **Aplicación web** — una interfaz en Next.js para emisores e inversores.
+
+## Qué significa "tokenizar un activo del mundo real"
+
+Un activo del mundo real, por ejemplo un loft en Manhattan de $5,000,000, se
+representa on-chain como un token fungible. Cada token es una participación
+fraccionaria sobre el activo subyacente. A diferencia de un token común, un token
+RWA está **restringido por cumplimiento normativo**: solo las direcciones que han
+superado el KYC y figuran en una lista de permitidos pueden poseerlo o recibirlo.
+
+La restricción no es una política guardada en una base de datos: la aplica el
+propio contrato. En cada transferencia, el contrato asset-token realiza una
+llamada entre contratos al contrato de cumplimiento para verificar tanto al
+remitente como al destinatario. Si alguno no cumple, la transferencia se revierte.
+
+<CalloutBox variant="compliance" title="Por qué es importante">
+Las leyes de valores de la mayoría de las jurisdicciones restringen quién puede
+poseer un activo regulado. Aplicar esa restricción **en el contrato**, y no en una
+aplicación que puede eludirse, es lo que hace que un token sea adecuado para
+representar un activo regulado del mundo real. Consulta la
+[Guía de cumplimiento](/docs/compliance-guide).
+</CalloutBox>
+
+## Cómo encajan las piezas
+
+```
+                         ┌───────────────┐
+   issuer / investor ──▶ │  Web app      │ ──▶ Freighter ──▶ Soroban contracts
+                         └───────────────┘                       │
+                                                                 │ events + state
+                         ┌───────────────┐   polls Soroban RPC   │
+   analysts / bots  ──▶  │  REST API     │ ◀─────────────────────┘
+                         └───────────────┘
+```
+
+- La **aplicación web** firma y envía las transacciones a través de la billetera del usuario.
+- La **API** es de solo lectura: indexa el estado on-chain cada 10 segundos y nunca
+  guarda una clave ni firma nada.
+
+## Requisitos previos
+
+- La extensión de navegador [Freighter](https://freighter.app) (para la aplicación web)
+- Node.js 18+ (aplicación web y documentación)
+- Rust 1.75+ (API y contratos)
+- La [Stellar CLI](https://developers.stellar.org/docs/tools/cli) (para desplegar contratos)
+
+## Inicio rápido
+
+Ejecuta la API contra los contratos desplegados en Testnet:
+
+```bash
+git clone https://github.com/your-org/stellar-rwa-api-docs
+cd stellar-rwa-api-docs/api
+cp .env.example .env      # Testnet defaults are pre-filled
+cargo run
+# → listening on 0.0.0.0:8080
+```
+
+Luego consúltala:
+
+```bash
+curl http://localhost:8080/stats
+curl http://localhost:8080/assets
+```
+
+Ejecuta el sitio de documentación:
+
+```bash
+cd ../docs
+npm install
+npm run dev               # http://localhost:3000
+```
+
+## Guía de red
+
+Todo está desplegado en **Testnet**. La frase de contraseña de la red es:
+
+```
+Test SDF Network ; September 2015
+```
+
+Configura Freighter para usar Testnet y fondea tu cuenta con el
+[friendbot](https://friendbot.stellar.org) antes de interactuar.
+
+<CalloutBox variant="warning">
+Estos contratos están desplegados en Testnet con fines de demostración. No los
+uses para custodiar valor real. Un despliegue en mainnet requiere una revisión
+completa de cumplimiento de valores y legal.
+</CalloutBox>
+
+## Direcciones de contratos desplegados (Testnet)
+
+Estos son los mismos cuatro identificadores de contrato de Testnet que figuran en
+el README del repositorio. Mantén ambas listas sincronizadas al volver a desplegar.
+
+| Contrato    | ID del contrato |
+|-------------|-----------------|
+| compliance  | `CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU` |
+| asset-token | `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ` |
+| registry    | `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` |
+| dividend    | `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX` |
+
+La cuenta de administrador / emisor del despliegue de ejemplo es
+`GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA`, y el activo de
+ejemplo es **Manhattan Loft** (`MLOFT`), un activo `real_estate` valuado en $5,000,000.
+
+Continúa con la [Guía de cumplimiento](/docs/compliance-guide), el concepto que
+hace de esta una plataforma de RWA y no una simple fábrica de tokens.
+
+</div>

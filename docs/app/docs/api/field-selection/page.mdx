@@ -52,6 +52,24 @@ curl -i "$API_BASE_URL/v1/assets?fields=nope"
 See [API · Errors](/docs/api/errors) for the full error envelope and other
 status codes.
 
+## Invalid and duplicate fields
+
+- **Unknown names** return `400 invalid_parameter` and no partial result. A name
+  counts as known when the first record of the response has that key.
+- **Duplicate names** in one list (`fields=id,id`) are accepted. Each field
+  appears once in the output and no error is returned.
+- **Repeated parameter** (`?fields=id&fields=symbol`) uses the last `fields`
+  value only; earlier values are discarded without an error.
+- **Nested fields** are not addressable by path. `fields=balance.amount` is an
+  unknown field and returns `400`. Selecting a top-level field whose value is an
+  object returns the whole object.
+- **Missing values in later records:** a field present on the first record but
+  absent from a later one is omitted from that record. It is not returned as
+  `null`.
+- **Empty value** (`?fields=` or `?fields=,`) applies no selection and returns
+  full records.
+- Whitespace around names is ignored, so `fields=id, symbol` works.
+
 ## Empty results
 
 When a query matches nothing, the endpoint still returns `200` with a
