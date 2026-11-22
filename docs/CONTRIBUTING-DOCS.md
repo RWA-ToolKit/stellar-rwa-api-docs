@@ -93,6 +93,27 @@ entry.
 - When a release is cut, move the `Unreleased` entries under a new version
   heading with the release date.
 
+## OpenAPI spec validation
+
+The `OpenAPI` workflow (`.github/workflows/openapi.yml`) validates
+`docs/public/openapi-v1.yaml` with `@apidevtools/swagger-cli`. The version is
+pinned to an exact release in that workflow so CI results are reproducible.
+Run the same check locally:
+
+```bash
+npx --yes @apidevtools/swagger-cli@4.0.4 validate docs/public/openapi-v1.yaml
+```
+
+### Bumping swagger-cli
+
+1. Check the available releases with `npm view @apidevtools/swagger-cli versions`.
+2. Change the version in `.github/workflows/openapi.yml` (for example
+   `@apidevtools/swagger-cli@4.0.4` to the new exact version). Do not use a
+   floating range such as `@4`.
+3. Run the local command above against `docs/public/openapi-v1.yaml` and confirm
+   it passes.
+4. Note the bump in the PR description so reviewers can see which version CI now uses.
+
 ## Scratch and planning documents
 
 Do not commit working notes, batch plans, or scratch documents (for example
