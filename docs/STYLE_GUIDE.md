@@ -8,6 +8,7 @@ This guide describes how we write and structure documentation across the repo.
 - Prefer concrete, runnable examples over abstract descriptions.
 - Keep terminology consistent with the API reference (e.g. `jurisdiction`, `contract`, `status`).
 - Use fenced code blocks with an explicit language tag.
+- Use sentence case for headings: capitalize only the first word plus proper nouns and acronyms (e.g. `## Rate limits`, `## HTTP caching with ETags`, `## Request IDs`). Do not use Title Case.
 
 ## Worked examples
 

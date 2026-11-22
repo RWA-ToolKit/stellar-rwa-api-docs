@@ -127,7 +127,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/assets/{id}/holders:
     get:
       operationId: listAssetHolders
@@ -138,6 +138,22 @@ paths:
           required: true
           schema:
             type: integer
+        - name: offset
+          in: query
+          required: false
+          description: Number of holders to skip (default 0).
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of holders to return (default 50). Values above 100 are capped at 100.
+          schema:
+            type: integer
+            minimum: 0
+            default: 50
       responses:
         "200":
           description: OK
@@ -150,7 +166,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/assets/{id}/compliance:
     get:
       operationId: getAssetCompliance
@@ -173,7 +189,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/assets/{id}/dividends:
     get:
       operationId: listAssetDividends
@@ -190,13 +206,25 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                type: array
+                items:
+                  type: object
+              example:
+                - id: 1
+                  asset_token: CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ
+                  payment_token: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+                  total_amount: "100000000000"
+                  distributed: "25000000000"
+                  claimed_percent: 25.0
+                  completed: false
+                  snapshot_ledger: 3510000
+                  created_at_ledger: 3510000
         "404":
           description: Not found
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/assets/{id}/distributions/{did}:
     get:
       operationId: getDistribution
@@ -224,7 +252,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/holders/{address}:
     get:
       operationId: getHolder
@@ -247,7 +275,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/holders/{address}/compliance:
     get:
       operationId: getHolderCompliance
@@ -326,11 +354,14 @@ components:
           type: integer
           nullable: true
           description: Ledger at which approval expires. null means no expiry or unknown address.
-    ApiErrorBody:
+    ErrorBody:
       type: object
+      description: Shared error body for every non-2xx response (see /docs/api/errors).
       required: [error, message]
       properties:
         error:
           type: string
+          description: Stable, machine-readable code. Branch on this.
         message:
           type: string
+          description: Human-readable explanation. Do not parse it.

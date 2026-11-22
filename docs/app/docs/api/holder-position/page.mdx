@@ -2,7 +2,7 @@ export const metadata = {
   title: "API · Holder position",
   description: "A holder's positions and claimable amounts across all assets in one request.",
   canonical: "/docs/api/holder-position",
-  lastReviewed: "2026-09-26",
+  lastReviewed: "2026-11-21",
 };
 
 # Holder position
@@ -97,20 +97,45 @@ Error responses use the shared two-field error body (`error` and `message`) defi
 
 | Status | `error` | When |
 |---|---|---|
-| `400` | `bad_request` | The `:address` path segment is not a valid Stellar account address |
+| `400` | `invalid_parameter` | `?fields=` names a field that does not exist on the response |
 | `429` | `too_many_requests` | The rate limit for this endpoint was exceeded |
 
-```json
-{
-  "error": "bad_request",
-  "message": "invalid Stellar account address"
-}
+The `:address` path segment is **not** validated. A malformed or non-Stellar address
+returns `200` with an empty position. It never returns `400` or `404` (see
+[Zero-balance addresses](#zero-balance-addresses)).
+
+## Zero-balance addresses
+
+This endpoint **never returns `404`** for an address. Any address with no positive
+balance gets **HTTP 200** with an empty position:
+
+| Case | Status | Body |
+|---|---|---|
+| Address never held any asset | `200` | Empty position (below) |
+| Address held an asset but its balance is now `0` | `200` | That asset is left out of `positions`. If it was the address's only asset, the body is the empty position |
+| Address held an asset that is no longer in the registry | `200` | That asset is left out of `positions` |
+| Malformed or non-Stellar address string | `200` | Empty position. The string is echoed back in `address` unchanged |
+
+The endpoint takes no asset id, so there is no unknown-asset case.
+
+Zero balances are **pruned, not kept**. Each indexer refresh rebuilds an asset's holder
+list from the compliance allowlist, keeping only addresses whose on-chain `balance`
+is greater than `0`. A position with `balance: "0"` is therefore never returned. Two
+caveats apply:
+
+- The pruning happens on the next successful refresh. If an asset's holder read fails,
+  the indexer keeps that asset's previous holder list. A balance that has just dropped
+  to zero can then still appear until a later refresh succeeds.
+- Addresses are matched as exact, case-sensitive strings. A lowercased or otherwise
+  altered `G...` address finds nothing and returns the empty position.
+
+Example: `GET /v1/holders/G.../position`
+for an address with no positive balance:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
 ```
-
-### Empty positions
-
-An address with no holdings returns `asset_count: 0`, `total_value_usd: 0`, and an
-empty `positions` array:
 
 ```json
 {
@@ -120,6 +145,10 @@ empty `positions` array:
   "positions": []
 }
 ```
+
+`positions` is always an array, never `null`. Check `asset_count === 0` (or
+`positions.length === 0`) to tell whether an address holds anything. Do not treat a
+`404` as "no holdings".
 
 <CalloutBox variant="note" title="Claimable amounts are estimates">
 `claimable` amounts are computed from indexed data at the time of the request. They
@@ -146,6 +175,7 @@ const displayClaimable = Number(rawClaimable) / (10 ** paymentDecimals);
 // => 0.0000200 USDC
 ```
 </CalloutBox>
+
 ## What to read next
 
 - [API · Holders](/docs/api/holders) — list all holders for a single asset.

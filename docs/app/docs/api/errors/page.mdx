@@ -2,7 +2,7 @@ export const metadata = {
   title: "API · Error Bodies",
   description: "The single JSON error shape returned by every route of the Stellar RWA API, with the full list of error codes.",
   canonical: "/docs/api/errors",
-  lastReviewed: "2026-09-26",
+  lastReviewed: "2026-11-21",
 };
 
 # Error Bodies
@@ -75,6 +75,43 @@ fields that are available, so a client can correct the request:
 
 See [Field Selection](/docs/api/field-selection) for the full syntax and
 per-endpoint examples.
+
+## Rate limiting (429)
+
+When a client IP has spent its token bucket, the API returns
+`429 Too Many Requests`. The rate limiter produces a plain-text rejection, and
+the normalize middleware (`api/src/routes/error_body.rs`) rewrites it into the
+shared body. The limiter's headers are kept:
+
+```http
+HTTP/1.1 429 Too Many Requests
+content-type: application/json
+retry-after: 1
+x-ratelimit-after: 1
+
+{
+  "error": "too_many_requests",
+  "message": "Too Many Requests! Wait for 1s"
+}
+```
+
+- `error` is always `too_many_requests`. Branch on this code, not on `message`.
+- `retry-after` and `x-ratelimit-after` carry the same value: the wait until
+  the next token, in **whole seconds, rounded down**. No other `X-RateLimit-*`
+  headers are sent.
+- `Retry-After` is listed in `Access-Control-Expose-Headers`, so browser
+  clients can read it with `res.headers.get("Retry-After")`.
+
+<CalloutBox variant="tip">
+On a `429`, wait at least `Retry-After` seconds before retrying. With the default
+refill of one token every 200 ms, `Retry-After` can be `0`, so treat any value
+below `1` as one second. If a retry is throttled again, back off exponentially
+with jitter and cap the delay. Do not retry in a tight loop: every rejected
+request still draws from the same per-IP bucket.
+</CalloutBox>
+
+The limits and their env vars are listed in
+[Rate Limits & Caching](/docs/api/rate-limits).
 
 ## Request IDs
 
