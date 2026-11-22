@@ -60,3 +60,71 @@ access-control-allow-origin: *
 If that header is missing, the issue is upstream of the API (proxy, DNS, wrong
 URL) rather than CORS configuration — there is nothing to "allow" on the API
 side, since every origin is already allowed.
+
+## `503` from `/health`: stale snapshot
+
+`GET /health` returns `503` with `"status": "degraded"` when the indexer has
+stalled. The API keeps serving the last good snapshot, so data endpoints still
+answer, but the data is old. The health check is `503` when either of these is
+true:
+
+- the last successful poll is older than `max_age_seconds` (default: three poll
+  intervals, 30 seconds with the default 10-second interval), or
+- the served snapshot is older than `max_age_seconds`.
+
+While polls are failing, or the last success is older than the threshold, data
+responses also carry `X-Data-Stale: true`, `X-Data-Age-Seconds` and
+`X-Indexer-Consecutive-Failures`. Treat these headers as a signal that the data
+may be out of date.
+
+### Diagnose
+
+```bash
+curl -s https://your-api-host/health | jq
+```
+
+Read the fields in this order:
+
+- **`consecutive_failures` > 0.** Polls are failing. The indexer logs a
+  `index refresh failed; keeping last snapshot` warning with the error. Check
+  the logs for that line.
+- **`consecutive_failures` is `0`, but `last_poll_age_seconds` is over
+  `max_age_seconds`.** Polls are not completing. The indexer task may be stuck
+  or the process may be unhealthy. Look for `index refreshed` log lines; if
+  there are none, the poll loop has stopped.
+- **`last_poll_at` and `snapshot_age_seconds` are `null`.** No poll has
+  succeeded since the process started. `/ready` also returns `503` with
+  `"reason": "no-snapshot-yet"` in this state. Check `consecutive_failures` to
+  see whether the first poll is failing.
+- **`max_age_seconds` is lower than your poll interval.** The threshold is
+  stricter than the refresh cycle, so `/health` reports `degraded` even when
+  polling works. Check `RWA_HEALTH_MAX_POLL_AGE_SECS` and
+  `RWA_POLL_INTERVAL_SECS`.
+
+### Causes and fixes
+
+- **Upstream RPC is failing or rate-limiting.** Timeouts, network errors, `429`
+  and `503` from the RPC endpoint all count as failed polls. Confirm the host
+  can reach the RPC endpoint, check the error in the logs, and switch to a
+  working or higher-limit endpoint. Once a poll succeeds, `consecutive_failures`
+  resets to `0` and the `503` clears; no restart is needed.
+- **Outbound network blocked.** A firewall, proxy or DNS change on the host can
+  stop every poll. Test the RPC endpoint from the same host and network
+  namespace the API runs in.
+- **Threshold tuned too tight.** Raising `RWA_POLL_INTERVAL_SECS` without also
+  raising `RWA_HEALTH_MAX_POLL_AGE_SECS` makes the default threshold trip on
+  normal polling. Keep the threshold comfortably above the poll interval.
+- **Threshold raised to hide a stall.** `RWA_HEALTH_MAX_POLL_AGE_SECS` can be
+  raised for a known slow RPC, but a higher value does not fix a stalled
+  indexer. Only raise it when the data is still acceptably fresh for your use.
+- **Freshly started instance.** Right after startup, `/health` is `503` until
+  the first poll succeeds. If it stays `503` for more than a few poll
+  intervals, the failure is in the first poll; use `consecutive_failures` and
+  the logs.
+
+If `consecutive_failures` is `0` and polls are not completing, restart the
+service and capture the `/health` body and the indexer logs before filing an
+issue.
+
+For the full field list and the stale-header behavior, see
+[Health & Indexer Lag](/docs/api/health).
