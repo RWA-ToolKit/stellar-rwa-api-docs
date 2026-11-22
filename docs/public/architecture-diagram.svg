@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 240" width="960" height="240" role="img" aria-labelledby="arch-title arch-desc" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <title id="arch-title">Architecture data flow</title>
+  <desc id="arch-desc">Soroban contracts are read by the indexer through Soroban RPC every 10 seconds. The indexer decodes the results into an in-memory snapshot. The API serves each GET request from that snapshot, and clients such as web apps and integrators call the API.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect width="960" height="240" fill="#ffffff"/>
+
+  <!-- Boxes -->
+  <rect x="20" y="80" width="160" height="80" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/>
+  <text x="100" y="112" text-anchor="middle" font-size="15" font-weight="600" fill="#1e3a8a">Soroban</text>
+  <text x="100" y="134" text-anchor="middle" font-size="15" font-weight="600" fill="#1e3a8a">contracts</text>
+
+  <rect x="220" y="80" width="160" height="80" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="2"/>
+  <text x="300" y="112" text-anchor="middle" font-size="15" font-weight="600" fill="#0f172a">Soroban RPC</text>
+  <text x="300" y="134" text-anchor="middle" font-size="13" fill="#334155">simulateTransaction</text>
+
+  <rect x="420" y="80" width="160" height="80" rx="8" fill="#fef9c3" stroke="#a16207" stroke-width="2"/>
+  <text x="500" y="112" text-anchor="middle" font-size="15" font-weight="600" fill="#713f12">Indexer</text>
+  <text x="500" y="134" text-anchor="middle" font-size="13" fill="#713f12">polls every 10s</text>
+
+  <rect x="620" y="80" width="160" height="80" rx="8" fill="#ecfdf5" stroke="#047857" stroke-width="2"/>
+  <text x="700" y="112" text-anchor="middle" font-size="15" font-weight="600" fill="#064e3b">Snapshot</text>
+  <text x="700" y="134" text-anchor="middle" font-size="13" fill="#064e3b">in-memory (ArcSwap)</text>
+
+  <rect x="800" y="80" width="140" height="80" rx="8" fill="#f5f3ff" stroke="#6d28d9" stroke-width="2"/>
+  <text x="870" y="112" text-anchor="middle" font-size="15" font-weight="600" fill="#4c1d95">API</text>
+  <text x="870" y="134" text-anchor="middle" font-size="13" fill="#4c1d95">GET requests</text>
+
+  <rect x="800" y="180" width="140" height="44" rx="8" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+  <text x="870" y="207" text-anchor="middle" font-size="14" font-weight="600" fill="#0f172a">Clients</text>
+
+  <!-- Arrows -->
+  <line x1="180" y1="120" x2="218" y2="120" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="380" y1="120" x2="418" y2="120" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="580" y1="120" x2="618" y2="120" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="780" y1="120" x2="798" y2="120" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="870" y1="162" x2="870" y2="178" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Step labels -->
+  <text x="200" y="70" text-anchor="middle" font-size="12" fill="#475569">read</text>
+  <text x="400" y="70" text-anchor="middle" font-size="12" fill="#475569">decode</text>
+  <text x="600" y="70" text-anchor="middle" font-size="12" fill="#475569">swap</text>
+  <text x="790" y="70" text-anchor="middle" font-size="12" fill="#475569">read</text>
+  <text x="920" y="200" text-anchor="start" font-size="12" fill="#475569">HTTP</text>
+
+  <!-- Caption -->
+  <text x="480" y="230" text-anchor="middle" font-size="12" fill="#64748b">No database: each GET clones the current snapshot from memory. Failed refreshes keep serving the last good snapshot.</text>
+</svg>
