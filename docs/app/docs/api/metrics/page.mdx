@@ -1,0 +1,97 @@
+export const metadata = {
+  title: "API · Metrics Endpoint",
+  description: "The GET /metrics Prometheus scrape endpoint: authentication, output format and sample output.",
+  canonical: "/docs/api/metrics",
+  lastReviewed: "2026-11-22",
+};
+
+# Metrics endpoint
+
+<LastReviewed date={metadata.lastReviewed} />
+
+`GET /metrics` is a Prometheus scrape endpoint. It returns the indexer's internal
+metrics as Prometheus text exposition, not JSON. It is for monitoring systems;
+application clients should use the data endpoints instead.
+
+For the list of series and what each one means, see
+[Indexer Metrics](/docs/metrics). This page covers the endpoint itself.
+
+## Authentication
+
+Requests must send the bearer token configured in `RWA_METRICS_TOKEN`:
+
+```http
+GET /metrics HTTP/1.1
+Authorization: Bearer <RWA_METRICS_TOKEN>
+```
+
+- Missing, wrong or empty token: `401 Unauthorized` with the plain-text body
+  `metrics authentication required`. This shape is not the JSON
+  [error body](/docs/api/errors).
+- `RWA_METRICS_TOKEN` unset: every request is rejected with `401`. The endpoint
+  fails closed; it is not open when the variable is missing.
+
+## Response format
+
+| Property | Value |
+| --- | --- |
+| Status | `200 OK` when authorized |
+| `Content-Type` | `text/plain; version=0.0.4` |
+| Body | Prometheus text exposition format, version 0.0.4 |
+
+Each series has a `# TYPE` line, and may have a `# HELP` line. Each sample is
+`name{labels} value`. Names use the `rwa_indexer_` prefix, base units in the
+suffix (`_seconds`), and `_total` for counters.
+
+## Sample output
+
+Values below are illustrative, not from a live instance:
+
+```text
+# TYPE rwa_indexer_refresh_total counter
+rwa_indexer_refresh_total{outcome="success"} 18342
+rwa_indexer_refresh_total{outcome="failure"} 7
+# TYPE rwa_indexer_asset_read_errors_total counter
+rwa_indexer_asset_read_errors_total{asset_id="1",read="balance"} 3
+# TYPE rwa_indexer_last_indexed_ledger gauge
+rwa_indexer_last_indexed_ledger 3514152
+# TYPE rwa_indexer_last_success_timestamp_seconds gauge
+rwa_indexer_last_success_timestamp_seconds 1795000000
+# TYPE rwa_indexer_last_success_age_seconds gauge
+rwa_indexer_last_success_age_seconds 4
+# TYPE rwa_indexer_snapshot_assets gauge
+rwa_indexer_snapshot_assets 1
+# TYPE rwa_indexer_snapshot_events gauge
+rwa_indexer_snapshot_events 12
+```
+
+`rwa_indexer_refresh_duration_seconds` is also exposed as a histogram. Its
+bucket layout comes from the exporter configuration, so it is not shown here.
+
+## Freshness of gauges
+
+`rwa_indexer_last_success_age_seconds` is recalculated on each scrape, so its
+value is current at the time of the request. The other gauges reflect the last
+recorded update.
+
+## Scrape configuration
+
+Point Prometheus at the endpoint with the bearer token. Keep the token out of
+version control; load it from a file or secret store:
+
+```yaml
+scrape_configs:
+  - job_name: stellar-rwa-api
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/rwa_metrics_token
+    static_configs:
+      - targets: ["rwa-api.internal:8080"]
+```
+
+## What to read next
+
+- [Indexer Metrics](/docs/metrics) — every series, its type and the suggested alert.
+- [API · Health & Indexer Lag](/docs/api/health) — the JSON health endpoint.
+- [API Overview](/docs/api/overview) — the full endpoint list.
