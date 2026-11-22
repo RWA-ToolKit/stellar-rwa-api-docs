@@ -2,7 +2,7 @@ export const metadata = {
   title: "Time & Ledgers",
   description: "Understanding the ledger-sequence time model used across contracts and the API.",
   canonical: "/docs/time-and-ledgers",
-  lastReviewed: "2026-07-28",
+  lastReviewed: "2026-11-22",
 };
 
 # Time & Ledgers
@@ -11,9 +11,7 @@ export const metadata = {
 
 Throughout the Stellar RWA contracts and API, time is never expressed as a wall-clock
 timestamp. Instead, all time values use **Stellar ledger sequence numbers** — a monotonically
-increasing counter that increments roughly every 5 seconds on the Stellar network. Each closed
-block of the network is a *ledger*, and its number is its *ledger sequence*. See the
-[Glossary](/docs/glossary) for other terms used here.
+increasing counter that increments roughly every 5 seconds on the Stellar network.
 
 This design eliminates time-sync issues and makes on-chain logic deterministic.
 
@@ -26,8 +24,7 @@ This design eliminates time-sync issues and makes on-chain logic deterministic.
 
 ## Ledger sequences in contracts
 
-All on-chain time fields are `u32` values (unsigned 32-bit integers, so never negative) holding
-ledger sequence numbers:
+All on-chain time fields are `u32` ledger sequence numbers:
 
 - **Compliance contract:** `verified_at`, `expires_at` (approval expiry)
 - **Dividend contract:** `created_at` (when a distribution was announced)
@@ -49,8 +46,7 @@ const op = compliance.call(
 );
 ```
 
-To set an expiry, provide a **future** ledger number. The example below reads the latest ledger
-from Horizon, the Stellar network's public REST API:
+To set an expiry, provide a **future** ledger number:
 
 ```ts
 import { Horizon } from "@stellar/stellar-sdk";
@@ -73,8 +69,7 @@ const op = compliance.call(
 
 ### Checking expiry at runtime
 
-The compliance contract's `is_allowed` function (a read-only check that says whether an address may
-hold or receive the asset) checks expiry like this:
+The compliance contract's `is_allowed` gate checks expiry like this:
 
 ```rust
 // User is approved if:
@@ -84,6 +79,10 @@ hold or receive the asset) checks expiry like this:
 
 Once `now >= expires_at`, the approval is considered expired and `is_allowed` returns `false`,
 blocking all transfers. No on-chain cron job is needed — expiry is enforced at read time.
+
+The API applies its own comparison against the latest indexed ledger: a record is expired only
+when `latest_ledger > expires_at`, so the API still reports `allowed: true` on the `expires_at`
+ledger itself. Near the boundary, the API and the on-chain gate can disagree by one ledger.
 
 ## Ledger sequences in the API
 
@@ -103,30 +102,36 @@ never wall-clock timestamps:
 
 ### Compliance endpoint
 
-`GET /assets/:id/compliance` returns an aggregate summary: counts only, no addresses. It has no
-per-address `verified_at`, `expires_at` or `expired` fields.
+`GET /compliance/:address` returns one entry per asset whose allowlist contains the address
+(`[]` for an unknown address). `expires_at` is `null` when no expiry is set:
 
 ```json
-{
-  "total_records": 1,
-  "approved": 1,
-  "suspended": 0,
-  "rejected": 0,
-  "pending": 0,
-  "with_expiry": 0,
-  "jurisdictions": [{ "jurisdiction": "US", "count": 1 }]
-}
+[
+  {
+    "address": "GBUQWP...",
+    "asset_id": 1,
+    "asset_name": "Manhattan Loft",
+    "symbol": "MLOFT",
+    "balance": "1000",
+    "status": "Approved",
+    "allowed": true,
+    "jurisdiction": "US",
+    "expires_at": 9800000
+  }
+]
 ```
 
-`with_expiry` counts records whose `expires_at` is non-zero. To check one address's expiry, read
-its record from the compliance contract on-chain.
+`allowed` is the API's derived gate: `status == "Approved"`, not expired at the latest indexed
+ledger, and jurisdiction not blocked. The blocked-jurisdiction set is not yet read from the chain,
+so it is currently empty.
 
 ### Dividends endpoint
 
 ```json
 {
   "id": 1,
-  "asset_token": "CBMC...",
+  "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
   "total_amount": "100000000000",
   "distributed": "25000000000",
   "claimed_percent": 25.0,
@@ -157,14 +162,13 @@ future is roughly 58 days away.
 
 When building an integration against the API:
 
-1. **Read a single address's expiry on-chain.** The API has no per-address expiry field. Use the
-   compliance contract's `get_record` or `is_allowed` for that check.
+1. **Display the ledger number and the `allowed` flag.** Don't try to calculate expiry
+   yourself; trust `allowed` from `/compliance/:address`.
 2. **Refresh approval before expiry.** If you're tracking approval expiry, call
    `add_to_allowlist` again before the `expires_at` ledger is reached.
 3. **Remember `expires_at = 0` means never.** Don't treat `0` as an epoch or default timestamp.
-4. **Allow for indexer lag.** The API serves data from its indexer, which polls about every 10
-   seconds. Its `last_indexed_ledger` (in the health and overview responses) shows how far behind
-   the chain it is. For a decision that must be exact, read the contract directly.
+4. **Use the API's `allowed` field.** The API already handles the comparison against the
+   latest indexed ledger for you.
 
 ## Common mistakes
 
@@ -181,7 +185,6 @@ When building an integration against the API:
 
 ## What to read next
 
-- [Glossary](/docs/glossary) — definitions of the Stellar, Soroban and RWA terms used across these docs.
 - [Compliance Contract](/docs/contracts/compliance) — `expires_at` and `verified_at` fields explained.
 - [Compliance Guide](/docs/compliance-guide) — how expiry is enforced at read time by `is_allowed`.
 - [API · Assets](/docs/api/assets) — `created_at_ledger` and `indexed_at_ledger` in the response.
