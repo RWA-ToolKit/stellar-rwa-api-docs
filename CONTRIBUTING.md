@@ -63,11 +63,11 @@ cd docs
 npm run check:mdx-samples
 ```
 
-This extracts every fenced `ts`, `tsx`, `js`, and `jsx` code block from `.mdx`
-files under `docs/app/` and verifies that each one parses as valid JavaScript or
-TypeScript. It checks **syntax only** — it does not run the samples, resolve
-imports, or type-check them. Blocks fenced as `bash`, `json`, `rust`, or other
-languages are skipped. Run this any time you add or change a TypeScript example.
+This extracts every fenced `ts`, `tsx`, `js`, `jsx`, `python`, `go`, `json`, and
+`sh`/`bash` code block from `.mdx` files under `docs/app/` and verifies that each
+one parses. It checks **syntax only** — it does not run the samples, resolve
+imports, or type-check them. Blocks fenced as `rust` or other languages are
+skipped. Run this any time you add or change an example.
 
 **2. Production build**
 
