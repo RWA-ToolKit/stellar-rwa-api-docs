@@ -142,7 +142,7 @@ from a script triggers an `OPTIONS` preflight. The API answers that preflight
 with `Access-Control-Allow-Headers: content-type, if-none-match`; both are
 required for the conditional-request flow above to work in a browser.
 
-```ts
+```http
 // The preflight a browser sends before a request carrying If-None-Match.
 // Access-Control-Allow-Headers must list if-none-match or the request fails.
 OPTIONS /v1/assets/1
