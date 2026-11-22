@@ -9,9 +9,11 @@ export const metadata = {
 
 <LastReviewed date={metadata.lastReviewed} />
 
-`GET /metrics` (bearer token via `RWA_METRICS_TOKEN`) exposes Prometheus text
-format. Names follow Prometheus conventions: `rwa_indexer_` prefix, base units
-in the suffix (`_seconds`), and `_total` for counters.
+This page lists the indexer's Prometheus series. The `GET /metrics` endpoint
+that serves them (bearer token via `RWA_METRICS_TOKEN`, response format, sample
+output) is documented in [API · Metrics Endpoint](/docs/api/metrics). Names
+follow Prometheus conventions: `rwa_indexer_` prefix, base units in the suffix
+(`_seconds`), and `_total` for counters.
 
 | Metric | Type | Description |
 | --- | --- | --- |
@@ -29,6 +31,6 @@ Suggested alert: `rwa_indexer_last_success_age_seconds > 60`.
 ## What to read next
 
 - [API · Health & Indexer Lag](/docs/api/health) — the HTTP health endpoint and staleness headers.
-- [API Overview](/docs/api/overview) — the `/metrics` endpoint authentication and scrape configuration.
+- [API · Metrics Endpoint](/docs/api/metrics) — `/metrics` authentication, response format and scrape configuration.
 - [Architecture Overview](/docs/architecture) — how the indexer refresh cycle works.
 - [Snapshot Memory](/docs/snapshot-memory) — memory gauges and the bounding strategy.
