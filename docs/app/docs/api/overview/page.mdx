@@ -37,14 +37,69 @@ retries on the next tick. The API never panics on a transient failure.
 
 ## Endpoints
 
-<ApiEndpoint method="GET" path="/stats" description="Platform-wide statistics." />
-<ApiEndpoint method="GET" path="/assets" description="All tokenized assets." />
-<ApiEndpoint method="GET" path="/assets/:id" description="A single asset by registry id." />
-<ApiEndpoint method="GET" path="/assets/:id/holders" description="Holder list with balances." />
-<ApiEndpoint method="GET" path="/assets/:id/compliance" description="Non-PII compliance summary." />
-<ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history." />
+<ApiEndpoint method="GET" path="/stats" description="Platform-wide statistics.">
 
-Plus `GET /` (self-describing index) and `GET /health` (liveness).
+```bash
+curl http://localhost:8080/stats
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/assets" description="All tokenized assets.">
+
+```bash
+curl http://localhost:8080/assets
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/assets/:id" description="A single asset by registry id.">
+
+```bash
+curl http://localhost:8080/assets/1
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/assets/:id/holders" description="Holder list with balances.">
+
+```bash
+curl http://localhost:8080/assets/1/holders
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/assets/:id/compliance" description="Non-PII compliance summary.">
+
+```bash
+curl http://localhost:8080/assets/1/compliance
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/assets/:id/dividends" description="Distribution history.">
+
+```bash
+curl http://localhost:8080/assets/1/dividends
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/" description="Self-describing index.">
+
+```bash
+curl http://localhost:8080/
+```
+
+</ApiEndpoint>
+
+<ApiEndpoint method="GET" path="/health" description="Liveness.">
+
+```bash
+curl http://localhost:8080/health
+```
+
+</ApiEndpoint>
 
 ## Errors
 
