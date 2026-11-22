@@ -55,6 +55,7 @@
       { "title": "Rate Limits & Caching", "href": "/docs/api/rate-limits" },
       { "title": "Request IDs", "href": "/docs/api/request-ids" },
       { "title": "Health", "href": "/docs/api/health" },
+      { "title": "Version", "href": "/docs/api/version" },
       { "title": "Errors", "href": "/docs/api/errors" },
       { "title": "OpenAPI", "href": "/docs/api/openapi" },
       { "title": "Versioning", "href": "/docs/api/versioning" },
