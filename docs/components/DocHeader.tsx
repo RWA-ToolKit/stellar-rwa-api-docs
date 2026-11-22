@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sidebar } from "./Sidebar";
+import { DEFAULT_LOCALE, formatDate } from "@/lib/formatDate";
 
 const CONTRACTS_REPO = "https://github.com/your-org/stellar-rwa-contracts";
 const WEB_REPO = "https://github.com/your-org/stellar-rwa-web";
@@ -24,6 +25,26 @@ export function DocHeader() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const editUrl = editUrlForPath(pathname);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
+
+  // Keyboard support for the drawer: focus moves into it on open, Escape
+  // closes it, and focus returns to the menu toggle on close.
+  useEffect(() => {
+    if (!open) {
+      if (wasOpen.current) toggleRef.current?.focus();
+      wasOpen.current = false;
+      return;
+    }
+    wasOpen.current = true;
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   return (
     <>
@@ -31,6 +52,8 @@ export function DocHeader() {
         <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between gap-4 px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <button
+              ref={toggleRef}
+              type="button"
               className="rounded-lg p-2 text-base-200 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400 lg:hidden"
               onClick={() => setOpen(true)}
               aria-label="Open navigation menu"
@@ -98,6 +121,8 @@ export function DocHeader() {
             <div className="mb-5 flex items-center justify-between">
               <span className="text-sm font-semibold text-base-100">Navigation</span>
               <button
+                ref={closeRef}
+                type="button"
                 onClick={() => setOpen(false)}
                 aria-label="Close navigation menu"
                 className="rounded-lg p-1.5 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
@@ -119,14 +144,16 @@ export function DocHeader() {
  * "Last reviewed" line shown under a page title. The date is maintained in
  * each page's `metadata.lastReviewed` export (ISO `YYYY-MM-DD`).
  */
-export function LastReviewed({ date }: { date?: string }) {
+export function LastReviewed({
+  date,
+  locale = DEFAULT_LOCALE,
+}: {
+  date?: string;
+  /** BCP 47 locale for the visible date; defaults to `DEFAULT_LOCALE` ("en-US"). */
+  locale?: string;
+}) {
   if (!date) return null;
-  const label = new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+  const label = formatDate(date, locale);
   return (
     <p className="not-prose -mt-2 mb-6 text-sm text-base-300">
       Last reviewed: <time dateTime={date}>{label}</time>

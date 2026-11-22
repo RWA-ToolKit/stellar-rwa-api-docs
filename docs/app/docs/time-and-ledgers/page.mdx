@@ -2,7 +2,7 @@ export const metadata = {
   title: "Time & Ledgers",
   description: "Understanding the ledger-sequence time model used across contracts and the API.",
   canonical: "/docs/time-and-ledgers",
-  lastReviewed: "2026-07-28",
+  lastReviewed: "2026-11-22",
 };
 
 # Time & Ledgers
@@ -26,10 +26,9 @@ This design eliminates time-sync issues and makes on-chain logic deterministic.
 
 All on-chain time fields are `u32` ledger sequence numbers:
 
-- **Compliance contract:** `verified_at`, `expires_at` (approval expiry)
-- **Dividend contract:** `created_at` (when a distribution was announced)
-- **Registry contract:** `created_at` (when an asset was registered)
-- **Asset-token contract:** `clawback_at` (when a clawback was performed)
+- **[Compliance contract](/docs/contracts/compliance):** `verified_at`, `expires_at` (approval expiry)
+- **[Dividend contract](/docs/contracts/dividend):** `created_at` (when a distribution was announced), `snapshot_ledger`
+- **[Registry contract](/docs/contracts/registry):** `created_at` (when an asset was registered)
 
 ### The special case: `expires_at = 0` means "never"
 
@@ -83,45 +82,64 @@ blocking all transfers. No on-chain cron job is needed — expiry is enforced at
 
 ## Ledger sequences in the API
 
-The REST API mirrors this design. All time fields in responses are **ledger sequence numbers**,
-never wall-clock timestamps:
+The REST API mirrors this design. Per-asset and per-record time fields in responses are **ledger
+sequence numbers**, never wall-clock timestamps. The one exception is `last_updated` on
+[`/stats`](/docs/api/overview), an RFC3339 string recording when the indexer last refreshed.
 
 ### Assets endpoint
+
+See [API · Assets](/docs/api/assets) for the full field list.
 
 ```json
 {
   "id": 1,
   "name": "Manhattan Loft",
   "created_at_ledger": 3502885,
+  "indexed_at_ledger": 3510000,
   "total_supply": "1000000"
 }
 ```
 
 ### Compliance endpoint
 
+`GET /compliance/:address` returns one entry per asset the address is recorded against. See
+[API · Compliance](/docs/api/compliance).
+
 ```json
-{
-  "address": "GBUQWP...",
-  "status": "Approved",
-  "jurisdiction": "US",
-  "verified_at": 3500000,
-  "expires_at": 9800000,
-  "expired": false
-}
+[
+  {
+    "address": "GBUQWP...",
+    "asset_id": 1,
+    "asset_name": "Manhattan Loft",
+    "symbol": "MLOFT",
+    "balance": "1000",
+    "status": "Approved",
+    "allowed": true,
+    "jurisdiction": "US",
+    "expires_at": 9800000
+  }
+]
 ```
 
-The `expired` field is a convenience boolean: `true` if `expires_at != 0 && expires_at <= last_indexed_ledger`.
+`expires_at` is `null` when the record has no expiry (on-chain `0`) or the address is unknown.
+`allowed` is the field to use: it is `true` only when the status is `Approved`, the record has not
+expired at the indexer's `last_indexed_ledger`, and the jurisdiction is not blocked.
 
 ### Dividends endpoint
+
+See [API · Dividends](/docs/api/dividends) for the full field list.
 
 ```json
 {
   "id": 1,
-  "asset_id": 1,
-  "per_share_cents": "100",
-  "created_at_ledger": 3510000,
-  "payable_at_ledger": 3520000,
-  "claimed": 500
+  "asset_token": "CDLZFC...",
+  "payment_token": "CBIELT...",
+  "total_amount": "5000000",
+  "distributed": "500000",
+  "claimed_percent": 10.0,
+  "overflow_detected": false,
+  "completed": false,
+  "created_at_ledger": 3510000
 }
 ```
 
@@ -146,13 +164,15 @@ future is roughly 58 days away.
 
 When building an integration against the API:
 
-1. **Display the ledger number and the `expired` boolean.** Don't try to calculate expiry
-   yourself; trust the `expired` field from the API.
+1. **Display the `expires_at` ledger and the `allowed` boolean.** Trust `allowed` from the API
+   rather than recomputing expiry yourself.
 2. **Refresh approval before expiry.** If you're tracking approval expiry, call
    `add_to_allowlist` again before the `expires_at` ledger is reached.
 3. **Remember `expires_at = 0` means never.** Don't treat `0` as an epoch or default timestamp.
-4. **Use the API's `expired` field.** The API already handles the comparison against the
-   current indexed ledger for you.
+4. **Expect the API to lag the chain.** `allowed` is evaluated against the indexer's
+   `last_indexed_ledger`, not the live network ledger, so an approval can still show `allowed: true`
+   for a few ledgers after it has expired on-chain. The on-chain `is_allowed` gate is the
+   authority for transfers.
 
 ## Common mistakes
 
@@ -171,5 +191,8 @@ When building an integration against the API:
 
 - [Compliance Contract](/docs/contracts/compliance) — `expires_at` and `verified_at` fields explained.
 - [Compliance Guide](/docs/compliance-guide) — how expiry is enforced at read time by `is_allowed`.
+- [Dividend Contract](/docs/contracts/dividend) and [Registry Contract](/docs/contracts/registry) — the other on-chain `created_at` fields.
 - [API · Assets](/docs/api/assets) — `created_at_ledger` and `indexed_at_ledger` in the response.
+- [API · Compliance](/docs/api/compliance) and [API · Dividends](/docs/api/dividends) — the `allowed` flag and distribution fields.
+- [Glossary](/docs/glossary) — definitions of ledger sequence and related terms.
 - [Architecture Overview](/docs/architecture) — how the indexer's polling interval affects ledger lag.

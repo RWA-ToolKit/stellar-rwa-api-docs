@@ -91,3 +91,22 @@ docker run --rm -p 3000:3000 stellar-rwa-docs
 
 Pass other public settings from `docs/.env.example` with additional
 `--build-arg` flags. Rebuild the image when these values change.
+
+## Deployed Contract Versions
+
+This matrix maps each docs release (by its `CHANGELOG.md` heading) to the
+Testnet contract addresses it documents and the contract build they came from.
+Addresses match `docs/lib/contracts.ts` and the README. Git tags and contract
+versions are only listed where they are recorded in this repository; otherwise
+the cell says so.
+
+| Docs release (CHANGELOG) | Contract | Testnet address | Contract git tag / build |
+|---|---|---|---|
+| `[0.1.0]` — 2026-07-09 (also `[Unreleased]`) | registry | `CBX5SMLTXX6JP4HA5GQIO2V6QM7WCUGL2GZ6D4U773HMRI6RXISKPUR3` | not tagged yet (build unrecorded) |
+| `[0.1.0]` — 2026-07-09 (also `[Unreleased]`) | compliance | `CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU` | not tagged yet (build unrecorded) |
+| `[0.1.0]` — 2026-07-09 (also `[Unreleased]`) | dividend | `CAR4XY3CEBQWFOL27JEWFW34KXSIZA7RFKDQMEIV7ZU723RWY37I2SYX` | not tagged yet (build unrecorded) |
+| `[0.1.0]` — 2026-07-09 (also `[Unreleased]`) | asset-token (sample) | `CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ` | not tagged yet (build unrecorded) |
+
+When contracts are redeployed, add new rows for the new docs release and
+addresses, keep the older rows, and update the README and
+`docs/lib/contracts.ts` ids in the same change.
