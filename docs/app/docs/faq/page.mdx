@@ -17,6 +17,14 @@ To issue, transfer, or claim through the web app you need the
 [Freighter](https://freighter.app) extension; the app signs through it and never
 holds keys. See [Connecting Freighter](/docs/web-app#connecting-freighter).
 
+## Why does the API hold no keys?
+
+Because it only reads. The indexer holds no keys and never signs or submits a
+transaction, so a compromise of the API cannot move funds or change on-chain
+state, and you never need to trust it with signing authority. Treat its responses
+as a derived snapshot and verify high-stakes decisions against the chain. See
+[Security considerations](/docs/security-considerations).
+
 ## Is it on mainnet?
 
 No. Everything is deployed on **Testnet** for demonstration and must not be used
