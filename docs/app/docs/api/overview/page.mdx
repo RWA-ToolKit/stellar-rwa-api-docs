@@ -137,6 +137,33 @@ can call the API directly from the browser.
 `total_holders` is the count of **distinct approved addresses** across all assets;
 `last_indexed_ledger` is the ledger the most recent successful refresh read from.
 
+### Python example
+
+Requires `pip install requests`. The output below uses the sample values from the
+response above.
+
+```python
+import requests
+
+resp = requests.get("http://localhost:8080/stats", timeout=10)
+resp.raise_for_status()
+stats = resp.json()
+
+print(f"Assets: {stats['active_assets']}/{stats['total_assets']} active")
+print(f"TVL: ${stats['tvl_usd']:,.2f}")
+print(f"Holders: {stats['total_holders']}")
+```
+
+Expected output:
+
+```text
+Assets: 1/1 active
+TVL: $5,000,000.00
+Holders: 1
+```
+
+{/* check:mdx-samples only validates ts/tsx/js/jsx blocks, so this Python sample is not checked automatically (see testing gap issue). */}
+
 ## FAQ
 
 ### Why REST instead of GraphQL?
