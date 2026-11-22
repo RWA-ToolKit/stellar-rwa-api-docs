@@ -57,6 +57,32 @@ number of seconds when present, with a minimum one-second delay. Otherwise, use
 exponential backoff with jitter (and cap the delay), and retry only idempotent
 requests.
 
+### Worked example: exhausting the burst
+
+The server does not emit `X-RateLimit-Limit`, `X-RateLimit-Remaining` or
+`X-RateLimit-Reset` on any response — successful or throttled. The only
+rate-limit header is `Retry-After`, and only on `429`. This mirrors the boundary
+behavior exercised in `rate_limit_boundary_tests.rs`: with a burst of `N`, requests
+`1..N` succeed and request `N + 1` from the same IP is throttled.
+
+```bash
+# Burst of 2 for illustration; the default burst is 20.
+curl -i "$API_BASE_URL/assets"   # request 1
+# HTTP/1.1 200 OK
+# (no X-RateLimit-* headers)
+
+curl -i "$API_BASE_URL/assets"   # request 2
+# HTTP/1.1 200 OK
+
+curl -i "$API_BASE_URL/assets"   # request 3 — burst spent
+# HTTP/1.1 429 Too Many Requests
+# Content-Type: application/json
+# Retry-After: 1
+# Access-Control-Expose-Headers: etag, retry-after, cache-control   (CORS requests only)
+#
+# {"error":"too_many_requests","message":"Too Many Requests! Wait for 1s"}
+```
+
 <CalloutBox variant="tip">
 For polling use cases, the indexer refreshes its state about every 10 seconds, so
 polling more frequently does not provide fresher data. Use a 10–15 second polling
