@@ -2,7 +2,7 @@ export const metadata = {
   title: "Time & Ledgers",
   description: "Understanding the ledger-sequence time model used across contracts and the API.",
   canonical: "/docs/time-and-ledgers",
-  lastReviewed: "2026-07-28",
+  lastReviewed: "2026-11-22",
 };
 
 # Time & Ledgers
@@ -29,7 +29,6 @@ All on-chain time fields are `u32` ledger sequence numbers:
 - **Compliance contract:** `verified_at`, `expires_at` (approval expiry)
 - **Dividend contract:** `created_at` (when a distribution was announced)
 - **Registry contract:** `created_at` (when an asset was registered)
-- **Asset-token contract:** `clawback_at` (when a clawback was performed)
 
 ### The special case: `expires_at = 0` means "never"
 
@@ -81,6 +80,10 @@ The compliance contract's `is_allowed` gate checks expiry like this:
 Once `now >= expires_at`, the approval is considered expired and `is_allowed` returns `false`,
 blocking all transfers. No on-chain cron job is needed — expiry is enforced at read time.
 
+The API applies its own comparison against the latest indexed ledger: a record is expired only
+when `latest_ledger > expires_at`, so the API still reports `allowed: true` on the `expires_at`
+ledger itself. Near the boundary, the API and the on-chain gate can disagree by one ledger.
+
 ## Ledger sequences in the API
 
 The REST API mirrors this design. All time fields in responses are **ledger sequence numbers**,
@@ -99,29 +102,42 @@ never wall-clock timestamps:
 
 ### Compliance endpoint
 
+`GET /compliance/:address` returns one entry per asset whose allowlist contains the address
+(`[]` for an unknown address). `expires_at` is `null` when no expiry is set:
+
 ```json
-{
-  "address": "GBUQWP...",
-  "status": "Approved",
-  "jurisdiction": "US",
-  "verified_at": 3500000,
-  "expires_at": 9800000,
-  "expired": false
-}
+[
+  {
+    "address": "GBUQWP...",
+    "asset_id": 1,
+    "asset_name": "Manhattan Loft",
+    "symbol": "MLOFT",
+    "balance": "1000",
+    "status": "Approved",
+    "allowed": true,
+    "jurisdiction": "US",
+    "expires_at": 9800000
+  }
+]
 ```
 
-The `expired` field is a convenience boolean: `true` if `expires_at != 0 && expires_at <= last_indexed_ledger`.
+`allowed` is the API's derived gate: `status == "Approved"`, not expired at the latest indexed
+ledger, and jurisdiction not blocked. The blocked-jurisdiction set is not yet read from the chain,
+so it is currently empty.
 
 ### Dividends endpoint
 
 ```json
 {
   "id": 1,
-  "asset_id": 1,
-  "per_share_cents": "100",
-  "created_at_ledger": 3510000,
-  "payable_at_ledger": 3520000,
-  "claimed": 500
+  "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+  "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  "total_amount": "100000000000",
+  "distributed": "25000000000",
+  "claimed_percent": 25.0,
+  "completed": false,
+  "snapshot_ledger": 3510000,
+  "created_at_ledger": 3510000
 }
 ```
 
@@ -146,13 +162,13 @@ future is roughly 58 days away.
 
 When building an integration against the API:
 
-1. **Display the ledger number and the `expired` boolean.** Don't try to calculate expiry
-   yourself; trust the `expired` field from the API.
+1. **Display the ledger number and the `allowed` flag.** Don't try to calculate expiry
+   yourself; trust `allowed` from `/compliance/:address`.
 2. **Refresh approval before expiry.** If you're tracking approval expiry, call
    `add_to_allowlist` again before the `expires_at` ledger is reached.
 3. **Remember `expires_at = 0` means never.** Don't treat `0` as an epoch or default timestamp.
-4. **Use the API's `expired` field.** The API already handles the comparison against the
-   current indexed ledger for you.
+4. **Use the API's `allowed` field.** The API already handles the comparison against the
+   latest indexed ledger for you.
 
 ## Common mistakes
 
