@@ -56,6 +56,37 @@ curl http://localhost:8080/assets/1/dividends
 
 An asset with no distributions returns an empty array `[]`.
 
+**TypeScript example**
+
+```ts
+const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:8080";
+
+interface Distribution {
+  id: number;
+  asset_token: string;
+  payment_token: string;
+  total_amount: string; // i128, payment token base units
+  distributed: string; // i128, payment token base units
+  claimed_percent: number;
+  completed: boolean;
+  snapshot_ledger: number;
+  created_at_ledger: number;
+}
+
+async function fetchDividends(assetId: number): Promise<Distribution[]> {
+  const res = await fetch(`${API_BASE_URL}/assets/${assetId}/dividends`);
+  if (!res.ok) {
+    throw new Error(`Dividends request failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+const distributions = await fetchDividends(1);
+for (const d of distributions) {
+  console.log(`#${d.id} ${d.claimed_percent}% claimed${d.completed ? " (complete)" : ""}`);
+}
+```
+
 **Errors**
 
 Returns `404` with `{ "error": "not_found", … }` when the asset id is unknown.
