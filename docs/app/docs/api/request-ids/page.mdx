@@ -1,31 +1,86 @@
 export const metadata = {
   title: "API · Request IDs & Logging",
-  description: "Correlate a response with server logs using the request id.",
+  description: "How request ids are supplied or generated, where they appear, and how to correlate a response with server logs.",
   canonical: "/docs/api/request-ids",
-  lastReviewed: "2026-09-26",
+  lastReviewed: "2026-11-23",
 };
 
 # Request IDs & logging
 
 <LastReviewed date={metadata.lastReviewed} />
 
-Every response carries an `X-Request-Id` header. Send your own `X-Request-Id`
-(up to 64 characters of letters, digits, `-` and `_`) to have it reused.
+Every response carries an `X-Request-Id` header, including `404` and `405`
+responses for unknown routes. Its value is either an id you supplied or one the
+server generated.
 
-The request id is carried **only** in the `X-Request-Id` response header (and in
-the server logs described below). It is not included in JSON error bodies —
-those contain exactly `error` and `message`:
+## Client-supplied ids
+
+Send your own `X-Request-Id` and the server reuses it. A supplied value is used
+only if it:
+
+- is 1 to 64 characters long, and
+- contains only letters, digits, `-` and `_`.
+
+A value that fails either rule is **not rejected**. The request succeeds and the
+server generates a fresh id instead. Read the `X-Request-Id` response header to
+see which id was used rather than assuming your value was kept.
+
+## Server-generated ids
+
+When you do not send a usable id, the server generates one: 16 lowercase hex
+characters (64 random bits), for example `9f0c2a51d4e7b803`. It is not a UUID
+and carries no meaning beyond identifying that request.
+
+## Retries
+
+Each request is resolved on its own. A retry sent without an `X-Request-Id`
+gets a new id, so its logs cannot be linked to the earlier attempt. To group
+attempts, send the same `X-Request-Id` on every attempt. Each attempt is still
+logged as a separate request.
+
+## Where the id appears
+
+- The `X-Request-Id` response header, on every response.
+- The `request_id` field of JSON error bodies (`4xx` and `5xx`), alongside
+  `error` and `message`, with the same value as the header:
 
 ```json
-{ "error": "not_found", "message": "Asset 7 not found" }
+{
+  "error": "not_found",
+  "message": "Asset 7 not found",
+  "request_id": "9f0c2a51d4e7b803"
+}
 ```
 
-See [API · Error Bodies](/docs/api/errors) for the canonical error shape.
+Successful (`2xx`) response bodies do not contain `request_id`. See
+[API · Error Bodies](/docs/api/errors) for the full error shape.
 
-The server logs one structured line per request inside a span carrying
-`request_id`, `method` and `path`, with `status`, `latency_ms`,
-`indexed_ledger` and `consecutive_failures`, so a report can be matched to the
-indexer state at that moment. Set `RUST_LOG` to control verbosity.
+## Server logs
+
+The server writes one `request completed` log line per request. The line is
+emitted inside a span that carries `request_id`, `method` and `path`, and
+records:
+
+- `status` and `latency_ms`, and
+- `indexed_ledger` and `consecutive_failures`, which show the indexer state at
+  that moment, so a report can be matched to it.
+
+Logs are at `info` level by default (`stellar_rwa_api=info`). Set `RUST_LOG` to
+change verbosity. If you set it yourself, include `stellar_rwa_api=info`, or
+these lines are dropped.
+
+## Support requests
+
+To have a problem investigated, include the `X-Request-Id` value from the
+response header (or the `request_id` from the error body, which is the same
+value), the endpoint, and the approximate time of the request.
+
+With the default log format, span fields are printed as `key=value`, so an
+operator can find the request with a search such as:
+
+```sh
+grep 'request_id=9f0c2a51d4e7b803' server.log
+```
 
 ## What to read next
 
