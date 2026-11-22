@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "docs/public/openapi-v1.yaml"
+      - "docs/public/openapi.json"
       - ".github/workflows/openapi.yml"
   pull_request:
     paths:
       - "docs/public/openapi-v1.yaml"
+      - "docs/public/openapi.json"
       - ".github/workflows/openapi.yml"
 
 jobs:
@@ -19,3 +21,4 @@ jobs:
         with:
           node-version: 20
       - run: npx --yes @apidevtools/swagger-cli@4 validate docs/public/openapi-v1.yaml
+      - run: npx --yes @apidevtools/swagger-cli@4 validate docs/public/openapi.json

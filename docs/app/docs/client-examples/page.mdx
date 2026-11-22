@@ -1,0 +1,329 @@
+export const metadata = {
+  title: "Client Examples",
+  description: "Index of curl, JavaScript, Python and Go samples for the Stellar RWA API, linked to each API reference page.",
+  canonical: "/docs/client-examples",
+  lastReviewed: "2026-11-22",
+};
+
+# Client Examples
+
+<LastReviewed date={metadata.lastReviewed} />
+
+The API is read-only JSON over HTTP, so any HTTP client works. This page collects
+runnable samples in four languages and links each one to the reference page that
+defines the endpoint. The samples use only the standard library: no SDK, no
+API key.
+
+Set `API_BASE_URL` to point the samples at your deployment. They default to
+`http://localhost:8080`.
+
+## Conventions every client needs
+
+- **Amounts are strings.** `total_supply`, `balance`, `total_amount` and
+  `valuation_cents` are `i128` values sent as decimal strings. Parse them with
+  `BigInt` (JS) or `int` (Python). In Go, keep them as `string` or use `math/big`.
+- **Divide by `10 ** decimals`** to get a display value. Each asset carries its
+  own `decimals`.
+- **Errors return JSON** with an `error` field and an HTTP status. Check
+  `res.ok` or the status code before you parse the body. See [Errors](/docs/api/errors).
+
+## Endpoint index
+
+| Task | Endpoint | curl | JavaScript | Python | Go | Reference |
+| --- | --- | --- | --- | --- | --- | --- |
+| List all assets | `GET /assets` | Yes | Yes | Yes | Yes | [Assets](/docs/api/assets) |
+| Holders and balances | `GET /assets/:id/holders` | Yes | Yes | Yes | Yes | [Holders](/docs/api/holders) |
+| Dividend history | `GET /assets/:id/dividends` | Yes | Yes | Yes | Yes | [Dividends](/docs/api/dividends) |
+| Recent contract events | `GET /v1/events` | Yes | — | — | — | [Events](/docs/api/events) |
+| Compliance summary | `GET /assets/:id/compliance` | — | — | — | — | [Compliance](/docs/api/compliance) |
+| One address's positions | `GET /holders/:address/position` | — | — | — | — | [Holder Position](/docs/api/holder-position) |
+| Single asset by id | `GET /assets/:id` | — | — | — | — | [Assets](/docs/api/assets) |
+
+Need an endpoint that has no sample yet? The [Integration Guide](/docs/integration)
+has the TypeScript client for the same API and the Soroban RPC path for live reads.
+
+## List assets
+
+### curl
+
+```bash
+curl "$API_BASE_URL/assets"
+```
+
+### JavaScript
+
+```js
+const API = process.env.API_BASE_URL ?? "http://localhost:8080";
+
+const res = await fetch(`${API}/assets`);
+if (!res.ok) throw new Error(`API ${res.status}`);
+const assets = await res.json();
+
+for (const a of assets) {
+  console.log(a.id, a.symbol, BigInt(a.total_supply) / 10n ** BigInt(a.decimals));
+}
+```
+
+### Python
+
+```python
+import json
+import os
+from urllib.request import urlopen
+
+API = os.environ.get("API_BASE_URL", "http://localhost:8080")
+
+with urlopen(f"{API}/assets") as res:
+    assets = json.load(res)
+
+for a in assets:
+    supply = int(a["total_supply"]) // 10 ** a["decimals"]
+    print(a["id"], a["symbol"], supply)
+```
+
+### Go
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+)
+
+type Asset struct {
+	ID          int    `json:"id"`
+	Symbol      string `json:"symbol"`
+	TotalSupply string `json:"total_supply"` // i128 as a decimal string
+}
+
+func main() {
+	base := os.Getenv("API_BASE_URL")
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+
+	res, err := http.Get(base + "/assets")
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		panic(fmt.Sprintf("API %d", res.StatusCode))
+	}
+
+	var assets []Asset
+	if err := json.NewDecoder(res.Body).Decode(&assets); err != nil {
+		panic(err)
+	}
+	for _, a := range assets {
+		fmt.Println(a.ID, a.Symbol, a.TotalSupply)
+	}
+}
+```
+
+Reference: [Assets](/docs/api/assets) · [Assets Query](/docs/api/assets-query) ·
+[Field Selection](/docs/api/field-selection) to trim the payload.
+
+## Holders of an asset
+
+### curl
+
+```bash
+curl "$API_BASE_URL/assets/1/holders"
+```
+
+### JavaScript
+
+```js
+const API = process.env.API_BASE_URL ?? "http://localhost:8080";
+
+const res = await fetch(`${API}/assets/1/holders`);
+if (res.status === 404) throw new Error("unknown asset id");
+if (!res.ok) throw new Error(`API ${res.status}`);
+
+const holders = await res.json(); // sorted by balance, largest first
+for (const h of holders) {
+  console.log(h.address, h.balance, `${h.share_percent}%`);
+}
+```
+
+### Python
+
+```python
+import json
+import os
+from urllib.error import HTTPError
+from urllib.request import urlopen
+
+API = os.environ.get("API_BASE_URL", "http://localhost:8080")
+
+try:
+    with urlopen(f"{API}/assets/1/holders") as res:
+        holders = json.load(res)
+except HTTPError as err:
+    raise SystemExit(f"API {err.code}")  # 404 = unknown asset id
+
+for h in holders:  # sorted by balance, largest first
+    print(h["address"], h["balance"], f"{h['share_percent']}%")
+```
+
+### Go
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+)
+
+type Holder struct {
+	Address      string  `json:"address"`
+	Balance      string  `json:"balance"` // i128 as a decimal string
+	SharePercent float64 `json:"share_percent"`
+}
+
+func main() {
+	base := os.Getenv("API_BASE_URL")
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+
+	res, err := http.Get(base + "/assets/1/holders")
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		panic(fmt.Sprintf("API %d", res.StatusCode)) // 404 = unknown asset id
+	}
+
+	var holders []Holder
+	if err := json.NewDecoder(res.Body).Decode(&holders); err != nil {
+		panic(err)
+	}
+	for _, h := range holders {
+		fmt.Println(h.Address, h.Balance, h.SharePercent)
+	}
+}
+```
+
+Reference: [Holders](/docs/api/holders) · [Holder Position](/docs/api/holder-position)
+for one address across every asset · [Compliance](/docs/api/compliance) for the
+aggregate allowlist counts.
+
+## Dividend history
+
+### curl
+
+```bash
+curl "$API_BASE_URL/assets/1/dividends"
+```
+
+### JavaScript
+
+```js
+const API = process.env.API_BASE_URL ?? "http://localhost:8080";
+
+const res = await fetch(`${API}/assets/1/dividends`);
+if (!res.ok) throw new Error(`API ${res.status}`);
+
+const dividends = await res.json(); // newest ledger first
+for (const d of dividends) {
+  console.log(d.id, d.total_amount, `${d.claimed_percent}% claimed`);
+}
+```
+
+### Python
+
+```python
+import json
+import os
+from urllib.request import urlopen
+
+API = os.environ.get("API_BASE_URL", "http://localhost:8080")
+
+with urlopen(f"{API}/assets/1/dividends") as res:  # newest ledger first
+    dividends = json.load(res)
+
+for d in dividends:
+    print(d["id"], d["total_amount"], f"{d['claimed_percent']}% claimed")
+```
+
+### Go
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+)
+
+type Dividend struct {
+	ID             int     `json:"id"`
+	TotalAmount    string  `json:"total_amount"` // i128 as a decimal string
+	ClaimedPercent float64 `json:"claimed_percent"`
+}
+
+func main() {
+	base := os.Getenv("API_BASE_URL")
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+
+	res, err := http.Get(base + "/assets/1/dividends")
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		panic(fmt.Sprintf("API %d", res.StatusCode))
+	}
+
+	var dividends []Dividend
+	if err := json.NewDecoder(res.Body).Decode(&dividends); err != nil {
+		panic(err)
+	}
+	for _, d := range dividends {
+		fmt.Println(d.ID, d.TotalAmount, d.ClaimedPercent)
+	}
+}
+```
+
+Reference: [Dividends](/docs/api/dividends) · [Errors](/docs/api/errors) for the
+404 shape · [Rate Limits & Caching](/docs/api/rate-limits) before you poll.
+
+## Recent events
+
+Events are the one endpoint that uses a `/v1` prefix and accepts a `limit` query
+parameter. This sample uses curl only; the response shape is in the
+[Events](/docs/api/events) reference.
+
+```bash
+curl "$API_BASE_URL/v1/events?limit=20"
+```
+
+Use the `fields` parameter to return only the event fields you need. See
+[Field Selection](/docs/api/field-selection).
+
+## Reading live state on-chain
+
+The API lags the chain by a few ledgers. For an authoritative read, or for any
+write, call the contracts directly with the Stellar JS SDK. The
+[Integration Guide](/docs/integration) has the simulation, compliance-check and
+Freighter-signed transfer examples. The [Contract Reference](/docs/contracts/asset-token)
+covers the methods they call.
+
+## Related
+
+- [API Overview](/docs/api/overview): base URL, conventions and the full endpoint list
+- [Versioning](/docs/api/versioning): which paths are stable before you pin a client
+- [Troubleshooting](/docs/troubleshooting): common connection and parsing failures
