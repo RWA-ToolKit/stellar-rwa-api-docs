@@ -2266,5 +2266,59 @@
     "section": "Guides",
     "description": "Transaction feedback",
     "content": "Every on-chain action shows live progress — preparing → awaiting signature → submitting → confirming — and, on success, a link to the transaction on Stellar Expert. Contract errors are translated into plain-language messages."
+  },
+  {
+    "id": "/docs/build-a-dashboard",
+    "title": "Build a Dashboard",
+    "pageTitle": "Build a Dashboard",
+    "href": "/docs/build-a-dashboard",
+    "section": "Guides",
+    "description": "Build a single-file TVL dashboard that reads /v1/stats and /v1/assets from the Stellar RWA API.",
+    "content": "Build a Dashboard In this tutorial you build a one-file dashboard that shows the platform's total value locked (TVL), active asset count, holder count and a table of every asset. It reads two endpoints, /v1/stats and /v1/assets , and refreshes every 10 seconds, the same cadence the API's indexer uses. You need the API running locally, as described in Getting Started , and a browser. There is no build step and no framework."
+  },
+  {
+    "id": "/docs/build-a-dashboard#step-1-check-the-endpoints",
+    "title": "Build a Dashboard › Step 1: Check the endpoints",
+    "pageTitle": "Build a Dashboard",
+    "href": "/docs/build-a-dashboard#step-1-check-the-endpoints",
+    "section": "Guides",
+    "description": "Step 1: Check the endpoints",
+    "content": "With the API running on localhost:8080 , confirm both endpoints answer: curl http://localhost:8080/v1/stats curl http://localhost:8080/v1/assets /v1/stats returns one object. The dashboard uses tvl_usd , active_assets , total_assets , total_holders and last_indexed_ledger . /v1/assets returns an array. The dashboard uses name , symbol , asset_type , valuation_usd , holders , active and paused . Every data route is nested under /v1 . Requests to /stats or /assets without the prefix return 404 ."
+  },
+  {
+    "id": "/docs/build-a-dashboard#step-2-create-the-dashboard",
+    "title": "Build a Dashboard › Step 2: Create the dashboard",
+    "pageTitle": "Build a Dashboard",
+    "href": "/docs/build-a-dashboard#step-2-create-the-dashboard",
+    "section": "Guides",
+    "description": "Step 2: Create the dashboard",
+    "content": "Create a file named dashboard.html and paste in this code: Stellar RWA Dashboard body { font-family: system-ui, sans-serif; margin: 2rem; color: #111; } .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem; } .kpi { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; } .kpi span { display: block; font-size: 0.85rem; color: #555; } .kpi strong { font-size: 1.5rem; } table { border-collapse: collapse; width: 100%; } th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; } .num { text-align: right; } #error { color: #b00020; min-height: 1.2rem; } #updated { color: #555; font-size: 0.85rem; } Stellar RWA Dashboard Total value locked — Active assets — Holders — Last indexed ledger — Asset Type Valuation Holders Status const API = \"http://localhost:8080/v1\"; const REFRESH_MS = 10_000; const usd = new Intl.NumberFormat(\"en-US\", { style: \"currency\", currency: \"USD\", maximumFractionDigits: 0 }); const count = new Intl.NumberFormat(\"en-US\"); const $ = (id) => document.getElementById(id); async function getJson(path) { const res = await fetch(API + path); const body = await res.json(); if (!res.ok) throw new Error( ${path}: ${body.error} (${body.message}) ); return body; } function renderStats(s) { $(\"tvl\").textContent = usd.format(s.tvl_usd); $(\"active\").textContent = ${s.active_assets} of ${s.total_assets} ; $(\"holders\").textContent = count.format(s.total_holders); $(\"ledger\").textContent = count.format(s.last_indexed_ledger); } function renderAssets(assets) { const rows = assets.map((a) => { const status = !a.active ? \"Inactive\" : a.paused ? \"Paused\" : \"Active\"; const tr = document.createElement(\"tr\"); // textContent, never innerHTML: names and descriptions come from on-chain data. [ [ ${a.name} (${a.symbol}) , \"\"], [a.asset_type, \"\"], [usd.format(a.valuation_usd), \"num\"], [count.format(a.holders), \"num\"], [status, \"\"], ].forEach(([text, cls]) => { const td = document.createElement(\"td\"); td.textContent = text; td.className = cls; tr.appendChild(td); }); return tr; }); $(\"assets\").replaceChildren(...rows); } async function refresh() { try { const [stats, assets] = await Promise.all([getJson(\"/stats\"), getJson(\"/assets\")]); renderStats(stats); renderAssets(assets); $(\"error\").textContent = \"\"; $(\"updated\").textContent = Updated ${new Date().toLocaleTimeString()} ; } catch (err) { // Keep the last good numbers on screen and say that they may be stale. $(\"error\").textContent = Could not load data: ${err.message} ; } } refresh(); setInterval(refresh, REFRESH_MS); The script runs two requests in parallel with Promise.all , so the page waits for the slower of the two rather than their sum."
+  },
+  {
+    "id": "/docs/build-a-dashboard#step-3-serve-it-from-an-allowed-origin",
+    "title": "Build a Dashboard › Step 3: Serve it from an allowed origin",
+    "pageTitle": "Build a Dashboard",
+    "href": "/docs/build-a-dashboard#step-3-serve-it-from-an-allowed-origin",
+    "section": "Guides",
+    "description": "Step 3: Serve it from an allowed origin",
+    "content": "Do not open dashboard.html with a file:// URL. The browser sends a null origin, and the API will not allow it. Serve the folder over HTTP instead: cd path/to/dashboard python3 -m http.server 5500 The API allows browser requests only from http://localhost:3000 by default. That is the docs site's dev server, so it will not work for a page on port 5500 . Add your origin in api/.env , then restart cargo run : api/.env RWA_CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5500 Open http://localhost:5500/dashboard.html. The four tiles fill in on the first refresh, and the table lists every asset the API knows about. If the tiles stay at — and the browser console shows a CORS error, the origin serving the page is missing from RWA_CORS_ALLOWED_ORIGINS . Fix that before debugging the code."
+  },
+  {
+    "id": "/docs/build-a-dashboard#how-it-works",
+    "title": "Build a Dashboard › How it works",
+    "pageTitle": "Build a Dashboard",
+    "href": "/docs/build-a-dashboard#how-it-works",
+    "section": "Guides",
+    "description": "How it works",
+    "content": "- Amounts are numbers here, on purpose. tvl_usd and valuation_usd are floats, which is fine for display. For exact arithmetic, use the string fields tvl_cents and valuation_cents , and parse them with BigInt . See Assets . - Untrusted text uses textContent . Asset names and descriptions come from on-chain data that anyone can register. Inserting them with innerHTML would let a crafted name run script in your page. - Failures keep the old numbers. If a refresh fails, the error appears above the tiles and the last good values stay on screen. A 404 or 400 returns a JSON body with error and message . See Errors . - Polling is steady, not bursty. Each refresh makes two requests, one every 10 seconds per open tab. If many visitors will keep the page open, raise REFRESH_MS and check the Rate Limits & Caching page."
+  },
+  {
+    "id": "/docs/build-a-dashboard#next-steps",
+    "title": "Build a Dashboard › Next steps",
+    "pageTitle": "Build a Dashboard",
+    "href": "/docs/build-a-dashboard#next-steps",
+    "section": "Guides",
+    "description": "Next steps",
+    "content": "- Add a holder-count chart from Holders for a single asset. - Show compliance status per asset from Compliance . - Move the page into your own app and point API at your deployed API host."
   }
 ]
