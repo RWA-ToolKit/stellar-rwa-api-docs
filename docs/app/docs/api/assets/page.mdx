@@ -106,3 +106,50 @@ Returned with status `404` when no asset has the given id. A non-numeric id
 `BigInt(asset.total_supply)` and compute a display value as
 `Number(BigInt(asset.total_supply)) / 10 ** asset.decimals`.
 </CalloutBox>
+
+### Rust client example
+
+A consumer-side example using `reqwest` and `serde_json`. It fetches `/assets/1`,
+handles the documented `404` error body, and parses `total_supply` as a `u128`.
+
+`Cargo.toml`
+
+```toml
+[dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+```
+
+`src/main.rs`
+
+```rust
+use serde_json::Value;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let resp = reqwest::get("http://localhost:8080/assets/1").await?;
+    if !resp.status().is_success() {
+        let err: Value = resp.json().await?;
+        let code = err["error"].as_str().unwrap_or("error");
+        let msg = err["message"].as_str().unwrap_or("request failed");
+        return Err(format!("{code}: {msg}").into());
+    }
+
+    let asset: Value = resp.json().await?;
+    let decimals = asset["decimals"].as_u64().unwrap_or(0) as i32;
+    let supply: u128 = asset["total_supply"]
+        .as_str()
+        .ok_or("total_supply missing")?
+        .parse()?;
+    let display = supply as f64 / 10f64.powi(decimals);
+
+    println!(
+        "{} ({}): supply {display}, holders {}",
+        asset["name"].as_str().unwrap_or_default(),
+        asset["symbol"].as_str().unwrap_or_default(),
+        asset["holders"],
+    );
+    Ok(())
+}
+```
