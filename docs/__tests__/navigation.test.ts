@@ -15,10 +15,16 @@ function pageFileForHref(href: string): string {
   return join(appRoot, ...pathname.split("/").filter(Boolean), "page.mdx");
 }
 
+/** Pilot translation locales (/docs/<locale>/<page>); not part of the English nav/search/sitemap. */
+const LOCALE_DIRS = ["es"];
+
 function findMdxRoutes(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = join(directory, entry.name);
-    if (entry.isDirectory()) return findMdxRoutes(entryPath);
+    if (entry.isDirectory()) {
+      if (directory === docsRoot && LOCALE_DIRS.includes(entry.name)) return [];
+      return findMdxRoutes(entryPath);
+    }
     if (entry.name !== "page.mdx") return [];
 
     const route = relative(docsRoot, entryPath)

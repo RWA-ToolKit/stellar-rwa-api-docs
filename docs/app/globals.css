@@ -57,7 +57,7 @@ body {
 /* Section anchor links: hidden until the heading is hovered or the link is
    focused, so they stay reachable by keyboard. */
 .prose .heading-anchor {
-  @apply ml-2 font-normal text-base-200/50 no-underline opacity-0 transition-opacity hover:text-brand-400;
+  @apply ml-2 font-normal text-base-300 no-underline opacity-0 transition-opacity hover:text-brand-400;
 }
 .prose :is(h2, h3, h4, h5, h6):hover .heading-anchor,
 .prose .heading-anchor:focus-visible {
