@@ -49,7 +49,7 @@ const CARDS = [
 
 export default function HomePage() {
   return (
-    <main id="main-content" className="mx-auto max-w-4xl px-4 py-16 sm:px-6 sm:py-24">
+    <main id="main-content" tabIndex={-1} className="focus:outline-none mx-auto max-w-4xl px-4 py-16 sm:px-6 sm:py-24">
       <span className="chip border border-brand-500/25 bg-brand-500/10 text-brand-300">
         <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-brand-400" />
         Stellar RWA Toolkit

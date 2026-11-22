@@ -2,36 +2,56 @@ export const metadata = {
   title: "API · Filtering and sorting assets",
   description: "Filter and sort the asset list server-side.",
   canonical: "/docs/api/assets-query",
-  lastReviewed: "2026-09-26",
+  lastReviewed: "2026-11-21",
 };
 
 # Filtering and sorting assets
 
 <LastReviewed date={metadata.lastReviewed} />
 
-`GET /v1/assets` accepts these query parameters:
+`GET /v1/assets` accepts the query parameters below. Every parameter is
+optional; with none supplied the route returns the first page of all indexed
+assets.
 
-| Parameter | Values | Description |
-| --- | --- | --- |
-| `asset_type` | e.g. `real_estate` | Only assets of this class. |
-| `active` | `true`, `false` | Only active or inactive assets. |
-| `sort` | `valuation` | Sort by USD valuation (ordered by `valuation_cents` in USD cents). |
-| `order` | `asc`, `desc` (default) | Direction; requires `sort`. |
-| `fields` | comma-separated field names | Return only these fields (partial response). |
-| `offset`, `limit` | integers | Pagination (limit defaults to 50, max 100). |
+## Query parameters
+
+| Parameter | Type | Allowed values | Default | Invalid value |
+| --- | --- | --- | --- | --- |
+| `asset_type` | string | Any asset class string, matched exactly (e.g. `real_estate`, `invoice`, `commodity`, `bond`). | none (all classes) | Never an error: a value that matches no asset returns `200` with `[]`. |
+| `active` | boolean | `true`, `false` | none (active and inactive) | Anything else (e.g. `maybe`) returns `400` `invalid_parameter`. |
+| `sort` | enum | `valuation` (USD valuation) | none (no server-side sort) | Any other field (e.g. `name`) returns `400` `invalid_parameter`. |
+| `order` | enum | `asc`, `desc` | `desc` when `sort` is set | Any other value (e.g. `up`) returns `400` `invalid_parameter`. Sending `order` without `sort` also returns `400`. |
+| `limit` | integer | `1`–`100` | `50` | Non-numeric (`abc`), negative (`-1`), zero (`0`) or out-of-range (`999999`) values return `400` `invalid_parameter`. They are rejected, not clamped. |
+| `offset` | integer | `0` or greater | `0` | Non-numeric (`abc`) or negative (`-1`) values return `400` `invalid_parameter`. |
+| `fields` | comma-separated list | Field names of the asset object (e.g. `id,symbol,valuation_usd`) | none (full objects) | A name that is not a field of the asset object returns `400` `invalid_parameter`, and `message` lists the available fields. Names are not checked when the result is empty, so that case still returns `200` with `[]`. |
+
+Any parameter not in this table (for example `bogus=1` or `asset_id=1`) is
+rejected with `400` `invalid_parameter`. Unknown parameters are never silently
+ignored.
+
+## Combining parameters
+
+- `asset_type` and `active` can be used together. An asset must match every
+  filter you supply.
+- `order` only modifies `sort`. Use it as `sort=valuation&order=asc`, or leave
+  it out to get the highest valuation first.
+- `limit` and `offset` page through the filtered and sorted result.
+- `fields` is applied last, after filtering, sorting and pagination, so it only
+  trims each returned object. See [Field selection](#field-selection) below.
 
 ```bash
 curl "$API_BASE_URL/v1/assets?asset_type=real_estate&sort=valuation&order=asc"
 ```
 
-Invalid or unknown parameters return `400` with the shared error body:
+## Errors
+
+Invalid or unknown parameters return `400` with the shared error body. The body
+has exactly two keys, `error` and `message`:
 
 ```json
 {
-  "error": {
-    "code": "bad_request",
-    "message": "unknown query parameter: foo"
-  }
+  "error": "invalid_parameter",
+  "message": "..."
 }
 ```
 

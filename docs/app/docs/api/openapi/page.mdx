@@ -17,6 +17,34 @@ contract-testing tools.
 The spec source lives at `docs/public/openapi-v1.yaml` and is linted in CI by the
 `OpenAPI` workflow on every change.
 
+## Which spec is authoritative
+
+`openapi-v1.yaml` is the authoritative spec for the current API. Use it for client
+generation and contract tests.
+
+The repo also ships `docs/public/openapi.json`, an older unversioned spec. It is
+**not** a second API surface. It documents routes without the `/v1` prefix (such as
+`/assets` and `/stats`) from before data routes were nested under `/v1`, plus one
+`/v1/events` path. It is kept for two reasons:
+
+- Rust tests read its `components.schemas` (for example `Distribution`) to check that
+  the API's serialized shapes match the documented schema.
+- Existing consumers may still point at it.
+
+Do not generate new clients from `openapi.json`. Its paths do not match the live `/v1`
+routes.
+
+### Deprecation path for `openapi.json`
+
+1. **Now:** this page is the reference. New schema work goes into `openapi-v1.yaml`.
+2. **Next:** move the schemas that tests depend on (`Distribution`, `Stats`) into
+   `openapi-v1.yaml` under `components.schemas`. Point the tests in
+   `api/tests/api_responses.rs` and `api/src/routes/stats.rs` at that file.
+3. **Then:** mark `openapi.json` as deprecated in its `info.description` and link it to
+   this page.
+4. **Finally:** delete `openapi.json` and the remaining references to it in a release
+   listed in the [API Changelog](/docs/changelog).
+
 ## Error responses
 
 Every error response in the spec references the shared error body schema. The
