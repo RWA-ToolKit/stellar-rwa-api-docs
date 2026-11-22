@@ -32,6 +32,18 @@
             "description": "API index",
             "content": {
               "application/json": {
+                "example": {
+                  "name": "Stellar RWA API",
+                  "version": "1.0.0",
+                  "description": "Read-only index of tokenized real-world asset activity on Stellar.",
+                  "endpoints": [
+                    "GET /version",
+                    "GET /v1/stats",
+                    "GET /v1/events",
+                    "GET /v1/assets",
+                    "GET /v1/assets/:id"
+                  ]
+                },
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -59,7 +71,24 @@
         ],
         "responses": {
           "200": {
-            "description": "API is healthy"
+            "description": "API is healthy",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "snapshot_age_seconds": 12,
+                  "max_age_seconds": 60,
+                  "consecutive_failures": 0,
+                  "last_poll_at": "2026-07-09T08:43:00+00:00",
+                  "last_poll_age_seconds": 5,
+                  "last_indexed_ledger": 3514152,
+                  "ledger_lag": 0
+                },
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -77,6 +106,16 @@
             "description": "Platform statistics",
             "content": {
               "application/json": {
+                "example": {
+                  "total_assets": 1,
+                  "active_assets": 1,
+                  "tvl_cents": "500000000",
+                  "tvl_usd": 5000000.0,
+                  "total_holders": 1,
+                  "total_distributions": 0,
+                  "last_indexed_ledger": 3514152,
+                  "last_updated": "2026-07-09T08:43:12.101772791+00:00"
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Stats"
                 }
@@ -182,6 +221,28 @@
             "description": "Array of asset objects",
             "content": {
               "application/json": {
+                "example": [
+                  {
+                    "id": 1,
+                    "token_contract": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+                    "issuer": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+                    "name": "Manhattan Loft",
+                    "symbol": "MLOFT",
+                    "asset_type": "real_estate",
+                    "description": "A tokenized loft in Manhattan",
+                    "valuation_cents": "500000000",
+                    "valuation_usd": 5000000.0,
+                    "decimals": 2,
+                    "total_supply": "1000000",
+                    "holders": 1,
+                    "active": true,
+                    "paused": false,
+                    "compliance_contract": "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU",
+                    "created_at_ledger": 3502885,
+                    "indexed_at_ledger": 3514152,
+                    "index_error": null
+                  }
+                ],
                 "schema": {
                   "type": "array",
                   "items": {
@@ -258,6 +319,26 @@
             "description": "Asset object",
             "content": {
               "application/json": {
+                "example": {
+                  "id": 1,
+                  "token_contract": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+                  "issuer": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+                  "name": "Manhattan Loft",
+                  "symbol": "MLOFT",
+                  "asset_type": "real_estate",
+                  "description": "A tokenized loft in Manhattan",
+                  "valuation_cents": "500000000",
+                  "valuation_usd": 5000000.0,
+                  "decimals": 2,
+                  "total_supply": "1000000",
+                  "holders": 1,
+                  "active": true,
+                  "paused": false,
+                  "compliance_contract": "CBUERYDM7DXTZLLKDBRJKUBPFJ7M4OSUN4T7XKUARU345RLXNAIQD2IU",
+                  "created_at_ledger": 3502885,
+                  "indexed_at_ledger": 3514152,
+                  "index_error": null
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Asset"
                 }
@@ -354,6 +435,13 @@
             "description": "Array of holder objects",
             "content": {
               "application/json": {
+                "example": [
+                  {
+                    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+                    "balance": "1000000",
+                    "share_percent": 100.0
+                  }
+                ],
                 "schema": {
                   "type": "array",
                   "items": {
@@ -401,6 +489,20 @@
             "description": "Compliance summary",
             "content": {
               "application/json": {
+                "example": {
+                  "total_records": 1,
+                  "approved": 1,
+                  "suspended": 0,
+                  "rejected": 0,
+                  "pending": 0,
+                  "with_expiry": 0,
+                  "jurisdictions": [
+                    {
+                      "jurisdiction": "US",
+                      "count": 1
+                    }
+                  ]
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ComplianceSummary"
                 }
@@ -444,6 +546,16 @@
             "description": "Array of address holdings",
             "content": {
               "application/json": {
+                "example": [
+                  {
+                    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+                    "asset_id": 1,
+                    "asset_name": "Manhattan Loft",
+                    "symbol": "MLOFT",
+                    "balance": "1000000",
+                    "share_percent": 100.0
+                  }
+                ],
                 "schema": {
                   "type": "array",
                   "items": {
@@ -480,6 +592,19 @@
             "description": "Array of compliance checks for the address",
             "content": {
               "application/json": {
+                "example": [
+                  {
+                    "address": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+                    "asset_id": 1,
+                    "asset_name": "Manhattan Loft",
+                    "symbol": "MLOFT",
+                    "balance": "1000000",
+                    "status": "Approved",
+                    "allowed": true,
+                    "jurisdiction": "US",
+                    "expires_at": 3550000
+                  }
+                ],
                 "schema": {
                   "type": "array",
                   "items": {
@@ -517,6 +642,19 @@
             "description": "Array of dividend/distribution objects",
             "content": {
               "application/json": {
+                "example": [
+                  {
+                    "id": 1,
+                    "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+                    "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+                    "total_amount": "1000000",
+                    "distributed": "250000",
+                    "claimed_percent": 25.0,
+                    "overflow_detected": false,
+                    "completed": false,
+                    "created_at_ledger": 3510000
+                  }
+                ],
                 "schema": {
                   "type": "array",
                   "items": {
@@ -574,6 +712,17 @@
             "description": "The distribution object",
             "content": {
               "application/json": {
+                "example": {
+                  "id": 1,
+                  "asset_token": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+                  "payment_token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+                  "total_amount": "1000000",
+                  "distributed": "250000",
+                  "claimed_percent": 25.0,
+                  "overflow_detected": false,
+                  "completed": false,
+                  "created_at_ledger": 3510000
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Distribution"
                 }
@@ -619,6 +768,20 @@
             "description": "Array of event objects, newest-first",
             "content": {
               "application/json": {
+                "example": [
+                  {
+                    "id": 42,
+                    "contract": "CBMCWLSQSWUTLUJFCNBHNBSXMUM3XU7NAQ5TSNERW4HA4ZZBYHLG4ECZ",
+                    "event_type": "transfer",
+                    "ledger": 3514100,
+                    "timestamp": "2026-07-09T08:40:00+00:00",
+                    "data": {
+                      "from": "GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA",
+                      "to": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+                      "amount": "10"
+                    }
+                  }
+                ],
                 "schema": {
                   "type": "array",
                   "items": {
