@@ -39,6 +39,9 @@ function getSectionForRoute(route) {
   return "General";
 }
 
+// Pilot translation locales (/docs/<locale>/<page>) are not part of the English search index.
+const LOCALE_DIRS = ["es"];
+
 function findMdxFiles(dir) {
   const results = [];
   const entries = readdirSync(dir);
@@ -46,6 +49,7 @@ function findMdxFiles(dir) {
     const fullPath = join(dir, entry);
     const stat = statSync(fullPath);
     if (stat.isDirectory()) {
+      if (dir === DOCS_APP_ROOT && LOCALE_DIRS.includes(entry)) continue;
       results.push(...findMdxFiles(fullPath));
     } else if (entry.endsWith(".mdx")) {
       results.push(fullPath);
