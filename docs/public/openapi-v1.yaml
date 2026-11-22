@@ -138,6 +138,22 @@ paths:
           required: true
           schema:
             type: integer
+        - name: offset
+          in: query
+          required: false
+          description: Number of holders to skip (default 0).
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of holders to return (default 50). Values above 100 are capped at 100.
+          schema:
+            type: integer
+            minimum: 0
+            default: 50
       responses:
         "200":
           description: OK
