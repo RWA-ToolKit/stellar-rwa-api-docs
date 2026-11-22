@@ -241,6 +241,26 @@ stores no cookie. Labels are endonyms ("English", "Espanol").
 
 Follow the [documentation style guide](./STYLE_GUIDE.md).
 
+## Accessibility checklist
+
+The site targets WCAG 2.1 Level AA; see [ACCESSIBILITY.md](./ACCESSIBILITY.md) for
+the audit and rationale. Tick each item that applies before you open a PR.
+
+- [ ] Every image has alt text (`![alt](...)`) that describes its content or
+      purpose. Do not start with "image of" or "picture of".
+- [ ] Purely decorative images use empty alt text (`![](...)`).
+- [ ] Every diagram (SVG, Mermaid, or image) has alt text or an adjacent text
+      description. The text alternative must carry the same information as the
+      diagram, not just its title.
+- [ ] No information is conveyed by color alone, in diagrams, callouts, or
+      tables. Add a label, icon, or text cue as well.
+- [ ] Link text is meaningful out of context. Avoid "click here" and "read more".
+- [ ] Heading levels do not skip: one `h1` per page, then `h2`, then `h3` in order.
+- [ ] Every fenced code block has a language tag (for example `ts` or `bash`).
+- [ ] Tables have a header row.
+- [ ] If available, run the heading check and accessibility tests locally and
+      fix anything they report.
+
 ## Glossary and jargon
 
 When a page introduces a term a newcomer may not know (for example `TTL`,

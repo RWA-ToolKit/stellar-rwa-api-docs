@@ -55,7 +55,7 @@ export function CodeBlock({ children, title, language, code }: CodeBlockProps) {
           className="text-xs font-medium text-base-300 transition-colors hover:text-brand-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
         >
           <span aria-live="polite" aria-atomic="true">
-            {copied ? "Copied" : "Copy"}
+            {copied ? "Copied" : failed ? "Failed" : "Copy"}
           </span>
         </button>
       </div>
