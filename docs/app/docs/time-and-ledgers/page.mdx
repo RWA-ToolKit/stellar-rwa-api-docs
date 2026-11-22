@@ -2,15 +2,15 @@ export const metadata = {
   title: "Time & Ledgers",
   description: "Understanding the ledger-sequence time model used across contracts and the API.",
   canonical: "/docs/time-and-ledgers",
-  lastReviewed: "2026-07-28",
+  lastReviewed: "2026-11-21",
 };
 
 # Time & Ledgers
 
 <LastReviewed date={metadata.lastReviewed} />
 
-Throughout the Stellar RWA contracts and API, time is never expressed as a wall-clock
-timestamp. Instead, all time values use **Stellar ledger sequence numbers** — a monotonically
+Throughout the Stellar RWA contracts, time is never expressed as a wall-clock
+timestamp. Instead, all contract time values use **Stellar ledger sequence numbers** — a monotonically
 increasing counter that increments roughly every 5 seconds on the Stellar network.
 
 This design eliminates time-sync issues and makes on-chain logic deterministic.
@@ -101,8 +101,10 @@ console.log("expiry checks passed");
 
 ## Ledger sequences in the API
 
-The REST API mirrors this design. All time fields in responses are **ledger sequence numbers**,
-never wall-clock timestamps:
+The REST API mirrors this design. Contract-derived time fields in responses are **ledger
+sequence numbers**, not wall-clock timestamps. The only wall-clock values are the event
+`timestamp` and `last_updated`, described in
+[Poll interval vs ledger close time](#poll-interval-vs-ledger-close-time):
 
 ### Assets endpoint
 
@@ -175,6 +177,57 @@ when a given ledger sequence number occurred.
 
 **Rule of thumb:** Stellar produces ~1 ledger per 5 seconds, so a ledger 1 million in the
 future is roughly 58 days away.
+
+## Poll interval vs ledger close time
+
+Two clocks are in play, and they are independent:
+
+- **Ledger close time.** Stellar closes a ledger roughly every ~5 seconds. This is set by the
+  network, not by the indexer.
+- **Indexer poll interval.** The indexer polls Soroban RPC every **10 seconds** by default.
+  Override it with `RWA_POLL_INTERVAL_SECS` (whole seconds, between 1 and 3600; invalid values
+  are rejected at startup). A server-advised `Retry-After` from the RPC takes precedence.
+
+Because 10 s is about two ledger closes, each successful poll typically ingests **~2 new
+ledgers**. The indexer does not follow ledgers one by one; it rebuilds its snapshot on each
+poll and records the newest ledger it read as `last_indexed_ledger`.
+
+### What this means for timestamps
+
+- **Indexed data lags the chain by up to one poll interval plus RPC latency.** An event in a
+  ledger that closes just after a poll has to wait for the next one.
+- **Event `timestamp` is the ledger close time.** It is copied from the RPC's
+  `ledger_closed_at` for the event's ledger, so it reflects when the chain recorded the event,
+  not when the indexer noticed it. It is `null` if the RPC did not supply one.
+- **`last_updated` is poll time.** It is the wall-clock time the indexer finished building the
+  snapshot, so it says how fresh the API is, not when anything happened on-chain.
+- **`last_indexed_ledger` is the freshness marker in ledger terms.** It is also the ETag seed,
+  so the ETag only changes when the indexer has read a newer ledger.
+- **Dividends can lag further.** Per-asset dividends are cached (default 60 s,
+  `RWA_DIVIDEND_CACHE_TTL_SECS`), so worst-case lag is the cache TTL plus the poll interval.
+  Compare `dividends_indexed_at_ledger` with `indexed_at_ledger` to detect cached data.
+
+### Worked example
+
+Assume the default 10 s poll interval and a ledger every ~5 s:
+
+| Wall clock | What happens |
+| ---------- | ------------ |
+| 10:00:00 | Poll N reads the chain. Latest ledger is 3,502,880. `last_indexed_ledger = 3502880`. |
+| 10:00:03 | A transfer is included in ledger 3,502,881, which closes at 10:00:03. |
+| 10:00:08 | Ledger 3,502,882 closes. |
+| 10:00:10 | Poll N+1 reads ledgers 3,502,881 and 3,502,882. The transfer event appears with `timestamp: "...10:00:03Z"`. `last_indexed_ledger = 3502882`, `last_updated` is about 10:00:10. |
+
+The event was visible in the API about 7 s after it closed, but its `timestamp` still says
+10:00:03. If the transfer had closed at 10:00:00.5 instead, just after poll N, it would have
+waited nearly the full 10 s. To compare an event with "now", use the ledger numbers:
+`last_indexed_ledger - event_ledger` is at most a few ledgers of lag under default settings.
+
+<CalloutBox variant="note" title="Don't use last_updated as an event time">
+`last_updated` moves forward on every successful poll, even when nothing changed on-chain.
+Use an event's `timestamp` (ledger close time) or its ledger number for when something
+happened, and `last_updated` / `last_indexed_ledger` only to judge staleness.
+</CalloutBox>
 
 ## Handling expires_at in your integration
 
