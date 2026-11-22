@@ -85,3 +85,33 @@ let abi = AbiExpectation {
 };
 // AppState::new_with_abi(config, metrics, abi)  — see the indexer docs.
 ```
+
+## Docs versioning strategy
+
+This section describes how the documentation site will handle API versions once
+a new major version ships (for example, v2 of the API).
+
+- **Current version at the unversioned path.** `/docs/api/...` always documents
+  the latest released API version. Links that omit a version point here.
+- **Previous majors under a version prefix.** When a new major version ships,
+  the outgoing version's pages move to `/docs/api/v{N}/...` (for example
+  `/docs/api/v1/...`) and stay published for as long as the API still serves
+  that version.
+- **Frozen snapshots.** Pages under a version prefix receive only corrections
+  (factual errors, security notes, broken examples). They do not gain new
+  features or new endpoints documented for the newer version.
+- **Deprecation notice.** Each frozen page shows a `warning` callout that names
+  the current version and links to its equivalent page, so readers arriving from
+  search or old links know which version they are reading.
+- **Removal.** A version prefix is removed only after its API version is retired.
+  Removed pages redirect to the matching page under the current version, or to
+  [Errors](/docs/api/errors) if no equivalent exists.
+- **Contract ABI ranges are separate.** The supported contract ranges in the
+  tables above are versioned independently of the API docs. A docs version
+  change does not by itself change any range listed here.
+
+<CalloutBox variant="note" title="Status">
+This is a policy only. Routes under `/docs/api/v{N}/` do not exist yet and will
+be added when the first API version after v1 is released.
+</CalloutBox>
+```
