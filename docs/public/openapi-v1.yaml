@@ -127,7 +127,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/assets/{id}/holders:
     get:
       operationId: listAssetHolders
@@ -150,7 +150,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/assets/{id}/compliance:
     get:
       operationId: getAssetCompliance
@@ -173,7 +173,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/assets/{id}/dividends:
     get:
       operationId: listAssetDividends
@@ -196,7 +196,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/assets/{id}/distributions/{did}:
     get:
       operationId: getDistribution
@@ -224,7 +224,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/holders/{address}:
     get:
       operationId: getHolder
@@ -247,7 +247,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiErrorBody"
+                $ref: "#/components/schemas/ErrorBody"
   /v1/holders/{address}/compliance:
     get:
       operationId: getHolderCompliance
@@ -326,11 +326,14 @@ components:
           type: integer
           nullable: true
           description: Ledger at which approval expires. null means no expiry or unknown address.
-    ApiErrorBody:
+    ErrorBody:
       type: object
+      description: Shared error body for every non-2xx response (see /docs/api/errors).
       required: [error, message]
       properties:
         error:
           type: string
+          description: Stable, machine-readable code. Branch on this.
         message:
           type: string
+          description: Human-readable explanation. Do not parse it.
