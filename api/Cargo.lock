@@ -1948,7 +1948,7 @@ dependencies = [
  "serde_json",
  "stellar-strkey",
  "stellar-xdr",
- "thiserror 1.0.69",
+ "thiserror 2.0.20",
  "tokio",
  "tower 0.4.13",
  "tower-http 0.5.2",
