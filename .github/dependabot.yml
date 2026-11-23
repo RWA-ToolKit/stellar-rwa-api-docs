@@ -1,0 +1,18 @@
+# Dependabot version updates for the docs site (npm) and the API service (cargo).
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+version: 2
+
+updates:
+  # Documentation site (Next.js, MDX). Lockfile: docs/package-lock.json.
+  - package-ecosystem: "npm"
+    directory: "/docs"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # API indexing service (Rust). Lockfile: api/Cargo.lock.
+  - package-ecosystem: "cargo"
+    directory: "/api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
