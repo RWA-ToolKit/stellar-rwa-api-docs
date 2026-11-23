@@ -1,0 +1,70 @@
+---
+title: Migration Guides
+description: Templates and structure for migrating between API versions, including the upcoming API v2.
+canonical: /docs/migration
+---
+
+# Migration Guides
+
+This section is the home for migration guides between major versions of the API.
+When a new major version ships (for example, **API v2**), a dedicated guide will be
+published here following the structure outlined below.
+
+Until then, this page serves as a template so contributors know what a migration
+guide is expected to contain.
+
+## What a migration guide will contain
+
+Every migration guide will follow the same outline so that upgrades are predictable
+and easy to follow.
+
+### 1. Overview
+
+A short summary of the new version: what changed at a high level, why the change
+was made, and who is affected. This section will state the source and target
+versions (for example, `v1` → `v2`) and link to the relevant release notes.
+
+### 2. Breaking changes
+
+A complete list of breaking changes, grouped by area (authentication, endpoints,
+request/response shapes, error handling, rate limiting, and so on). Each entry will
+describe:
+
+- What changed
+- Why it changed
+- What callers need to do differently
+
+### 3. Endpoint and field mapping
+
+A table mapping old endpoints and fields to their new equivalents, so callers can
+translate existing integrations quickly.
+
+| Previous (v1) | New (v2) | Notes |
+| --- | --- | --- |
+| _example endpoint_ | _example endpoint_ | _behavioral differences, if any_ |
+| _example field_ | _example field_ | _renamed, moved, or removed_ |
+
+### 4. Step-by-step upgrade path
+
+An ordered checklist for migrating an existing integration, from preparing the
+environment through verifying the upgrade. Steps will include concrete examples
+where helpful.
+
+### 5. Deprecation timeline
+
+Key dates and milestones, including when the previous version stops receiving
+support and when it will be retired. See the [versioning policy](/docs/api/versioning)
+for how deprecation windows are defined.
+
+### 6. Additional resources
+
+Links to related documentation, including:
+
+- The [versioning policy](/docs/api/versioning)
+- The [changelog](/docs/changelog)
+
+## Contributing a migration guide
+
+When a new major version is released, copy this outline into a new page under
+`docs/app/docs/migration/` and fill in each section. Keep the structure consistent
+with the outline above so readers can rely on a familiar format across versions.

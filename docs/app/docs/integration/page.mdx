@@ -48,6 +48,73 @@ curl http://localhost:8080/assets/1/dividends
 
 ### TypeScript client
 
+The API's request and response shapes are described by the committed
+[OpenAPI spec](/docs/api/openapi) (`docs/public/openapi-v1.yaml`). Rather than
+hand-writing interfaces, generate them with
+[`openapi-typescript`](https://github.com/openapi-ts/openapi-typescript) so your
+client types stay in sync with the spec.
+
+```bash
+# from the repository root — regenerates types/api.d.ts from the spec
+npm run generate:types
+
+# equivalent raw invocation
+npx openapi-typescript docs/public/openapi-v1.yaml -o types/api.d.ts
+```
+
+The generated file exports `paths`, `components`, and `operations` types. A
+representative excerpt looks like this:
+
+```ts
+// types/api.d.ts (generated — do not edit by hand)
+export interface paths {
+  "/assets": {
+    get: operations["getAssets"];
+  };
+  "/assets/{id}/holders": {
+    get: operations["getAssetHolders"];
+  };
+  "/compliance/{address}/is_allowed": {
+    get: operations["isAllowed"];
+  };
+}
+
+export interface components {
+  schemas: {
+    Asset: {
+      id: number;
+      token_contract: string;
+      name: string;
+      symbol: string;
+      asset_type: string;
+      /** @description i128 as a decimal string */
+      valuation_cents: string;
+      valuation_usd: number;
+      decimals: number;
+      /** @description i128 as a decimal string */
+      total_supply: string;
+      holders: number;
+      active: boolean;
+      paused: boolean;
+      compliance_contract: string;
+    };
+    AddressCompliance: {
+      address: string;
+      allowed: boolean;
+    };
+  };
+}
+```
+
+You can then derive your own aliases from the generated types:
+
+```ts
+import type { components } from "@/types/api";
+
+export type Asset = components["schemas"]["Asset"];
+export type AddressCompliance = components["schemas"]["AddressCompliance"];
+```
+
 ```ts
 const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
