@@ -58,13 +58,34 @@ This is the mechanism that makes the whole thing enforceable. The asset-token
 contract does not trust any off-chain system; on every `transfer` it makes
 **cross-contract calls** into the compliance contract for *both* parties:
 
+Sequence for `transfer` (left to right: caller, asset token, compliance contract):
+
 ```
-transfer(from, to, amount)
-  ├─ from.require_auth()
-  ├─ assert !paused
-  ├─ compliance.is_allowed(from)   ── cross-contract call ──▶ compliance contract
-  ├─ compliance.is_allowed(to)     ── cross-contract call ──▶ compliance contract
-  └─ move balances + emit event
+ Sender          Asset token                  Compliance contract
+   │                  │                                │
+   │── transfer ─────▶│                                │
+   │                  │── from.require_auth()          │
+   │                  │── assert !paused               │
+   │                  │── is_allowed(from) ───────────▶│
+   │                  │◀────────────────── true/false ─│
+   │                  │── is_allowed(to) ─────────────▶│
+   │                  │◀────────────────── true/false ─│
+   │                  │── move balances, emit event    │
+   │◀── ok / revert ──│                                │
+```
+
+Sequence for `mint` (the same gate, applied to the recipient only):
+
+```
+ Admin           Asset token                  Compliance contract
+   │                  │                                │
+   │── mint(to) ─────▶│                                │
+   │                  │── admin.require_auth()         │
+   │                  │── assert !paused               │
+   │                  │── is_allowed(to) ─────────────▶│
+   │                  │◀────────────────── true/false ─│
+   │                  │── increase balance & supply    │
+   │◀── ok / revert ──│                                │
 ```
 
 If either `is_allowed` returns `false`, the transaction **reverts** — no balance
