@@ -89,6 +89,7 @@ curl -i "$API_BASE_URL/assets/1"
 # Second request — send the ETag back
 curl -i -H 'If-None-Match: "ledger-3514152"' "$API_BASE_URL/assets/1"
 # HTTP/1.1 304 Not Modified   (empty body)
+# ETag: "ledger-3514152"
 ```
 
 ### TypeScript helper
