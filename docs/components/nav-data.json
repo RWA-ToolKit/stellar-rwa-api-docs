@@ -25,6 +25,7 @@
       { "title": "Versioning Guide", "href": "/docs/versioning" },
       { "title": "Integration", "href": "/docs/integration" },
       { "title": "Web App Guide", "href": "/docs/web-app" },
+      { "title": "Build a Dashboard", "href": "/docs/build-a-dashboard" },
       { "title": "FAQ", "href": "/docs/faq" },
       { "title": "Deployment", "href": "/docs/deployment" },
       { "title": "Metrics", "href": "/docs/metrics" }
