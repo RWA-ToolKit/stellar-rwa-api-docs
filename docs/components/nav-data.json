@@ -58,6 +58,7 @@
       { "title": "Health", "href": "/docs/api/health" },
       { "title": "Metrics Endpoint", "href": "/docs/api/metrics" },
       { "title": "Errors", "href": "/docs/api/errors" },
+      { "title": "Common Errors", "href": "/docs/api/common-errors" },
       { "title": "OpenAPI", "href": "/docs/api/openapi" },
       { "title": "Versioning", "href": "/docs/api/versioning" },
       { "title": "Migration Guide", "href": "/docs/migration" },

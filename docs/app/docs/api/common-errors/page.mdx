@@ -1,0 +1,241 @@
+export const metadata = {
+  title: "API · Common Errors",
+  description: "Troubleshooting cookbook: realistic Stellar RWA API error scenarios with full example responses and how to fix each one.",
+  canonical: "/docs/api/common-errors",
+  lastReviewed: "2026-11-22",
+};
+
+# Common Errors
+
+<LastReviewed date={metadata.lastReviewed} />
+
+This is a task-oriented troubleshooting guide. Each scenario shows a request, the
+response you get back, and the fix. For the shape of every error body and the
+full list of codes, see [Error Bodies](/docs/api/errors).
+
+Branch on the `error` code, never on `message`. The `message` text is for humans
+and can change between releases. The example messages below are illustrative.
+
+## 1. Asset id is not a number
+
+**Request**
+
+```http
+GET /assets/abc
+```
+
+**Response**
+
+```http
+HTTP/1.1 400 Bad Request
+content-type: application/json
+
+{
+  "error": "bad_request",
+  "message": "Invalid path parameter: expected an unsigned integer"
+}
+```
+
+**Cause.** The `:id` path segment is parsed as an unsigned 64-bit integer. Any
+other value, such as a symbol, a decimal, a negative number or an empty string,
+is rejected with `400` before the lookup runs. It is not a `404`.
+
+**Fix.** Validate the id on the client before you build the URL. Use the numeric
+id returned by `GET /v1/assets`, not the symbol or name.
+
+```ts
+if (!/^\d+$/.test(id)) throw new Error(`asset id must be numeric, got "${id}"`);
+const res = await fetch(`${BASE}/v1/assets/${id}`);
+```
+
+## 2. Asset id does not exist
+
+**Request**
+
+```http
+GET /assets/999
+```
+
+**Response**
+
+```http
+HTTP/1.1 404 Not Found
+content-type: application/json
+
+{
+  "error": "not_found",
+  "message": "no asset with id 999"
+}
+```
+
+**Cause.** The id is well formed, but no asset has it. Ids `0` and values up to
+`u64::MAX` also return this `404`.
+
+**Fix.** Treat `not_found` as a terminal answer for that id and stop retrying it.
+If the id came from user input or a stored bookmark, remove it or re-list with
+`GET /v1/assets` to find the current set.
+
+## 3. Misspelled field in `?fields=`
+
+**Request**
+
+```http
+GET /assets?fields=symbl,name
+```
+
+**Response**
+
+```http
+HTTP/1.1 400 Bad Request
+content-type: application/json
+
+{
+  "error": "invalid_parameter",
+  "message": "unknown field \"symbl\"; available fields: id, symbol, name, issuer, status"
+}
+```
+
+**Cause.** `?fields=` must name fields the endpoint exposes. One unknown name
+fails the whole request.
+
+**Fix.** Copy the spelling from the `message`, or from the endpoint's field list
+in its reference page. Resend the request with `?fields=symbol,name`. For the
+syntax, see [Field Selection](/docs/api/field-selection).
+
+## 4. Rate limited (429)
+
+**Request**
+
+```http
+GET /assets
+```
+
+**Response**
+
+```http
+HTTP/1.1 429 Too Many Requests
+content-type: application/json
+retry-after: 1
+x-ratelimit-after: 1
+
+{
+  "error": "too_many_requests",
+  "message": "Too Many Requests! Wait for 1s"
+}
+```
+
+**Cause.** Each client IP has a token bucket shared across all routes: 5 requests
+per second sustained, with a burst of 20. A loop that fires requests as fast as
+it can exhausts the burst and stays throttled.
+
+**Fix.** Wait at least `Retry-After` seconds, treating `0` as `1`. Then retry with
+exponential backoff and jitter, and cap the delay. Reduce the request count
+too: cache list responses, use `ETag` and `If-None-Match` on the `/v1` data
+routes, and avoid polling faster than the data changes. Limits and env vars are
+in [Rate Limits & Caching](/docs/api/rate-limits).
+
+```ts
+async function getWithRetry(url: string, attempts = 5): Promise<Response> {
+  for (let i = 0; ; i++) {
+    const res = await fetch(url);
+    if (res.status !== 429 || i >= attempts - 1) return res;
+    const waitS = Math.max(1, Number(res.headers.get("Retry-After") ?? 1));
+    const jitterMs = Math.random() * 250;
+    await new Promise((r) => setTimeout(r, waitS * 1000 + jitterMs));
+  }
+}
+```
+
+## 5. Data is stale (`X-Data-Stale: true`)
+
+**Request**
+
+```http
+GET /assets/42
+```
+
+**Response**
+
+Status is `200`, so there is no error body. The response carries stale-data
+headers:
+
+```http
+HTTP/1.1 200 OK
+content-type: application/json
+x-data-stale: true
+x-data-age-seconds: 412
+x-indexer-consecutive-failures: 3
+```
+
+**Cause.** The indexer's last successful poll is older than its threshold,
+usually because the upstream RPC is failing. The API keeps serving the previous
+snapshot rather than an empty answer.
+
+**Fix.** Do not treat this as a failure. Show the data with its age, for example
+"as of 7 minutes ago", and do not send it to anything that needs live values.
+Check the state with `GET /health`, which returns `503` with `"status": "degraded"`
+while the snapshot is stale. Its body is a status document, not the error body.
+See [Health & Indexer Lag](/docs/api/health). The headers clear on their own once
+a poll succeeds again.
+
+## 6. Wrong path or wrong method
+
+**Request**
+
+```http
+POST /assets
+```
+
+**Response**
+
+```http
+HTTP/1.1 405 Method Not Allowed
+content-type: application/json
+
+{
+  "error": "method_not_allowed",
+  "message": "method not allowed"
+}
+```
+
+**Cause.** Every endpoint is read-only and accepts only `GET`. A `POST`, `PUT`
+or `DELETE` gets `405`. An unknown path, such as a typo, gets a `404` with `"error": "not_found"` instead.
+
+**Fix.** Use `GET`. If you see `404` on a path that exists in the reference,
+check the base URL first (`http://localhost:8080` locally). A `404` can also mean the request
+went to the wrong host, so see [Troubleshooting](/docs/troubleshooting).
+
+## 7. `/metrics` returns 401
+
+**Request**
+
+```http
+GET /metrics
+```
+
+**Response**
+
+```http
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+
+{
+  "error": "unauthorized",
+  "message": "missing or invalid bearer token"
+}
+```
+
+**Cause.** `/metrics` is protected by a bearer token. A missing or wrong token
+gets `401`. Other routes do not need one.
+
+**Fix.** Send the token in the header: `Authorization: Bearer <token>`. Read the
+token from your secret store or environment, never from source code. If you do
+not operate the API yourself, you do not need this endpoint. See
+[Metrics Endpoint](/docs/api/metrics).
+
+## Still stuck?
+
+- Log the `X-Request-Id` response header with the error. It identifies the request
+  on the server side. See [Request IDs](/docs/api/request-ids).
+- Read the [Error Bodies](/docs/api/errors) reference for the full code table.
+- For browser-only failures, see [Troubleshooting](/docs/troubleshooting).
