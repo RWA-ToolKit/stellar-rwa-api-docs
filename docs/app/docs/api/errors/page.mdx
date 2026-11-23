@@ -29,8 +29,9 @@ JSON shape and an `application/json` content type:
 | `error` | string | — | No | Stable, machine-readable code. Branch on this. |
 | `message` | string | — | No | Human-readable explanation. Do not parse it. |
 
-The body contains exactly these two fields. Headers such as `Retry-After` are
-preserved on the response.
+The body contains these two fields plus `request_id`, which matches the
+`X-Request-Id` response header. Headers such as `Retry-After` are preserved on
+the response.
 
 The shape is enforced centrally (`api/src/routes/error_body.rs`): every error
 path is normalized to it, including
@@ -115,15 +116,16 @@ The limits and their env vars are listed in
 
 ## Request IDs
 
-`request_id` is **not** part of the error body. The request identifier is
-returned in the `X-Request-Id` response header only, so the body stays exactly
-two fields. See [Request IDs](/docs/api/request-ids) for how to read and use it.
+JSON error bodies include a `request_id` field with the same value as the
+`X-Request-Id` response header. Successful responses do not include it. See
+[Request IDs](/docs/api/request-ids) for how ids are supplied or generated and
+how to use them in support requests.
 
 ## What to read next
 
 - [API Overview](/docs/api/overview) — endpoint list, conventions, and the error-body format.
 - [Field Selection](/docs/api/field-selection) — partial responses and the `invalid_parameter` error.
-- [Request IDs](/docs/api/request-ids) — the `X-Request-Id` header, which is not part of the error body.
+- [Request IDs](/docs/api/request-ids) — the `X-Request-Id` header and the `request_id` field in error bodies.
 - [API · Health & Indexer Lag](/docs/api/health) — the `503` condition explained.
 - [Rate Limits & Caching](/docs/api/rate-limits) — the `429` response and backoff guidance.
 - [Integration Guide](/docs/integration) — how to handle errors in TypeScript client code.
