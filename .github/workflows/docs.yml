@@ -5,9 +5,15 @@ on:
     paths:
       - "docs/**"
       - ".github/workflows/docs.yml"
+      - "CHANGELOG.md"
+      - "cliff.toml"
+      - "scripts/check-changelog-sync.mjs"
   pull_request:
     paths:
       - "docs/**"
+      - "CHANGELOG.md"
+      - "cliff.toml"
+      - "scripts/check-changelog-sync.mjs"
 
 jobs:
   build:
@@ -27,3 +33,19 @@ jobs:
       - run: npm test
       - run: npm run test:coverage
       - run: npm run build
+
+  changelog-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+      - name: Check changelog sync
+        run: node scripts/check-changelog-sync.mjs

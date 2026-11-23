@@ -85,13 +85,13 @@ and `expires_at`.
 
 **Jurisdiction** — A two-letter ISO country code stored on a KYC record, such as `US` or `KE`.
 Issuers can block a whole jurisdiction at once. See the
-[Compliance Guide](/docs/compliance-guide#jurisdiction-model-and-its-limitation).
+[Compliance Guide](/docs/compliance-guide#jurisdiction-restrictions).
 
 **Transfer gate** — The check the asset token runs on every transfer and mint: `is_allowed` must
 be true for the sender and the recipient.
 
 **Expiry (`expires_at`)** — The ledger at which a KYC approval lapses. `0` means it never lapses.
-See [KYC expiry semantics](/docs/compliance-guide#kyc-expiry-semantics).
+See [KYC expiry semantics](/docs/compliance-guide#kyc-expiry-and-suspension).
 
 **Valuation** — The issuer-reported value of the underlying asset, stored in the registry in USD
 cents. It is not a market price.

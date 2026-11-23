@@ -28,6 +28,9 @@ const REDIRECTS_FILE = path.join(DOCS_ROOT, "redirects.json");
 const MARKDOWN_LINK_RE = /\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)/g;
 const JSX_HREF_RE = /href=["']([^"']+)["']/g;
 const EXTERNAL_OR_ANCHOR_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i;
+const HEADING_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
+const EXPLICIT_ID_RE = /\s*\{#([^}]+)\}\s*$/;
+const JSX_HEADING_ID_RE = /<h[1-6][^>]*\bid=["']([^"']+)["']/g;
 
 function findMdxFiles(dir) {
   const files = [];
@@ -53,6 +56,23 @@ function redirectSources() {
 
 const REDIRECTS = redirectSources();
 
+// Returns the MDX page file a target resolves to, or null if it is not an MDX page.
+function resolveMdxPage(sourceFile, target) {
+  const pathPart = target.split(/[?#]/)[0];
+
+  if (pathPart.startsWith("/")) {
+    const route = pathPart.replace(/\/+$/, "");
+    if (REDIRECTS.has(route)) return null;
+    const routeDir = path.join(APP_ROOT, route);
+    const page = path.join(routeDir, "page.mdx");
+    return isFile(page) ? page : null;
+  }
+
+  const resolved = path.resolve(path.dirname(sourceFile), pathPart);
+  const candidates = [resolved, path.join(resolved, "page.mdx"), `${resolved}.mdx`];
+  return candidates.find((c) => c.endsWith(".mdx") && isFile(c)) ?? null;
+}
+
 // Returns null when the target resolves, otherwise the path it was expected at.
 function resolveTarget(sourceFile, target) {
   const pathPart = target.split(/[?#]/)[0];
@@ -71,6 +91,54 @@ function resolveTarget(sourceFile, target) {
   const candidates = [resolved, path.join(resolved, "page.mdx"), `${resolved}.mdx`];
   if (candidates.some(isFile)) return null;
   return path.relative(DOCS_ROOT, candidates[1]);
+}
+
+// Slugifies heading text the same way the docs renderer generates anchor ids.
+function slugify(text) {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+// Collects the set of anchor ids a page exposes (heading slugs + explicit ids).
+function headingIds(pageFile) {
+  const ids = new Set();
+  for (const line of prose(readFileSync(pageFile, "utf8"))) {
+    const heading = line.match(HEADING_RE);
+    if (heading) {
+      let text = heading[2];
+      const explicit = text.match(EXPLICIT_ID_RE);
+      if (explicit) {
+        ids.add(explicit[1].trim());
+        text = text.replace(EXPLICIT_ID_RE, "");
+      }
+      const slug = slugify(text);
+      if (slug) ids.add(slug);
+    }
+    for (const match of line.matchAll(JSX_HEADING_ID_RE)) {
+      ids.add(match[1]);
+    }
+  }
+  return ids;
+}
+
+// Returns null when the fragment resolves, otherwise a description of the failure.
+function checkFragment(sourceFile, target) {
+  const hashIndex = target.indexOf("#");
+  if (hashIndex === -1) return null;
+  const fragment = decodeURIComponent(target.slice(hashIndex + 1));
+  if (!fragment) return null;
+
+  const page = resolveMdxPage(sourceFile, target);
+  if (!page) return null; // Non-MDX targets (static files, redirects) are not anchor-checked.
+
+  const ids = headingIds(page);
+  if (ids.has(fragment)) return null;
+  return `missing anchor #${fragment} in ${path.relative(DOCS_ROOT, page)}`;
 }
 
 // Blanks out fenced code blocks and inline code so example links are not checked.
@@ -102,6 +170,11 @@ function main() {
           const expected = resolveTarget(file, target);
           if (expected) {
             broken.push({ file: path.relative(DOCS_ROOT, file), line: index + 1, target, expected });
+            continue;
+          }
+          const fragmentError = checkFragment(file, target);
+          if (fragmentError) {
+            broken.push({ file: path.relative(DOCS_ROOT, file), line: index + 1, target, expected: fragmentError });
           }
         }
       }

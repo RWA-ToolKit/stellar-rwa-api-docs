@@ -10,6 +10,8 @@
     "check:mdx-samples": "node scripts/check-mdx-samples.mjs",
     "check:contract-ids": "node scripts/check-contract-ids.mjs",
     "check:headings": "node scripts/check-heading-hierarchy.mjs",
+    "generate:types": "openapi-typescript public/openapi-v1.yaml -o types/api.d.ts",
+    "check:types": "openapi-typescript public/openapi-v1.yaml --check",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
@@ -30,6 +32,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@vitest/coverage-v8": "^2.1.8",
+    "openapi-typescript": "^7.4.4",
     "typescript": "^5",
     "vitest": "^2.1.8"
   }
