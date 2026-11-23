@@ -17,9 +17,9 @@
   },
   "dependencies": {
     "@mdx-js/react": "^3.1.0",
-    "next": "16.4.6",
-    "react": "^18",
-    "react-dom": "^19"
+    "next": "14.2.5",
+    "react": "^19",
+    "react-dom": "^18"
   },
   "devDependencies": {
     "@mdx-js/rollup": "^3.1.0",
@@ -29,8 +29,8 @@
     "axe-core": "^4.10.0",
     "jsdom": "^25.0.1",
     "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^19",
+    "@types/react": "^19",
+    "@types/react-dom": "^18",
     "@vitest/coverage-v8": "^2.1.8",
     "openapi-typescript": "^7.4.4",
     "typescript": "^5",
