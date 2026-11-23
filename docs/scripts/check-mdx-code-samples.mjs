@@ -2,8 +2,9 @@
 /**
  * Extracts fenced code blocks from `.mdx` docs and verifies that they parse:
  * TypeScript / JavaScript samples are syntax-checked with the TypeScript
- * compiler, `json` samples with `JSON.parse`, and `sh` / `bash` / `shell`
- * samples with `sh -n` / `bash -n`.
+ * compiler, `json` samples with `JSON.parse`, `sh` / `bash` / `shell` samples
+ * with `sh -n` / `bash -n`, `python` samples with `ast.parse`, and `go`
+ * samples with `gofmt -e`.
  *
  * This is a static check, not an execution check: it does not run any
  * sample's side effects (network calls, filesystem access, etc). It also does
@@ -36,7 +37,25 @@ const TS_LANGS = new Set(["ts", "typescript", "tsx"]);
 const JS_LANGS = new Set(["js", "javascript", "jsx"]);
 const JSON_LANGS = new Set(["json"]);
 const SHELL_LANGS = new Set(["sh", "bash", "shell"]);
-const CHECKED_LANGS = new Set([...TS_LANGS, ...JS_LANGS, ...JSON_LANGS, ...SHELL_LANGS]);
+const PY_LANGS = new Set(["py", "python"]);
+const GO_LANGS = new Set(["go", "golang"]);
+const CHECKED_LANGS = new Set([
+  ...TS_LANGS,
+  ...JS_LANGS,
+  ...JSON_LANGS,
+  ...SHELL_LANGS,
+  ...PY_LANGS,
+  ...GO_LANGS,
+]);
+
+// Parses the file given as argv[1]; prints "<lineno>\t<msg>" on a syntax error.
+const PY_SYNTAX_CHECK = `import ast, sys
+try:
+    ast.parse(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1])
+except SyntaxError as err:
+    print(f"{err.lineno or 1}\\t{err.msg}")
+    sys.exit(1)
+`;
 
 const FENCE_RE = /```([a-zA-Z0-9]*)\n([\s\S]*?)```/g;
 
@@ -103,6 +122,36 @@ function checkShell(lang, path) {
     : { offset: 0, message: result.stderr.trim() };
 }
 
+function checkPython(path) {
+  const result = spawnSync("python3", ["-I", "-c", PY_SYNTAX_CHECK, path], { encoding: "utf8" });
+  if (result.error) throw result.error;
+  if (result.status === 0) return null;
+  const [line, ...msg] = result.stdout.trim().split("\t");
+  return { offset: Number(line) || 0, message: msg.join("\t") || result.stderr.trim() };
+}
+
+// shortcut: snippets with a package clause are parsed as-is; without one they
+// are wrapped (top-level declarations) or placed in a func body (statements),
+// so mixing imports with loose statements in one block will be reported as an
+// error. Upgrade to a real Go parser if that pattern shows up in the docs.
+function checkGo(code, path) {
+  let source = code;
+  let shift = 0;
+  if (!/^\s*package\s/m.test(code)) {
+    const hasDecls = /^(func|type|var|const|import)\b/m.test(code);
+    source = hasDecls ? `package sample\n\n${code}` : `package sample\n\nfunc _() {\n${code}\n}\n`;
+    shift = hasDecls ? 2 : 3;
+  }
+  writeFileSync(path, source);
+  const result = spawnSync("gofmt", ["-e", path], { encoding: "utf8" });
+  if (result.error) throw result.error;
+  if (result.status === 0) return null;
+  const match = result.stderr.match(/:(\d+):\d+: (.*)/);
+  return match
+    ? { offset: Math.max(Number(match[1]) - shift, 0), message: match[2].trim() }
+    : { offset: 0, message: result.stderr.trim() };
+}
+
 function checkTypeScriptSamples(samples, tmpDir) {
   const entries = samples.map((sample, i) => {
     const path = join(tmpDir, `sample-${i}.${extensionFor(sample.lang)}`);
@@ -160,6 +209,15 @@ function main() {
         const path = join(tmpDir, `shell-${i}.sh`);
         writeFileSync(path, sample.code);
         const problem = checkShell(sample.lang, path);
+        if (problem) errors.push({ sample, ...problem });
+      } else if (PY_LANGS.has(sample.lang)) {
+        const path = join(tmpDir, `python-${i}.py`);
+        writeFileSync(path, sample.code);
+        const problem = checkPython(path);
+        if (problem) errors.push({ sample, ...problem });
+      } else if (GO_LANGS.has(sample.lang)) {
+        const path = join(tmpDir, `go-${i}.go`);
+        const problem = checkGo(sample.code, path);
         if (problem) errors.push({ sample, ...problem });
       }
     });
