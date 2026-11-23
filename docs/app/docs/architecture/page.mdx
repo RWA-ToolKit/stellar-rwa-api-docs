@@ -10,6 +10,8 @@ described in [Getting Started](/docs/getting-started). This page focuses on
 the API's internals and the performance envelope integrators should plan
 around.
 
+![Data flow: Soroban contracts are read through Soroban RPC by the indexer every 10 seconds, which decodes results into an in-memory snapshot. The API serves each GET request from that snapshot to clients.](/architecture-diagram.svg)
+
 ## The indexer
 
 `api/src/indexer/mod.rs` runs a background task that polls Soroban RPC every
