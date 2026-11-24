@@ -52,6 +52,11 @@ asset. See the [Compliance Guide](/docs/compliance-guide).
 - The **API** only reads: it indexes on-chain state every 10 seconds and never
   holds a key or signs anything.
 
+For a deeper walkthrough of the indexer, the data flow and the contracts, see
+[Architecture](/docs/architecture). For how ledgers map to time, which the
+indexer's 10-second polling depends on, see
+[Time and ledgers](/docs/time-and-ledgers).
+
 ## Prerequisites
 
 - [Freighter](https://freighter.app) browser extension (for the web app)
@@ -78,6 +83,12 @@ curl http://localhost:8080/stats
 curl http://localhost:8080/assets
 ```
 
+The [API overview](/docs/api/overview) lists every endpoint, and
+[Health](/docs/api/health) and [Errors](/docs/api/errors) describe the liveness
+check and the error format. Client code in several languages is in
+[Client examples](/docs/client-examples). If the API does not start or returns
+nothing, see [Troubleshooting](/docs/troubleshooting).
+
 Run the docs site:
 
 ```bash
@@ -95,7 +106,8 @@ Test SDF Network ; September 2015
 ```
 
 Point Freighter at Testnet and fund your account with the
-[friendbot](https://friendbot.stellar.org) before interacting.
+[friendbot](https://friendbot.stellar.org) before interacting. To run your own
+deployment instead of using the sample one, follow [Deployment](/docs/deployment).
 
 <CalloutBox variant="warning">
 These contracts are deployed on Testnet for demonstration. Do not use them to
@@ -119,5 +131,19 @@ The admin / issuer account for the sample deployment is
 `GAIQGTOBTTLLDJ4SWGGESM7UWJ2DI4K3ZNHUSHPDKJL2IE5FKY3BSRAA`, and the sample asset
 is **Manhattan Loft** (`MLOFT`), a `real_estate` asset valued at $5,000,000.
 
-Continue to the [Compliance Guide](/docs/compliance-guide) — the concept that
-makes this an RWA platform rather than a plain token factory.
+## Related reading
+
+- [Compliance Guide](/docs/compliance-guide) — the concept that makes this an RWA
+  platform rather than a plain token factory.
+- Contract references: [asset-token](/docs/contracts/asset-token),
+  [compliance](/docs/contracts/compliance), [registry](/docs/contracts/registry)
+  and [dividend](/docs/contracts/dividend).
+- [Integration](/docs/integration) — building an application on the API and the
+  contracts.
+- [Security considerations](/docs/security-considerations) — trust assumptions
+  and how to report a vulnerability.
+- [Glossary](/docs/glossary), [FAQ](/docs/faq) and
+  [Quick reference](/docs/quick-reference) — terms, common questions and a
+  one-page cheat sheet.
+
+Continue to the [Compliance Guide](/docs/compliance-guide) first.
