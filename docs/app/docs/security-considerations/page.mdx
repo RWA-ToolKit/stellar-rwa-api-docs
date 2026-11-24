@@ -75,6 +75,32 @@ guarantee of legal ownership.
 - Design for pauses, compliance denials, RPC outages, and administrator key
   rotation. These are expected operational states, not impossible errors.
 
+## Dependency vulnerabilities
+
+The API (Rust, `api/Cargo.lock`) and the docs site (npm, `docs/package-lock.json`)
+depend on third-party packages. Vulnerabilities in them are handled like this:
+
+- **Tracking:** [Dependabot](https://docs.github.com/en/code-security/dependabot)
+  is configured in `.github/dependabot.yml` for both the `npm` (`/docs`) and
+  `cargo` (`/api`) ecosystems. It opens weekly update pull requests, and GitHub
+  raises Dependabot alerts for packages with a published advisory. Renovate is
+  not used.
+- **Triage:** a vulnerable dependency that is reachable from the API or the docs
+  build is updated as soon as a fixed version is available. Updates ship through
+  the normal pull-request review, and the lockfile is committed with the change.
+- **Disclosure:** security-relevant dependency updates are noted in the
+  [changelog](/docs/changelog). If the toolkit itself is affected, the
+  maintainers publish a GitHub Security Advisory.
+
+## Reporting a vulnerability
+
+Do **not** open a public issue for a vulnerability in the API, the docs site or
+one of their dependencies. Report it privately with GitHub's **Report a
+vulnerability** button on the repository's **Security** tab. The full process,
+scope and response targets are in
+[`SECURITY.md`](https://github.com/RWA-ToolKit/stellar-rwa-api-docs/blob/main/SECURITY.md)
+at the repository root.
+
 See the individual [asset-token](/docs/contracts/asset-token),
 [compliance](/docs/contracts/compliance), [registry](/docs/contracts/registry),
 and [dividend](/docs/contracts/dividend) references for method-level authority
